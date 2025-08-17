@@ -18,6 +18,26 @@ namespace AnSAM.Services
         private static readonly SemaphoreSlim Concurrency = new(4);
         private static readonly ConcurrentDictionary<string, Task<string>> InFlight = new();
 
+        private static int _totalRequests;
+        private static int _completed;
+
+        /// <summary>
+        /// Raised whenever icon download progress changes. Parameters are the
+        /// number of completed downloads and the total number of requested icons.
+        /// </summary>
+        public static event Action<int, int>? ProgressChanged;
+
+        /// <summary>
+        /// Resets the progress counters so that a new batch of downloads can be
+        /// tracked from zero.
+        /// </summary>
+        public static void ResetProgress()
+        {
+            Interlocked.Exchange(ref _totalRequests, 0);
+            Interlocked.Exchange(ref _completed, 0);
+            ReportProgress();
+        }
+
         /// <summary>
         /// Returns a local file path for the provided cover URI, downloading it if necessary.
         /// </summary>
@@ -34,8 +54,11 @@ namespace AnSAM.Services
             }
 
             var path = Path.Combine(CacheDir, $"{id}{ext}");
+            Interlocked.Increment(ref _totalRequests);
             if (File.Exists(path))
             {
+                Interlocked.Increment(ref _completed);
+                ReportProgress();
                 return Task.FromResult(path);
             }
 
@@ -61,7 +84,16 @@ namespace AnSAM.Services
             {
                 Concurrency.Release();
                 InFlight.TryRemove(path, out _);
+                Interlocked.Increment(ref _completed);
+                ReportProgress();
             }
+        }
+
+        private static void ReportProgress()
+        {
+            var total = Volatile.Read(ref _totalRequests);
+            var completed = Volatile.Read(ref _completed);
+            ProgressChanged?.Invoke(completed, total);
         }
     }
 }

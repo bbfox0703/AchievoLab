@@ -30,6 +30,9 @@ namespace AnSAM
         {
             _steamClient = steamClient;
             InitializeComponent();
+            GameListService.StatusChanged += OnGameListStatusChanged;
+            GameListService.ProgressChanged += OnGameListProgressChanged;
+            IconCache.ProgressChanged += OnIconProgressChanged;
         }
 
         private async void GameCard_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
@@ -53,29 +56,12 @@ namespace AnSAM
 
             Games.Clear();
             _allGames.Clear();
-
-            void OnStatus(string msg) => StatusText.Text = msg;
-            void OnProgress(double p)
-            {
-                StatusProgress.Value = p;
-                StatusExtra.Text = $"{p:0}%";
-            }
-
-            GameListService.StatusChanged += OnStatus;
-            GameListService.ProgressChanged += OnProgress;
+            IconCache.ResetProgress();
 
             using var http = new HttpClient();
             var cacheDir = Path.Combine(AppContext.BaseDirectory, "cache");
 
-            try
-            {
-                await GameListService.LoadAsync(cacheDir, http);
-            }
-            finally
-            {
-                GameListService.StatusChanged -= OnStatus;
-                GameListService.ProgressChanged -= OnProgress;
-            }
+            await GameListService.LoadAsync(cacheDir, http);
 
             foreach (var (id, _) in GameListService.GameTypes)
             {
@@ -151,6 +137,32 @@ namespace AnSAM
             StatusText.Text = $"Showing {Games.Count} of {_allGames.Count} games";
             StatusProgress.Value = 0;
             StatusExtra.Text = $"{Games.Count}/{_allGames.Count}";
+        }
+
+        private void OnGameListStatusChanged(string message)
+        {
+            StatusText.Text = message;
+        }
+
+        private void OnGameListProgressChanged(double progress)
+        {
+            StatusProgress.Value = progress;
+            StatusExtra.Text = $"{progress:0}%";
+        }
+
+        private void OnIconProgressChanged(int completed, int total)
+        {
+            double p = total > 0 ? (double)completed / total * 100 : 0;
+            StatusProgress.Value = p;
+            StatusExtra.Text = $"{completed}/{total}";
+            if (completed < total)
+            {
+                StatusText.Text = "Downloading icons";
+            }
+            else if (total > 0)
+            {
+                StatusText.Text = $"Loaded {_allGames.Count} games";
+            }
         }
 
     }
