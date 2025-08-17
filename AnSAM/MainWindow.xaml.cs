@@ -35,14 +35,14 @@ namespace AnSAM
             IconCache.ProgressChanged += OnIconProgressChanged;
         }
 
-        private async void GameCard_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+        private void GameCard_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
         {
             if (sender is FrameworkElement element && element.DataContext is GameItem game)
             {
                 StatusText.Text = $"Launching {game.Title}...";
                 StatusProgress.IsIndeterminate = true;
                 StatusExtra.Text = string.Empty;
-                await GameLauncher.LaunchAsync(game);
+                GameLauncher.Launch(game);
                 StatusProgress.IsIndeterminate = false;
                 StatusText.Text = "Ready";
             }
