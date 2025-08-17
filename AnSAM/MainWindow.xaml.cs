@@ -8,11 +8,8 @@ using Microsoft.UI.Xaml.Navigation;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices.WindowsRuntime;
-using Windows.Foundation;
-using Windows.Foundation.Collections;
+using System.Threading.Tasks;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -25,22 +22,51 @@ namespace AnSAM
     public sealed partial class MainWindow : Window
     {
         public ObservableCollection<GameItem> Games { get; } = new();
+        private readonly List<GameItem> _allGames = new();
+
         public MainWindow()
         {
             InitializeComponent();
         }
 
-        private void GameCard_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+        private async void GameCard_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
         {
-            // TODO: Call SAM.Game.StartGame() or similar method
+            if (sender is FrameworkElement element && element.DataContext is GameItem game)
+            {
+                StatusText.Text = $"Launching {game.Title}...";
+                StatusProgress.IsIndeterminate = true;
+                StatusExtra.Text = string.Empty;
+                await GameLauncher.LaunchAsync(game);
+                StatusProgress.IsIndeterminate = false;
+                StatusText.Text = "Ready";
+            }
         }
 
-        private void OnRefreshClicked(object sender, RoutedEventArgs e)
+        private async void OnRefreshClicked(object sender, RoutedEventArgs e)
         {
             StatusText.Text = "Refresh";
             StatusProgress.Value = 0;
             StatusExtra.Text = "0%";
-            // TODO: Refresh game list or other items
+
+            Games.Clear();
+            _allGames.Clear();
+
+            var apps = await GameListService.LoadGamesAsync();
+            int total = apps.Count;
+            int index = 0;
+            foreach (var app in apps)
+            {
+                var game = GameItem.FromSteamApp(app);
+                _allGames.Add(game);
+                Games.Add(game);
+
+                index++;
+                double percent = total > 0 ? (double)index / total * 100 : 0;
+                StatusProgress.Value = percent;
+                StatusExtra.Text = $"{percent:0}%";
+            }
+
+            StatusText.Text = $"Loaded {Games.Count} games";
         }
 
         //private void OnSearchClicked(object sender, RoutedEventArgs e)
@@ -50,25 +76,49 @@ namespace AnSAM
 
         private void SearchBox_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
         {
-            // TODO: Search game titles or other items based on the keyword
             var keyword = args.QueryText?.Trim();
-            if (!string.IsNullOrEmpty(keyword))
-            {
-                StatusText.Text = $"SearchG{keyword}";
-            }
+            FilterGames(keyword);
         }
 
         private void SearchBox_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
         {
             if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput)
             {
-                // TODO: Filter game list via keyword
+                var keyword = sender.Text.Trim();
+                var suggestions = string.IsNullOrEmpty(keyword)
+                    ? Array.Empty<string>()
+                    : _allGames.Where(g => g.Title.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                               .Select(g => g.Title)
+                               .Distinct()
+                               .Take(10)
+                               .ToList();
+                sender.ItemsSource = suggestions;
             }
         }
 
         private void SearchBox_SuggestionChosen(AutoSuggestBox sender, AutoSuggestBoxSuggestionChosenEventArgs args)
         {
-            // TODO: Handle suggestion chosen
+            if (args.SelectedItem is string title)
+            {
+                FilterGames(title);
+            }
+        }
+
+        private void FilterGames(string? keyword)
+        {
+            IEnumerable<GameItem> filtered = string.IsNullOrWhiteSpace(keyword)
+                ? _allGames
+                : _allGames.Where(g => g.Title.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+
+            Games.Clear();
+            foreach (var game in filtered)
+            {
+                Games.Add(game);
+            }
+
+            StatusText.Text = $"Showing {Games.Count} of {_allGames.Count} games";
+            StatusProgress.Value = 0;
+            StatusExtra.Text = $"{Games.Count}/{_allGames.Count}";
         }
 
     }
