@@ -1,8 +1,11 @@
 using System;
 using System.Diagnostics;
+using System.IO;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using Microsoft.Win32;
 
 namespace AnSAM.Steam
 {
@@ -16,6 +19,11 @@ namespace AnSAM.Steam
         private readonly Timer? _callbackTimer;
         private readonly IntPtr _apps;
         private readonly bool _initialized;
+
+        static SteamClient()
+        {
+            NativeLibrary.SetDllImportResolver(typeof(SteamClient).Assembly, ResolveSteamClient);
+        }
 
         /// <summary>
         /// Indicates whether the Steam API was successfully initialized.
@@ -104,6 +112,62 @@ namespace AnSAM.Steam
             {
                 SteamAPI_Shutdown();
             }
+        }
+
+        private static IntPtr ResolveSteamClient(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
+        {
+            if (!libraryName.Equals("steamclient64", StringComparison.OrdinalIgnoreCase))
+                return IntPtr.Zero;
+
+            string? installPath = GetSteamPath();
+#if DEBUG
+            Debug.WriteLine($"Steam install path: {installPath ?? "<null>"}");
+#endif
+            if (string.IsNullOrEmpty(installPath))
+                return IntPtr.Zero;
+
+            string libraryPath = Path.Combine(installPath, "steamclient64.dll");
+            if (!File.Exists(libraryPath))
+            {
+                libraryPath = Path.Combine(installPath, "bin", "steamclient64.dll");
+            }
+#if DEBUG
+            Debug.WriteLine($"Resolved steamclient64 path: {libraryPath}");
+#endif
+            if (!File.Exists(libraryPath))
+                return IntPtr.Zero;
+
+            Native.AddDllDirectory(installPath);
+            Native.AddDllDirectory(Path.Combine(installPath, "bin"));
+            return Native.LoadLibraryEx(libraryPath, IntPtr.Zero,
+                Native.LoadLibrarySearchDefaultDirs | Native.LoadLibrarySearchUserDirs);
+        }
+
+        private static string? GetSteamPath()
+        {
+            const string subKey = @"Software\\Valve\\Steam";
+            foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
+            {
+                using var key = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, view).OpenSubKey(subKey);
+                if (key == null)
+                    continue;
+                var path = key.GetValue("InstallPath") as string;
+                if (string.IsNullOrEmpty(path) == false)
+                    return path;
+            }
+            return null;
+        }
+
+        private static class Native
+        {
+            [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+            internal static extern IntPtr LoadLibraryEx(string lpFileName, IntPtr hFile, uint dwFlags);
+
+            [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+            internal static extern IntPtr AddDllDirectory(string lpPathName);
+
+            internal const uint LoadLibrarySearchDefaultDirs = 0x00001000;
+            internal const uint LoadLibrarySearchUserDirs = 0x00000400;
         }
 
         [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl)]
