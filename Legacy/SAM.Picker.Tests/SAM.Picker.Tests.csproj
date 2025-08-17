@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Platforms>x64</Platforms>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\\SAM.Picker\\GameList.cs" Link="GameList.cs" />
+    <Compile Include="..\\SAM.Picker\\ImageUrlValidator.cs" Link="ImageUrlValidator.cs" />
+    <Compile Include="..\\SAM.Picker\\GameImageUrlResolver.cs" Link="GameImageUrlResolver.cs" />
+    <Compile Include="..\\SAM.Picker\\BitmapExtensions.cs" Link="BitmapExtensions.cs" />
+    <ProjectReference Include="..\\SAM.API\\SAM.API.csproj" />
+    <Reference Include="System.Net.Http" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.9.0" />
+    <PackageReference Include="xunit" Version="2.5.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.0" />
+    <PackageReference Include="System.Drawing.Common" Version="8.0.0" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="AnSAM.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:AnSAM"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    Title="AnSAM">
+
+    <Window.SystemBackdrop>
+        <MicaBackdrop />
+    </Window.SystemBackdrop>
+
+    <Grid RowDefinitions="Auto,*,Auto">
+        
+        <CommandBar DefaultLabelPosition="Right">
+            <CommandBar.Content>
+                <AutoSuggestBox x:Name="SearchBox"
+                        Width="280"
+                        PlaceholderText="Type keyword..."
+                        QuerySubmitted="SearchBox_QuerySubmitted"
+                        TextChanged="SearchBox_TextChanged"
+                        SuggestionChosen="SearchBox_SuggestionChosen">
+                    <AutoSuggestBox.QueryIcon>
+                        <SymbolIcon Symbol="Find"/>
+                    </AutoSuggestBox.QueryIcon>
+                </AutoSuggestBox>
+            </CommandBar.Content>
+            <AppBarSeparator/>
+            <AppBarButton Icon="Sync"   Label="Refresh" Click="OnRefreshClicked"/>
+            <!--AppBarButton Icon="Find" Label="Search" Click="OnSearchClicked"/-->
+        </CommandBar>
+        <Grid Grid.Row="1" x:Name="CenterPanel"
+      Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+            <GridView x:Name="GamesView"
+              ItemsSource="{x:Bind Games}"
+              SelectionMode="None"
+              IsItemClickEnabled="False"
+              ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                <!-- 自動換行的磁磚排版 -->
+                <GridView.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <ItemsWrapGrid Orientation="Horizontal"
+                               ItemWidth="180"
+                               ItemHeight="240"/>
+                    </ItemsPanelTemplate>
+                </GridView.ItemsPanel>
+
+                <!-- 卡片樣板：封面 + 標題（整張卡片支援 DoubleTapped） -->
+                <GridView.ItemTemplate>
+                    <DataTemplate x:DataType="local:GameItem">
+                        <StackPanel Width="180" DoubleTapped="GameCard_DoubleTapped">
+                            <Border Height="200" CornerRadius="8"
+                            Background="{ThemeResource SystemFillColorSolidNeutralBackgroundBrush}">
+                                <!--
+                                <Image from game object"
+                               Stretch="UniformToFill"/>
+                                -->
+                            </Border>
+                            <TextBlock Text="{x:Bind Title}"
+                               Margin="0,8,0,0"
+                               TextTrimming="CharacterEllipsis"/>
+                        </StackPanel>
+                    </DataTemplate>
+                </GridView.ItemTemplate>
+            </GridView>
+        </Grid>
+        <!-- 底部狀態列（自製 StatusBar） -->
+        <Grid Grid.Row="2" Height="28"
+              Background="{ThemeResource SystemChromeLowColor}"
+              Padding="8,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <TextBlock x:Name="StatusText"
+                       Text="Ready" VerticalAlignment="Center"/>
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"
+                        VerticalAlignment="Center">
+                <ProgressBar x:Name="StatusProgress"
+                             Width="160" Height="14"
+                             Minimum="0" Maximum="100" Value="0"/>
+                <TextBlock x:Name="StatusExtra" Text="0%" />
+            </StackPanel>
+        </Grid>        
+    </Grid>
+</Window>

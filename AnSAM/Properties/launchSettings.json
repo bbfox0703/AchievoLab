@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "AnSAM (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "AnSAM (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}
