@@ -6,6 +6,7 @@ using System.Net.Http;
 using System.Threading.Tasks;
 using System.Xml;
 using System.Xml.Linq;
+using System.Diagnostics;
 
 namespace AnSAM.Services
 {
@@ -47,12 +48,18 @@ namespace AnSAM.Services
             if (TryGetValidCache(cachePath, out var cached))
             {
                 ReportStatus("Using cached game list...");
+#if DEBUG
+                Debug.WriteLine($"Using cached game list at {cachePath}");
+#endif
                 ValidateAndParse(cached);
                 ReportProgress(100);
                 return cached;
             }
 
             ReportStatus("Downloading game list...");
+#if DEBUG
+            Debug.WriteLine($"Downloading game list from {GameListUrl} to {cachePath}");
+#endif
             using var response = await http.GetAsync(GameListUrl, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
 
@@ -81,6 +88,9 @@ namespace AnSAM.Services
             ValidateAndParse(data);
 
             await File.WriteAllBytesAsync(cachePath, data).ConfigureAwait(false);
+#if DEBUG
+            Debug.WriteLine($"Game list saved to {cachePath}");
+#endif
             ReportStatus("Game list downloaded.");
             ReportProgress(100);
             return data;

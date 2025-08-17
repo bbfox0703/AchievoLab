@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using System.Threading;
@@ -72,10 +73,16 @@ namespace AnSAM.Services
             {
                 if (!File.Exists(path))
                 {
+#if DEBUG
+                    Debug.WriteLine($"Downloading icon {uri} -> {path}");
+#endif
                     using var response = await Http.GetAsync(uri).ConfigureAwait(false);
                     response.EnsureSuccessStatusCode();
                     await using var fs = File.Create(path);
                     await response.Content.CopyToAsync(fs).ConfigureAwait(false);
+#if DEBUG
+                    Debug.WriteLine($"Icon downloaded to {path}");
+#endif
                 }
 
                 return path;
