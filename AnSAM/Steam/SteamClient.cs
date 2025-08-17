@@ -21,6 +21,13 @@ namespace AnSAM.Steam
         private readonly int _pipe;
         private readonly int _user;
 
+        // Delegates retrieved from the ISteamClient018 vtable.
+        private readonly CreateSteamPipeDelegate? _createSteamPipe;
+        private readonly ConnectToGlobalUserDelegate? _connectToGlobalUser;
+        private readonly GetISteamAppsDelegate? _getISteamApps;
+        private readonly ReleaseUserDelegate? _releaseUser;
+        private readonly ReleaseSteamPipeDelegate? _releaseSteamPipe;
+
         static SteamClient()
         {
             NativeLibrary.SetDllImportResolver(typeof(SteamClient).Assembly, ResolveSteamClient);
@@ -44,23 +51,34 @@ namespace AnSAM.Steam
 #endif
                 if (_client != IntPtr.Zero)
                 {
-                    _pipe = SteamAPI_ISteamClient_CreateSteamPipe(_client);
-#if DEBUG
-                    Debug.WriteLine($"CreateSteamPipe returned: {_pipe}");
-#endif
-                    if (_pipe != 0)
+                    // Retrieve function pointers from the interface vtable.
+                    IntPtr vtable = Marshal.ReadIntPtr(_client);
+                    _createSteamPipe = Marshal.GetDelegateForFunctionPointer<CreateSteamPipeDelegate>(Marshal.ReadIntPtr(vtable + IntPtr.Size * 0));
+                    _releaseSteamPipe = Marshal.GetDelegateForFunctionPointer<ReleaseSteamPipeDelegate>(Marshal.ReadIntPtr(vtable + IntPtr.Size * 1));
+                    _connectToGlobalUser = Marshal.GetDelegateForFunctionPointer<ConnectToGlobalUserDelegate>(Marshal.ReadIntPtr(vtable + IntPtr.Size * 2));
+                    _releaseUser = Marshal.GetDelegateForFunctionPointer<ReleaseUserDelegate>(Marshal.ReadIntPtr(vtable + IntPtr.Size * 4));
+                    _getISteamApps = Marshal.GetDelegateForFunctionPointer<GetISteamAppsDelegate>(Marshal.ReadIntPtr(vtable + IntPtr.Size * 15));
+
+                    if (_createSteamPipe != null && _connectToGlobalUser != null && _getISteamApps != null)
                     {
-                        _user = SteamAPI_ISteamClient_ConnectToGlobalUser(_client, _pipe);
+                        _pipe = _createSteamPipe(_client);
 #if DEBUG
-                        Debug.WriteLine($"ConnectToGlobalUser returned: {_user}");
+                        Debug.WriteLine($"CreateSteamPipe returned: {_pipe}");
 #endif
-                        if (_user != 0)
+                        if (_pipe != 0)
                         {
-                            _apps = SteamAPI_ISteamClient_GetISteamApps(_client, _user, _pipe, "STEAMAPPS_INTERFACE_VERSION008");
+                            _user = _connectToGlobalUser(_client, _pipe);
 #if DEBUG
-                            Debug.WriteLine($"GetISteamApps returned: 0x{_apps.ToString("X")}");
+                            Debug.WriteLine($"ConnectToGlobalUser returned: {_user}");
 #endif
-                            Initialized = _apps != IntPtr.Zero;
+                            if (_user != 0)
+                            {
+                                _apps = _getISteamApps(_client, _user, _pipe, "STEAMAPPS_INTERFACE_VERSION008");
+#if DEBUG
+                                Debug.WriteLine($"GetISteamApps returned: 0x{_apps.ToString("X")}");
+#endif
+                                Initialized = _apps != IntPtr.Zero;
+                            }
                         }
                     }
                 }
@@ -124,8 +142,8 @@ namespace AnSAM.Steam
             _callbackTimer?.Dispose();
             if (Initialized)
             {
-                SteamAPI_ISteamClient_ReleaseUser(_client, _pipe, _user);
-                SteamAPI_ISteamClient_ReleaseSteamPipe(_client, _pipe);
+                _releaseUser?.Invoke(_client, _pipe, _user);
+                _releaseSteamPipe?.Invoke(_client, _pipe);
             }
         }
 
@@ -198,20 +216,20 @@ namespace AnSAM.Steam
             CharSet = CharSet.Ansi, EntryPoint = "CreateInterface")]
         private static extern IntPtr Steam_CreateInterface(string version, IntPtr returnCode);
 
-        [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SteamAPI_ISteamClient_CreateSteamPipe")]
-        private static extern int SteamAPI_ISteamClient_CreateSteamPipe(IntPtr self);
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
+        private delegate int CreateSteamPipeDelegate(IntPtr self);
 
-        [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SteamAPI_ISteamClient_ConnectToGlobalUser")]
-        private static extern int SteamAPI_ISteamClient_ConnectToGlobalUser(IntPtr self, int pipe);
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
+        private delegate int ConnectToGlobalUserDelegate(IntPtr self, int pipe);
 
-        [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SteamAPI_ISteamClient_GetISteamApps")]
-        private static extern IntPtr SteamAPI_ISteamClient_GetISteamApps(IntPtr self, int user, int pipe, [MarshalAs(UnmanagedType.LPStr)] string version);
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall, CharSet = CharSet.Ansi)]
+        private delegate IntPtr GetISteamAppsDelegate(IntPtr self, int user, int pipe, string version);
 
-        [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SteamAPI_ISteamClient_ReleaseUser")]
-        private static extern void SteamAPI_ISteamClient_ReleaseUser(IntPtr self, int pipe, int user);
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
+        private delegate void ReleaseUserDelegate(IntPtr self, int pipe, int user);
 
-        [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SteamAPI_ISteamClient_ReleaseSteamPipe")]
-        private static extern void SteamAPI_ISteamClient_ReleaseSteamPipe(IntPtr self, int pipe);
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
+        private delegate void ReleaseSteamPipeDelegate(IntPtr self, int pipe);
 
         [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "Steam_BGetCallback")]
         [return: MarshalAs(UnmanagedType.I1)]
