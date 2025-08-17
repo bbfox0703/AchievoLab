@@ -13,7 +13,7 @@ namespace AnSAM.Services
     /// </summary>
     public static class IconCache
     {
-        private static readonly string CacheDir = Path.Combine(AppContext.BaseDirectory, "appcache");
+        private static readonly string CacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AnSAM", "appcache");
         private static readonly HttpClient Http = new();
         private static readonly SemaphoreSlim Concurrency = new(4);
         private static readonly ConcurrentDictionary<string, Task<string>> InFlight = new();

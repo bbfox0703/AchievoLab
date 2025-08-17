@@ -59,7 +59,8 @@ namespace AnSAM
             IconCache.ResetProgress();
 
             using var http = new HttpClient();
-            var cacheDir = Path.Combine(AppContext.BaseDirectory, "cache");
+            var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AnSAM");
+            var cacheDir = Path.Combine(baseDir, "cache");
 
             await GameListService.LoadAsync(cacheDir, http);
 
