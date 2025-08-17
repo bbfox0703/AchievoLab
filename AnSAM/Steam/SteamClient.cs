@@ -86,6 +86,7 @@ namespace AnSAM.Steam
         }
 
         [DllImport("steam_api64", CallingConvention = CallingConvention.Cdecl)]
+        [return: MarshalAs(UnmanagedType.I1)]
         private static extern bool SteamAPI_Init();
 
         [DllImport("steam_api64", CallingConvention = CallingConvention.Cdecl)]
