@@ -142,28 +142,34 @@ namespace AnSAM
 
         private void OnGameListStatusChanged(string message)
         {
-            StatusText.Text = message;
+            _ = DispatcherQueue.TryEnqueue(() => StatusText.Text = message);
         }
 
         private void OnGameListProgressChanged(double progress)
         {
-            StatusProgress.Value = progress;
-            StatusExtra.Text = $"{progress:0}%";
+            _ = DispatcherQueue.TryEnqueue(() =>
+            {
+                StatusProgress.Value = progress;
+                StatusExtra.Text = $"{progress:0}%";
+            });
         }
 
         private void OnIconProgressChanged(int completed, int total)
         {
-            double p = total > 0 ? (double)completed / total * 100 : 0;
-            StatusProgress.Value = p;
-            StatusExtra.Text = $"{completed}/{total}";
-            if (completed < total)
+            _ = DispatcherQueue.TryEnqueue(() =>
             {
-                StatusText.Text = "Downloading icons";
-            }
-            else if (total > 0)
-            {
-                StatusText.Text = $"Loaded {_allGames.Count} games";
-            }
+                double p = total > 0 ? (double)completed / total * 100 : 0;
+                StatusProgress.Value = p;
+                StatusExtra.Text = $"{completed}/{total}";
+                if (completed < total)
+                {
+                    StatusText.Text = "Downloading icons";
+                }
+                else if (total > 0)
+                {
+                    StatusText.Text = $"Loaded {_allGames.Count} games";
+                }
+            });
         }
 
     }
