@@ -13,6 +13,7 @@ using System.Threading.Tasks;
 using System.IO;
 using System.Net.Http;
 using AnSAM.Services;
+using AnSAM.Steam;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -26,9 +27,11 @@ namespace AnSAM
     {
         public ObservableCollection<GameItem> Games { get; } = new();
         private readonly List<GameItem> _allGames = new();
+        private readonly SteamClient _steamClient;
 
-        public MainWindow()
+        public MainWindow(SteamClient steamClient)
         {
+            _steamClient = steamClient;
             InitializeComponent();
         }
 
@@ -77,7 +80,19 @@ namespace AnSAM
                 GameListService.ProgressChanged -= OnProgress;
             }
 
-            StatusText.Text = $"Loaded {GameListService.GameTypes.Count} entries";
+            foreach (var (id, _) in GameListService.GameTypes)
+            {
+                uint appId = (uint)id;
+                if (_steamClient.IsSubscribedApp(appId))
+                {
+                    var title = _steamClient.GetAppData(appId, "name") ?? $"App {appId}";
+                    var data = new SteamAppData(id, title);
+                    _allGames.Add(GameItem.FromSteamApp(data));
+                }
+            }
+
+            FilterGames(null);
+            StatusText.Text = $"Loaded {_allGames.Count} games";
         }
 
         //private void OnSearchClicked(object sender, RoutedEventArgs e)
