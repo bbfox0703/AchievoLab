@@ -29,11 +29,12 @@ namespace AnSAM
         {
             InitializeComponent();
         }
-        // 方案A：卡片根節點 DoubleTapped
+
         private void GameCard_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
         {
             // TODO: Call SAM.Game.StartGame() or similar method
         }
+
         private void OnRefreshClicked(object sender, RoutedEventArgs e)
         {
             StatusText.Text = "Refresh";
@@ -53,7 +54,7 @@ namespace AnSAM
             var keyword = args.QueryText?.Trim();
             if (!string.IsNullOrEmpty(keyword))
             {
-                StatusText.Text = $"Search：{keyword}";
+                StatusText.Text = $"SearchG{keyword}";
             }
         }
 
@@ -67,25 +68,51 @@ namespace AnSAM
 
         private void SearchBox_SuggestionChosen(AutoSuggestBox sender, AutoSuggestBoxSuggestionChosenEventArgs args)
         {
-            // TODO: 使用者從建議清單選了一項時的處理
+            // TODO: Handle suggestion chosen
         }
 
     }
+
     public class GameItem
     {
-        public string Title { get; }
-        public Uri Cover { get; }
-        public int ID { get; set;  }
+        public string Title { get; set; }
+        public int ID { get; set; }
+        public Uri? CoverUri { get; set; }
         public BitmapIcon? CoverIcon { get; set; }
 
-        // 啟動資訊（擇一或皆可）
-        public string? ExePath { get; }
-        public string? Arguments { get; }
-        public string? UriScheme { get; }
+        public string? ExePath { get; set; }
+        public string? Arguments { get; set; }
+        public string? UriScheme { get; set; }
 
-        public GameItem(string title, int ID, BitmapIcon bitmapIcon ) 
+        public GameItem(string title,
+                         int id,
+                         Uri? coverUri = null,
+                         string? exePath = null,
+                         string? arguments = null,
+                         string? uriScheme = null)
         {
-            // TODO: Initialize properties
+            Title = title;
+            ID = id;
+            CoverUri = coverUri;
+            ExePath = exePath;
+            Arguments = arguments;
+            UriScheme = uriScheme;
+
+            if (coverUri != null)
+            {
+                CoverIcon = new BitmapIcon { UriSource = coverUri };
+            }
+        }
+
+        public static GameItem FromSteamApp(SteamAppData app)
+        {
+            Uri? cover = string.IsNullOrEmpty(app.CoverUrl) ? null : new Uri(app.CoverUrl, UriKind.RelativeOrAbsolute);
+            return new GameItem(app.Title,
+                                app.AppId,
+                                cover,
+                                app.ExePath,
+                                app.Arguments,
+                                app.UriScheme);
         }
     }
 }
