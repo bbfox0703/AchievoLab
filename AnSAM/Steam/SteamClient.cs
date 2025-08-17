@@ -1,6 +1,5 @@
 using System;
 using System.Diagnostics;
-using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -17,40 +16,6 @@ namespace AnSAM.Steam
         private readonly Timer? _callbackTimer;
         private readonly IntPtr _apps;
         private readonly bool _initialized;
-
-        static SteamClient()
-        {
-            NativeLibrary.SetDllImportResolver(typeof(SteamClient).Assembly, ResolveSteamLibrary);
-        }
-
-        private static IntPtr ResolveSteamLibrary(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
-        {
-            if (libraryName != "steam_api64")
-            {
-                return IntPtr.Zero;
-            }
-
-            if (NativeLibrary.TryLoad("steam_api64", out var handle))
-            {
-#if DEBUG
-                Debug.WriteLine("Resolved steam_api64.dll");
-#endif
-                return handle;
-            }
-
-            if (NativeLibrary.TryLoad("steamclient64", out handle))
-            {
-#if DEBUG
-                Debug.WriteLine("Resolved steamclient64.dll");
-#endif
-                return handle;
-            }
-
-#if DEBUG
-            Debug.WriteLine("Failed to resolve Steam library");
-#endif
-            return IntPtr.Zero;
-        }
 
         /// <summary>
         /// Indicates whether the Steam API was successfully initialized.
@@ -141,24 +106,24 @@ namespace AnSAM.Steam
             }
         }
 
-        [DllImport("steam_api64", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl)]
         [return: MarshalAs(UnmanagedType.I1)]
         private static extern bool SteamAPI_Init();
 
-        [DllImport("steam_api64", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl)]
         private static extern void SteamAPI_RunCallbacks();
 
-        [DllImport("steam_api64", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl)]
         private static extern void SteamAPI_Shutdown();
 
-        [DllImport("steam_api64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SteamAPI_SteamApps_v012")]
+        [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SteamAPI_SteamApps_v012")]
         private static extern IntPtr SteamAPI_SteamApps_v012();
 
-        [DllImport("steam_api64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SteamAPI_ISteamApps_BIsSubscribedApp")]
+        [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SteamAPI_ISteamApps_BIsSubscribedApp")]
         [return: MarshalAs(UnmanagedType.I1)]
         private static extern bool SteamAPI_ISteamApps_BIsSubscribedApp(IntPtr self, uint appId);
 
-        [DllImport("steam_api64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SteamAPI_ISteamApps_GetAppData")]
+        [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SteamAPI_ISteamApps_GetAppData")]
         private static extern int SteamAPI_ISteamApps_GetAppData(IntPtr self,
                                                                  uint appId,
                                                                  [MarshalAs(UnmanagedType.LPStr)] string key,
