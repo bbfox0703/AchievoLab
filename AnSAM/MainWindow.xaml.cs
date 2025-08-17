@@ -10,6 +10,9 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
+using System.IO;
+using System.Net.Http;
+using AnSAM.Services;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -51,22 +54,30 @@ namespace AnSAM
             Games.Clear();
             _allGames.Clear();
 
-            var apps = await GameListService.LoadGamesAsync();
-            int total = apps.Count;
-            int index = 0;
-            foreach (var app in apps)
+            void OnStatus(string msg) => StatusText.Text = msg;
+            void OnProgress(double p)
             {
-                var game = GameItem.FromSteamApp(app);
-                _allGames.Add(game);
-                Games.Add(game);
-
-                index++;
-                double percent = total > 0 ? (double)index / total * 100 : 0;
-                StatusProgress.Value = percent;
-                StatusExtra.Text = $"{percent:0}%";
+                StatusProgress.Value = p;
+                StatusExtra.Text = $"{p:0}%";
             }
 
-            StatusText.Text = $"Loaded {Games.Count} games";
+            GameListService.StatusChanged += OnStatus;
+            GameListService.ProgressChanged += OnProgress;
+
+            using var http = new HttpClient();
+            var cacheDir = Path.Combine(AppContext.BaseDirectory, "cache");
+
+            try
+            {
+                await GameListService.LoadAsync(cacheDir, http);
+            }
+            finally
+            {
+                GameListService.StatusChanged -= OnStatus;
+                GameListService.ProgressChanged -= OnProgress;
+            }
+
+            StatusText.Text = $"Loaded {GameListService.GameTypes.Count} entries";
         }
 
         //private void OnSearchClicked(object sender, RoutedEventArgs e)
