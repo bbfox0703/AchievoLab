@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -17,6 +18,11 @@ namespace AnSAM.Steam
         private readonly bool _initialized;
 
         /// <summary>
+        /// Indicates whether the Steam API was successfully initialized.
+        /// </summary>
+        public bool Initialized => _initialized;
+
+        /// <summary>
         /// Initializes the Steam API and starts the callback pump.
         /// </summary>
         public SteamClient()
@@ -30,10 +36,19 @@ namespace AnSAM.Steam
                     _callbackTimer = new Timer(_ => SteamAPI_RunCallbacks(), null, 0, 100);
                 }
             }
-            catch
+            catch (Exception ex)
             {
                 _initialized = false;
+#if DEBUG
+                Debug.WriteLine($"Steam API init failed: {ex.Message}");
+#endif
             }
+#if DEBUG
+            if (!_initialized)
+            {
+                Debug.WriteLine("Steam API not initialized");
+            }
+#endif
         }
 
         /// <summary>

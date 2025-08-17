@@ -9,6 +9,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.IO;
 using System.Net.Http;
+using System.Diagnostics;
 using AnSAM.Services;
 using AnSAM.Steam;
 
@@ -26,6 +27,8 @@ namespace AnSAM
         private readonly List<GameItem> _allGames = new();
         private readonly SteamClient _steamClient;
 
+        private bool _autoLoaded;
+
         public MainWindow(SteamClient steamClient)
         {
             _steamClient = steamClient;
@@ -33,6 +36,14 @@ namespace AnSAM
             GameListService.StatusChanged += OnGameListStatusChanged;
             GameListService.ProgressChanged += OnGameListProgressChanged;
             IconCache.ProgressChanged += OnIconProgressChanged;
+            Activated += OnWindowActivated;
+        }
+
+        private async void OnWindowActivated(object sender, WindowActivatedEventArgs args)
+        {
+            if (_autoLoaded) return;
+            _autoLoaded = true;
+            await RefreshAsync();
         }
 
         private void GameCard_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
@@ -50,6 +61,11 @@ namespace AnSAM
 
         private async void OnRefreshClicked(object sender, RoutedEventArgs e)
         {
+            await RefreshAsync();
+        }
+
+        private async Task RefreshAsync()
+        {
             StatusText.Text = "Refresh";
             StatusProgress.Value = 0;
             StatusExtra.Text = "0%";
@@ -59,23 +75,35 @@ namespace AnSAM
             IconCache.ResetProgress();
 
             using var http = new HttpClient();
-            var cacheDir = Path.Combine(AppContext.BaseDirectory, "cache");
+            var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AnSAM");
+            var cacheDir = Path.Combine(baseDir, "cache");
 
             await GameListService.LoadAsync(cacheDir, http);
 
-            foreach (var (id, _) in GameListService.GameTypes)
+            bool steamReady = _steamClient.Initialized;
+#if DEBUG
+            Debug.WriteLine($"Steam API initialized: {steamReady}");
+#endif
+            foreach (var game in GameListService.Games)
             {
-                uint appId = (uint)id;
-                if (_steamClient.IsSubscribedApp(appId))
+                uint appId = (uint)game.Id;
+                string title = game.Name;
+                if (steamReady)
                 {
-                    var title = _steamClient.GetAppData(appId, "name") ?? $"App {appId}";
-                    var data = new SteamAppData(id, title);
-                    _allGames.Add(GameItem.FromSteamApp(data));
+                    if (!_steamClient.IsSubscribedApp(appId))
+                    {
+                        continue;
+                    }
+                    title = _steamClient.GetAppData(appId, "name") ?? title;
                 }
+                var data = new SteamAppData(game.Id, title);
+                _allGames.Add(GameItem.FromSteamApp(data));
             }
 
             FilterGames(null);
-            StatusText.Text = $"Loaded {_allGames.Count} games";
+            StatusText.Text = steamReady
+                ? $"Loaded {_allGames.Count} games"
+                : $"Steam unavailable - showing {_allGames.Count} games";
         }
 
         //private void OnSearchClicked(object sender, RoutedEventArgs e)
@@ -141,28 +169,34 @@ namespace AnSAM
 
         private void OnGameListStatusChanged(string message)
         {
-            StatusText.Text = message;
+            _ = DispatcherQueue.TryEnqueue(() => StatusText.Text = message);
         }
 
         private void OnGameListProgressChanged(double progress)
         {
-            StatusProgress.Value = progress;
-            StatusExtra.Text = $"{progress:0}%";
+            _ = DispatcherQueue.TryEnqueue(() =>
+            {
+                StatusProgress.Value = progress;
+                StatusExtra.Text = $"{progress:0}%";
+            });
         }
 
         private void OnIconProgressChanged(int completed, int total)
         {
-            double p = total > 0 ? (double)completed / total * 100 : 0;
-            StatusProgress.Value = p;
-            StatusExtra.Text = $"{completed}/{total}";
-            if (completed < total)
+            _ = DispatcherQueue.TryEnqueue(() =>
             {
-                StatusText.Text = "Downloading icons";
-            }
-            else if (total > 0)
-            {
-                StatusText.Text = $"Loaded {_allGames.Count} games";
-            }
+                double p = total > 0 ? (double)completed / total * 100 : 0;
+                StatusProgress.Value = p;
+                StatusExtra.Text = $"{completed}/{total}";
+                if (completed < total)
+                {
+                    StatusText.Text = "Downloading icons";
+                }
+                else if (total > 0)
+                {
+                    StatusText.Text = $"Loaded {_allGames.Count} games";
+                }
+            });
         }
 
     }
