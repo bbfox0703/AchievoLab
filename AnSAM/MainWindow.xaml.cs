@@ -108,14 +108,14 @@ namespace AnSAM
             if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput)
             {
                 var keyword = sender.Text.Trim();
-                var suggestions = string.IsNullOrEmpty(keyword)
+                var matches = string.IsNullOrWhiteSpace(keyword)
                     ? new List<string>()
-                    : _allGames.Where(g => g.Title.Contains(keyword, StringComparison.OrdinalIgnoreCase))
-                               .Select(g => g.Title)
-                               .Distinct()
-                               .Take(10)
-                               .ToList();
-                sender.ItemsSource = suggestions;
+                    : Games.Where(g => g.Title.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                           .Select(g => g.Title)
+                           .Distinct()
+                           .Take(10)
+                           .ToList();
+                sender.ItemsSource = matches;
             }
         }
 
@@ -123,7 +123,16 @@ namespace AnSAM
         {
             if (args.SelectedItem is string title)
             {
-                FilterGames(title);
+                var game = Games.FirstOrDefault(g => g.Title.Equals(title, StringComparison.OrdinalIgnoreCase));
+                if (game != null)
+                {
+                    GamesView.ScrollIntoView(game);
+                    GamesView.UpdateLayout();
+                    if (GamesView.ContainerFromItem(game) is GridViewItem item)
+                    {
+                        item.Focus(FocusState.Programmatic);
+                    }
+                }
             }
         }
 
