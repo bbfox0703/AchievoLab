@@ -97,7 +97,7 @@ namespace AnSAM
             {
                 var keyword = sender.Text.Trim();
                 var suggestions = string.IsNullOrEmpty(keyword)
-                    ? Array.Empty<string>()
+                    ? new List<string>()
                     : _allGames.Where(g => g.Title.Contains(keyword, StringComparison.OrdinalIgnoreCase))
                                .Select(g => g.Title)
                                .Distinct()
