@@ -131,15 +131,38 @@ namespace AnSAM.Services
             using var reader = XmlReader.Create(ms, settings);
             var doc = XDocument.Load(reader, LoadOptions.None);
 
-            Games = doc.Root?.Elements("game")
-                              .Select(e => new GameInfo(
-                                  (int?)e.Attribute("id") ?? 0,
-                                  ((string?)e.Value ?? string.Empty).Trim(),
-                                  (string?)e.Attribute("type") ?? string.Empty))
-                              .Where(g => g.Id > 0)
-                              .ToArray() ?? Array.Empty<GameInfo>();
+            var parsed = new List<GameInfo>();
+            foreach (var element in doc.Root?.Elements("game") ?? Enumerable.Empty<XElement>())
+            {
+                var raw = element.Value?.Trim();
+                if (string.IsNullOrEmpty(raw))
+                {
+#if DEBUG
+                    Debug.WriteLine("Skipping empty <game> entry in XML");
+#endif
+                    continue;
+                }
+
+                if (int.TryParse(raw, out int id) && id > 0)
+                {
+                    parsed.Add(new GameInfo(id, string.Empty, string.Empty));
+                }
+#if DEBUG
+                else
+                {
+                    Debug.WriteLine($"Invalid game id '{raw}' in XML");
+                }
+#endif
+            }
+
+            Games = parsed;
 #if DEBUG
             Debug.WriteLine($"Parsed {Games.Count} games from XML");
+            if (Games.Count > 0)
+            {
+                var sample = string.Join(", ", Games.Take(5).Select(g => g.Id));
+                Debug.WriteLine($"Sample IDs: {sample}{(Games.Count > 5 ? ", ..." : string.Empty)}");
+            }
 #endif
         }
 
