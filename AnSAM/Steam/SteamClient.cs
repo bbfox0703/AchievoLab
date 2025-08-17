@@ -17,7 +17,8 @@ namespace AnSAM.Steam
     {
         private readonly Timer? _callbackTimer;
         private readonly IntPtr _client;
-        private readonly IntPtr _apps;
+        private readonly IntPtr _apps008;
+        private readonly IntPtr _apps001;
         private readonly int _pipe;
         private readonly int _user;
 
@@ -27,6 +28,8 @@ namespace AnSAM.Steam
         private readonly GetISteamAppsDelegate? _getISteamApps;
         private readonly ReleaseUserDelegate? _releaseUser;
         private readonly ReleaseSteamPipeDelegate? _releaseSteamPipe;
+        private readonly IsSubscribedAppDelegate? _isSubscribedApp;
+        private readonly GetAppDataDelegate? _getAppData;
 
 #if DEBUG
         private int _loggedSubscriptions;
@@ -78,11 +81,23 @@ namespace AnSAM.Steam
 #endif
                             if (_user != 0)
                             {
-                                _apps = _getISteamApps(_client, _user, _pipe, "STEAMAPPS_INTERFACE_VERSION008");
+                                _apps008 = _getISteamApps(_client, _user, _pipe, "STEAMAPPS_INTERFACE_VERSION008");
+                                _apps001 = _getISteamApps(_client, _user, _pipe, "STEAMAPPS_INTERFACE_VERSION001");
 #if DEBUG
-                                Debug.WriteLine($"GetISteamApps returned: 0x{_apps.ToString("X")}");
+                                Debug.WriteLine($"GetISteamApps(008) returned: 0x{_apps008.ToString("X")}");
+                                Debug.WriteLine($"GetISteamApps(001) returned: 0x{_apps001.ToString("X")}");
 #endif
-                                Initialized = _apps != IntPtr.Zero;
+                                if (_apps008 != IntPtr.Zero)
+                                {
+                                    IntPtr appsVTable = Marshal.ReadIntPtr(_apps008);
+                                    _isSubscribedApp = Marshal.GetDelegateForFunctionPointer<IsSubscribedAppDelegate>(Marshal.ReadIntPtr(appsVTable + IntPtr.Size * 6));
+                                }
+                                if (_apps001 != IntPtr.Zero)
+                                {
+                                    IntPtr apps1VTable = Marshal.ReadIntPtr(_apps001);
+                                    _getAppData = Marshal.GetDelegateForFunctionPointer<GetAppDataDelegate>(Marshal.ReadIntPtr(apps1VTable));
+                                }
+                                Initialized = _apps008 != IntPtr.Zero && _isSubscribedApp != null;
                             }
                         }
                     }
@@ -122,7 +137,14 @@ namespace AnSAM.Steam
                 return false;
             }
 
-            bool result = SteamAPI_ISteamApps_BIsSubscribedApp(_apps, id);
+            if (_isSubscribedApp == null)
+            {
+#if DEBUG
+                Debug.WriteLine("IsSubscribedApp delegate missing");
+#endif
+                return false;
+            }
+            bool result = _isSubscribedApp(_apps008, id);
 #if DEBUG
             if (_loggedSubscriptions < 20)
             {
@@ -147,8 +169,15 @@ namespace AnSAM.Steam
                 return null;
             }
 
+            if (_getAppData == null || _apps001 == IntPtr.Zero)
+            {
+#if DEBUG
+                Debug.WriteLine("GetAppData delegate missing");
+#endif
+                return null;
+            }
             var sb = new StringBuilder(4096);
-            int len = SteamAPI_ISteamApps_GetAppData(_apps, id, key, sb, sb.Capacity);
+            int len = _getAppData(_apps001, id, key, sb, sb.Capacity);
 #if DEBUG
             if (_loggedAppData < 20)
             {
@@ -272,16 +301,16 @@ namespace AnSAM.Steam
         [return: MarshalAs(UnmanagedType.I1)]
         private static extern bool Steam_FreeLastCallback(int pipe);
 
-        [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SteamAPI_ISteamApps_BIsSubscribedApp")]
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
         [return: MarshalAs(UnmanagedType.I1)]
-        private static extern bool SteamAPI_ISteamApps_BIsSubscribedApp(IntPtr self, uint appId);
+        private delegate bool IsSubscribedAppDelegate(IntPtr self, uint appId);
 
-        [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SteamAPI_ISteamApps_GetAppData")]
-        private static extern int SteamAPI_ISteamApps_GetAppData(IntPtr self,
-                                                                 uint appId,
-                                                                 [MarshalAs(UnmanagedType.LPStr)] string key,
-                                                                 StringBuilder value,
-                                                                 int valueBufferSize);
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall, CharSet = CharSet.Ansi)]
+        private delegate int GetAppDataDelegate(IntPtr self,
+                                                uint appId,
+                                                [MarshalAs(UnmanagedType.LPStr)] string key,
+                                                StringBuilder value,
+                                                int valueBufferSize);
     }
 }
 
