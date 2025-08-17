@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices.WindowsRuntime;
 using Microsoft.UI.Xaml;
+using AnSAM.Steam;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Data;
@@ -27,6 +28,7 @@ namespace AnSAM
     public partial class App : Application
     {
         private Window? _window;
+        private SteamClient? _steamClient;
 
         /// <summary>
         /// Initializes the singleton application object.  This is the first line of authored code
@@ -43,7 +45,9 @@ namespace AnSAM
         /// <param name="args">Details about the launch request and process.</param>
         protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
         {
-            _window = new MainWindow();
+            _steamClient = new SteamClient();
+            _window = new MainWindow(_steamClient);
+            _window.Closed += (_, _) => _steamClient?.Dispose();
             _window.Activate();
         }
     }
