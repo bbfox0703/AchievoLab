@@ -26,6 +26,8 @@ namespace AnSAM
         private readonly List<GameItem> _allGames = new();
         private readonly SteamClient _steamClient;
 
+        private bool _autoLoaded;
+
         public MainWindow(SteamClient steamClient)
         {
             _steamClient = steamClient;
@@ -33,6 +35,14 @@ namespace AnSAM
             GameListService.StatusChanged += OnGameListStatusChanged;
             GameListService.ProgressChanged += OnGameListProgressChanged;
             IconCache.ProgressChanged += OnIconProgressChanged;
+            Activated += OnWindowActivated;
+        }
+
+        private async void OnWindowActivated(object sender, WindowActivatedEventArgs args)
+        {
+            if (_autoLoaded) return;
+            _autoLoaded = true;
+            await RefreshAsync();
         }
 
         private void GameCard_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
@@ -49,6 +59,11 @@ namespace AnSAM
         }
 
         private async void OnRefreshClicked(object sender, RoutedEventArgs e)
+        {
+            await RefreshAsync();
+        }
+
+        private async Task RefreshAsync()
         {
             StatusText.Text = "Refresh";
             StatusProgress.Value = 0;
