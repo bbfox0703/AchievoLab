@@ -38,23 +38,32 @@ namespace AnSAM.Steam
         {
             try
             {
-                _client = SteamAPI_SteamClient_v018();
+                _client = Steam_CreateInterface("SteamClient018", IntPtr.Zero);
 #if DEBUG
-                Debug.WriteLine($"SteamAPI_SteamClient_v018 handle: 0x{_client.ToString("X")}");
+                Debug.WriteLine($"CreateInterface('SteamClient018') returned: 0x{_client.ToString("X")}");
 #endif
-                _pipe = SteamAPI_ISteamClient_CreateSteamPipe(_client);
+                if (_client != IntPtr.Zero)
+                {
+                    _pipe = SteamAPI_ISteamClient_CreateSteamPipe(_client);
 #if DEBUG
-                Debug.WriteLine($"CreateSteamPipe returned: {_pipe}");
+                    Debug.WriteLine($"CreateSteamPipe returned: {_pipe}");
 #endif
-                _user = SteamAPI_ISteamClient_ConnectToGlobalUser(_client, _pipe);
+                    if (_pipe != 0)
+                    {
+                        _user = SteamAPI_ISteamClient_ConnectToGlobalUser(_client, _pipe);
 #if DEBUG
-                Debug.WriteLine($"ConnectToGlobalUser returned: {_user}");
+                        Debug.WriteLine($"ConnectToGlobalUser returned: {_user}");
 #endif
-                _apps = SteamAPI_ISteamClient_GetISteamApps(_client, _user, _pipe, "STEAMAPPS_INTERFACE_VERSION008");
+                        if (_user != 0)
+                        {
+                            _apps = SteamAPI_ISteamClient_GetISteamApps(_client, _user, _pipe, "STEAMAPPS_INTERFACE_VERSION008");
 #if DEBUG
-                Debug.WriteLine($"GetISteamApps returned: 0x{_apps.ToString("X")}");
+                            Debug.WriteLine($"GetISteamApps returned: 0x{_apps.ToString("X")}");
 #endif
-                Initialized = _apps != IntPtr.Zero;
+                            Initialized = _apps != IntPtr.Zero;
+                        }
+                    }
+                }
 
                 if (Initialized)
                 {
@@ -185,8 +194,9 @@ namespace AnSAM.Steam
             internal const uint LoadLibrarySearchUserDirs = 0x00000400;
         }
 
-        [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SteamAPI_SteamClient_v018")]
-        private static extern IntPtr SteamAPI_SteamClient_v018();
+        [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl,
+            CharSet = CharSet.Ansi, EntryPoint = "CreateInterface")]
+        private static extern IntPtr Steam_CreateInterface(string version, IntPtr returnCode);
 
         [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SteamAPI_ISteamClient_CreateSteamPipe")]
         private static extern int SteamAPI_ISteamClient_CreateSteamPipe(IntPtr self);
