@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -17,6 +18,40 @@ namespace AnSAM.Steam
         private readonly IntPtr _apps;
         private readonly bool _initialized;
 
+        static SteamClient()
+        {
+            NativeLibrary.SetDllImportResolver(typeof(SteamClient).Assembly, ResolveSteamLibrary);
+        }
+
+        private static IntPtr ResolveSteamLibrary(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
+        {
+            if (libraryName != "steam_api64")
+            {
+                return IntPtr.Zero;
+            }
+
+            if (NativeLibrary.TryLoad("steam_api64", out var handle))
+            {
+#if DEBUG
+                Debug.WriteLine("Resolved steam_api64.dll");
+#endif
+                return handle;
+            }
+
+            if (NativeLibrary.TryLoad("steamclient64", out handle))
+            {
+#if DEBUG
+                Debug.WriteLine("Resolved steamclient64.dll");
+#endif
+                return handle;
+            }
+
+#if DEBUG
+            Debug.WriteLine("Failed to resolve Steam library");
+#endif
+            return IntPtr.Zero;
+        }
+
         /// <summary>
         /// Indicates whether the Steam API was successfully initialized.
         /// </summary>
@@ -30,15 +65,6 @@ namespace AnSAM.Steam
             try
             {
 #if DEBUG
-                if (!NativeLibrary.TryLoad("steam_api64", out var handle))
-                {
-                    Debug.WriteLine("Failed to load steam_api64.dll");
-                }
-                else
-                {
-                    Debug.WriteLine($"Loaded steam_api64.dll at 0x{handle.ToString("X")}");
-                }
-
                 Debug.WriteLine($"SteamAppId env: {Environment.GetEnvironmentVariable("SteamAppId") ?? "<null>"}");
                 Debug.WriteLine($"SteamAppName env: {Environment.GetEnvironmentVariable("SteamAppName") ?? "<null>"}");
 #endif
