@@ -54,10 +54,7 @@
                         <StackPanel Width="180" DoubleTapped="GameCard_DoubleTapped">
                             <Border Height="200" CornerRadius="8"
                             Background="{ThemeResource SystemFillColorSolidNeutralBackgroundBrush}">
-                                <!--
-                                <Image from game object"
-                               Stretch="UniformToFill"/>
-                                -->
+                                <Image Source="{x:Bind CoverPath}" Stretch="UniformToFill"/>
                             </Border>
                             <TextBlock Text="{x:Bind Title}"
                                Margin="0,8,0,0"

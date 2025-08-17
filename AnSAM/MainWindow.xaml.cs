@@ -1,10 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
-using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Navigation;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -149,46 +146,67 @@ namespace AnSAM
 
     }
 
-    public class GameItem
+    public class GameItem : System.ComponentModel.INotifyPropertyChanged
     {
         public string Title { get; set; }
         public int ID { get; set; }
-        public Uri? CoverUri { get; set; }
-        public BitmapIcon? CoverIcon { get; set; }
+        public string? CoverPath
+        {
+            get => _coverPath;
+            set
+            {
+                if (_coverPath != value)
+                {
+                    _coverPath = value;
+                    PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(CoverPath)));
+                }
+            }
+        }
+
+        private string? _coverPath;
 
         public string? ExePath { get; set; }
         public string? Arguments { get; set; }
         public string? UriScheme { get; set; }
 
+        public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
+
         public GameItem(string title,
                          int id,
-                         Uri? coverUri = null,
+                         string? coverPath = null,
                          string? exePath = null,
                          string? arguments = null,
                          string? uriScheme = null)
         {
             Title = title;
             ID = id;
-            CoverUri = coverUri;
+            CoverPath = coverPath;
             ExePath = exePath;
             Arguments = arguments;
             UriScheme = uriScheme;
-
-            if (coverUri != null)
-            {
-                CoverIcon = new BitmapIcon { UriSource = coverUri };
-            }
         }
 
         public static GameItem FromSteamApp(SteamAppData app)
         {
-            Uri? cover = string.IsNullOrEmpty(app.CoverUrl) ? null : new Uri(app.CoverUrl, UriKind.RelativeOrAbsolute);
-            return new GameItem(app.Title,
-                                app.AppId,
-                                cover,
-                                app.ExePath,
-                                app.Arguments,
-                                app.UriScheme);
+            var item = new GameItem(app.Title,
+                                    app.AppId,
+                                    null,
+                                    app.ExePath,
+                                    app.Arguments,
+                                    app.UriScheme);
+
+            if (!string.IsNullOrEmpty(app.CoverUrl) && Uri.TryCreate(app.CoverUrl, UriKind.Absolute, out var uri))
+            {
+                _ = IconCache.GetIconPathAsync(app.AppId, uri).ContinueWith(t =>
+                {
+                    if (t.Status == TaskStatus.RanToCompletion)
+                    {
+                        item.CoverPath = t.Result;
+                    }
+                });
+            }
+
+            return item;
         }
     }
 }
