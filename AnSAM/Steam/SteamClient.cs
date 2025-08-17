@@ -10,15 +10,16 @@ using Microsoft.Win32;
 namespace AnSAM.Steam
 {
     /// <summary>
-    /// Minimal Steamworks client wrapper.
-    /// Initializes the Steam API, pumps callbacks on a timer,
-    /// and exposes a couple of convenience helpers.
+    /// Minimal Steamworks client wrapper that loads steamclient64.dll directly
+    /// and exposes helpers for app ownership and metadata queries.
     /// </summary>
     public sealed class SteamClient : IDisposable
     {
         private readonly Timer? _callbackTimer;
+        private readonly IntPtr _client;
         private readonly IntPtr _apps;
-        private readonly bool _initialized;
+        private readonly int _pipe;
+        private readonly int _user;
 
         static SteamClient()
         {
@@ -28,7 +29,7 @@ namespace AnSAM.Steam
         /// <summary>
         /// Indicates whether the Steam API was successfully initialized.
         /// </summary>
-        public bool Initialized => _initialized;
+        public bool Initialized { get; }
 
         /// <summary>
         /// Initializes the Steam API and starts the callback pump.
@@ -37,43 +38,39 @@ namespace AnSAM.Steam
         {
             try
             {
+                _client = SteamAPI_SteamClient_v018();
 #if DEBUG
-                Debug.WriteLine($"SteamAppId env: {Environment.GetEnvironmentVariable("SteamAppId") ?? "<null>"}");
-                Debug.WriteLine($"SteamAppName env: {Environment.GetEnvironmentVariable("SteamAppName") ?? "<null>"}");
+                Debug.WriteLine($"SteamAPI_SteamClient_v018 handle: 0x{_client.ToString("X")}");
 #endif
+                _pipe = SteamAPI_ISteamClient_CreateSteamPipe(_client);
+#if DEBUG
+                Debug.WriteLine($"CreateSteamPipe returned: {_pipe}");
+#endif
+                _user = SteamAPI_ISteamClient_ConnectToGlobalUser(_client, _pipe);
+#if DEBUG
+                Debug.WriteLine($"ConnectToGlobalUser returned: {_user}");
+#endif
+                _apps = SteamAPI_ISteamClient_GetISteamApps(_client, _user, _pipe, "STEAMAPPS_INTERFACE_VERSION008");
+#if DEBUG
+                Debug.WriteLine($"GetISteamApps returned: 0x{_apps.ToString("X")}");
+#endif
+                Initialized = _apps != IntPtr.Zero;
 
-                _initialized = SteamAPI_Init();
-#if DEBUG
-                Debug.WriteLine($"SteamAPI_Init returned: {_initialized}");
-#endif
-                if (_initialized)
+                if (Initialized)
                 {
-                    _apps = SteamAPI_SteamApps_v012();
-#if DEBUG
-                    Debug.WriteLine($"SteamAPI_SteamApps_v012 handle: 0x{_apps.ToString("X")}");
-#endif
-                    _callbackTimer = new Timer(_ =>
-                    {
-                        try
-                        {
-                            SteamAPI_RunCallbacks();
-                        }
-                        catch (Exception cbEx)
-                        {
-                            Debug.WriteLine($"SteamAPI_RunCallbacks failed: {cbEx.Message}");
-                        }
-                    }, null, 0, 100);
+                    _callbackTimer = new Timer(_ => PumpCallbacks(), null, 0, 100);
                 }
             }
             catch (Exception ex)
             {
-                _initialized = false;
+                Initialized = false;
 #if DEBUG
                 Debug.WriteLine($"Steam API init threw: {ex}");
 #endif
             }
+
 #if DEBUG
-            if (!_initialized)
+            if (!Initialized)
             {
                 Debug.WriteLine("Steam API not initialized");
             }
@@ -85,7 +82,7 @@ namespace AnSAM.Steam
         /// </summary>
         public bool IsSubscribedApp(uint id)
         {
-            return _initialized && SteamAPI_ISteamApps_BIsSubscribedApp(_apps, id);
+            return Initialized && SteamAPI_ISteamApps_BIsSubscribedApp(_apps, id);
         }
 
         /// <summary>
@@ -94,7 +91,7 @@ namespace AnSAM.Steam
         /// </summary>
         public string? GetAppData(uint id, string key)
         {
-            if (!_initialized)
+            if (!Initialized)
                 return null;
 
             var sb = new StringBuilder(4096);
@@ -102,15 +99,24 @@ namespace AnSAM.Steam
             return len > 0 ? sb.ToString() : null;
         }
 
+        private void PumpCallbacks()
+        {
+            while (Steam_BGetCallback(_pipe, out var msg, out _))
+            {
+                Steam_FreeLastCallback(_pipe);
+            }
+        }
+
         /// <summary>
-        /// Shuts down the Steam API and stops the callback pump.
+        /// Releases Steam resources and stops the callback pump.
         /// </summary>
         public void Dispose()
         {
             _callbackTimer?.Dispose();
-            if (_initialized)
+            if (Initialized)
             {
-                SteamAPI_Shutdown();
+                SteamAPI_ISteamClient_ReleaseUser(_client, _pipe, _user);
+                SteamAPI_ISteamClient_ReleaseSteamPipe(_client, _pipe);
             }
         }
 
@@ -158,6 +164,15 @@ namespace AnSAM.Steam
             return null;
         }
 
+        [StructLayout(LayoutKind.Sequential)]
+        private struct CallbackMsg
+        {
+            public int User;
+            public int Id;
+            public IntPtr ParamPointer;
+            public int ParamSize;
+        }
+
         private static class Native
         {
             [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
@@ -170,18 +185,31 @@ namespace AnSAM.Steam
             internal const uint LoadLibrarySearchUserDirs = 0x00000400;
         }
 
-        [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SteamAPI_SteamClient_v018")]
+        private static extern IntPtr SteamAPI_SteamClient_v018();
+
+        [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SteamAPI_ISteamClient_CreateSteamPipe")]
+        private static extern int SteamAPI_ISteamClient_CreateSteamPipe(IntPtr self);
+
+        [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SteamAPI_ISteamClient_ConnectToGlobalUser")]
+        private static extern int SteamAPI_ISteamClient_ConnectToGlobalUser(IntPtr self, int pipe);
+
+        [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SteamAPI_ISteamClient_GetISteamApps")]
+        private static extern IntPtr SteamAPI_ISteamClient_GetISteamApps(IntPtr self, int user, int pipe, [MarshalAs(UnmanagedType.LPStr)] string version);
+
+        [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SteamAPI_ISteamClient_ReleaseUser")]
+        private static extern void SteamAPI_ISteamClient_ReleaseUser(IntPtr self, int pipe, int user);
+
+        [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SteamAPI_ISteamClient_ReleaseSteamPipe")]
+        private static extern void SteamAPI_ISteamClient_ReleaseSteamPipe(IntPtr self, int pipe);
+
+        [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "Steam_BGetCallback")]
         [return: MarshalAs(UnmanagedType.I1)]
-        private static extern bool SteamAPI_Init();
+        private static extern bool Steam_BGetCallback(int pipe, out CallbackMsg message, out int call);
 
-        [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void SteamAPI_RunCallbacks();
-
-        [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void SteamAPI_Shutdown();
-
-        [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SteamAPI_SteamApps_v012")]
-        private static extern IntPtr SteamAPI_SteamApps_v012();
+        [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "Steam_FreeLastCallback")]
+        [return: MarshalAs(UnmanagedType.I1)]
+        private static extern bool Steam_FreeLastCallback(int pipe);
 
         [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SteamAPI_ISteamApps_BIsSubscribedApp")]
         [return: MarshalAs(UnmanagedType.I1)]
