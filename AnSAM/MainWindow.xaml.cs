@@ -83,9 +83,12 @@ namespace AnSAM
             bool steamReady = _steamClient.Initialized;
 #if DEBUG
             Debug.WriteLine($"Steam API initialized: {steamReady}");
+            Debug.WriteLine($"Game list loaded with {GameListService.Games.Count} entries");
 #endif
+            int total = 0, owned = 0;
             foreach (var game in GameListService.Games)
             {
+                total++;
                 uint appId = (uint)game.Id;
                 string title = game.Name;
                 if (steamReady)
@@ -94,11 +97,15 @@ namespace AnSAM
                     {
                         continue;
                     }
+                    owned++;
                     title = _steamClient.GetAppData(appId, "name") ?? title;
                 }
                 var data = new SteamAppData(game.Id, title);
                 _allGames.Add(GameItem.FromSteamApp(data));
             }
+#if DEBUG
+            Debug.WriteLine($"Processed {total} games; owned {owned}; added {_allGames.Count}");
+#endif
 
             FilterGames(null);
             StatusText.Text = steamReady

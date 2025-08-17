@@ -138,6 +138,9 @@ namespace AnSAM.Services
                                   (string?)e.Attribute("type") ?? string.Empty))
                               .Where(g => g.Id > 0)
                               .ToArray() ?? Array.Empty<GameInfo>();
+#if DEBUG
+            Debug.WriteLine($"Parsed {Games.Count} games from XML");
+#endif
         }
 
         private static void ReportProgress(double value) => ProgressChanged?.Invoke(value);

@@ -28,6 +28,11 @@ namespace AnSAM.Steam
         private readonly ReleaseUserDelegate? _releaseUser;
         private readonly ReleaseSteamPipeDelegate? _releaseSteamPipe;
 
+#if DEBUG
+        private int _loggedSubscriptions;
+        private int _loggedAppData;
+#endif
+
         static SteamClient()
         {
             NativeLibrary.SetDllImportResolver(typeof(SteamClient).Assembly, ResolveSteamClient);
@@ -109,7 +114,23 @@ namespace AnSAM.Steam
         /// </summary>
         public bool IsSubscribedApp(uint id)
         {
-            return Initialized && SteamAPI_ISteamApps_BIsSubscribedApp(_apps, id);
+            if (!Initialized)
+            {
+#if DEBUG
+                Debug.WriteLine($"IsSubscribedApp({id}) called before Steam initialization");
+#endif
+                return false;
+            }
+
+            bool result = SteamAPI_ISteamApps_BIsSubscribedApp(_apps, id);
+#if DEBUG
+            if (_loggedSubscriptions < 20)
+            {
+                Debug.WriteLine($"IsSubscribedApp({id}) => {result}");
+                _loggedSubscriptions++;
+            }
+#endif
+            return result;
         }
 
         /// <summary>
@@ -119,10 +140,22 @@ namespace AnSAM.Steam
         public string? GetAppData(uint id, string key)
         {
             if (!Initialized)
+            {
+#if DEBUG
+                Debug.WriteLine($"GetAppData({id}, '{key}') called before Steam initialization");
+#endif
                 return null;
+            }
 
             var sb = new StringBuilder(4096);
             int len = SteamAPI_ISteamApps_GetAppData(_apps, id, key, sb, sb.Capacity);
+#if DEBUG
+            if (_loggedAppData < 20)
+            {
+                Debug.WriteLine($"GetAppData({id}, '{key}') => {(len > 0 ? sb.ToString() : "<null>")}");
+                _loggedAppData++;
+            }
+#endif
             return len > 0 ? sb.ToString() : null;
         }
 
