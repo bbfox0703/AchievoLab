@@ -29,18 +29,48 @@ namespace AnSAM.Steam
         {
             try
             {
+#if DEBUG
+                if (!NativeLibrary.TryLoad("steam_api64", out var handle))
+                {
+                    Debug.WriteLine("Failed to load steam_api64.dll");
+                }
+                else
+                {
+                    Debug.WriteLine($"Loaded steam_api64.dll at 0x{handle.ToString("X")}");
+                }
+
+                Debug.WriteLine($"SteamAppId env: {Environment.GetEnvironmentVariable("SteamAppId") ?? "<null>"}");
+                Debug.WriteLine($"SteamAppName env: {Environment.GetEnvironmentVariable("SteamAppName") ?? "<null>"}");
+#endif
+
                 _initialized = SteamAPI_Init();
+#if DEBUG
+                Debug.WriteLine($"SteamAPI_Init returned: {_initialized}");
+#endif
                 if (_initialized)
                 {
                     _apps = SteamAPI_SteamApps_v012();
-                    _callbackTimer = new Timer(_ => SteamAPI_RunCallbacks(), null, 0, 100);
+#if DEBUG
+                    Debug.WriteLine($"SteamAPI_SteamApps_v012 handle: 0x{_apps.ToString("X")}");
+#endif
+                    _callbackTimer = new Timer(_ =>
+                    {
+                        try
+                        {
+                            SteamAPI_RunCallbacks();
+                        }
+                        catch (Exception cbEx)
+                        {
+                            Debug.WriteLine($"SteamAPI_RunCallbacks failed: {cbEx.Message}");
+                        }
+                    }, null, 0, 100);
                 }
             }
             catch (Exception ex)
             {
                 _initialized = false;
 #if DEBUG
-                Debug.WriteLine($"Steam API init failed: {ex.Message}");
+                Debug.WriteLine($"Steam API init threw: {ex}");
 #endif
             }
 #if DEBUG
