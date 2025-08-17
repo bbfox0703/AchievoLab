@@ -9,6 +9,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.IO;
 using System.Net.Http;
+using System.Diagnostics;
 using AnSAM.Services;
 using AnSAM.Steam;
 
@@ -79,19 +80,30 @@ namespace AnSAM
 
             await GameListService.LoadAsync(cacheDir, http);
 
-            foreach (var (id, _) in GameListService.GameTypes)
+            bool steamReady = _steamClient.Initialized;
+#if DEBUG
+            Debug.WriteLine($"Steam API initialized: {steamReady}");
+#endif
+            foreach (var game in GameListService.Games)
             {
-                uint appId = (uint)id;
-                if (_steamClient.IsSubscribedApp(appId))
+                uint appId = (uint)game.Id;
+                string title = game.Name;
+                if (steamReady)
                 {
-                    var title = _steamClient.GetAppData(appId, "name") ?? $"App {appId}";
-                    var data = new SteamAppData(id, title);
-                    _allGames.Add(GameItem.FromSteamApp(data));
+                    if (!_steamClient.IsSubscribedApp(appId))
+                    {
+                        continue;
+                    }
+                    title = _steamClient.GetAppData(appId, "name") ?? title;
                 }
+                var data = new SteamAppData(game.Id, title);
+                _allGames.Add(GameItem.FromSteamApp(data));
             }
 
             FilterGames(null);
-            StatusText.Text = $"Loaded {_allGames.Count} games";
+            StatusText.Text = steamReady
+                ? $"Loaded {_allGames.Count} games"
+                : $"Steam unavailable - showing {_allGames.Count} games";
         }
 
         //private void OnSearchClicked(object sender, RoutedEventArgs e)

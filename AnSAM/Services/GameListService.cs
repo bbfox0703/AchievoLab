@@ -31,9 +31,14 @@ namespace AnSAM.Services
         public static event Action<string>? StatusChanged;
 
         /// <summary>
-        /// Parsed list of (id, type) pairs from the downloaded XML.
+        /// Represents a parsed game entry from the SAM game list.
         /// </summary>
-        public static IReadOnlyList<(int Id, string Type)> GameTypes { get; private set; } = Array.Empty<(int, string)>();
+        public readonly record struct GameInfo(int Id, string Name, string Type);
+
+        /// <summary>
+        /// Parsed list of games from the downloaded XML.
+        /// </summary>
+        public static IReadOnlyList<GameInfo> Games { get; private set; } = Array.Empty<GameInfo>();
 
         /// <summary>
         /// Downloads the game list, applying caching and validation rules.
@@ -126,12 +131,13 @@ namespace AnSAM.Services
             using var reader = XmlReader.Create(ms, settings);
             var doc = XDocument.Load(reader, LoadOptions.None);
 
-            GameTypes = doc.Root?.Elements("game")
-                                .Select(e => (
-                                    Id: (int?)e.Attribute("id") ?? 0,
-                                    Type: (string?)e.Attribute("type") ?? string.Empty))
-                                .Where(t => t.Id > 0)
-                                .ToArray() ?? Array.Empty<(int, string)>();
+            Games = doc.Root?.Elements("game")
+                              .Select(e => new GameInfo(
+                                  (int?)e.Attribute("id") ?? 0,
+                                  ((string?)e.Value ?? string.Empty).Trim(),
+                                  (string?)e.Attribute("type") ?? string.Empty))
+                              .Where(g => g.Id > 0)
+                              .ToArray() ?? Array.Empty<GameInfo>();
         }
 
         private static void ReportProgress(double value) => ProgressChanged?.Invoke(value);
