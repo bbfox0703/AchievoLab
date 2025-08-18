@@ -15,6 +15,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Content Include="AnSAM.ico" />
     <Content Include="Assets\SplashScreen.scale-200.png" />
     <Content Include="Assets\LockScreenLogo.scale-200.png" />
     <Content Include="Assets\Square150x150Logo.scale-200.png" />
@@ -64,6 +65,7 @@
     <PackageProjectUrl>https://github.com/bbfox0703/SteamAchievementManagerX2</PackageProjectUrl>
     <Copyright>bbfox</Copyright>
     <RepositoryUrl>https://github.com/bbfox0703/SteamAchievementManagerX2</RepositoryUrl>
+    <ApplicationIcon>AnSAM.ico</ApplicationIcon>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x86'">
     <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_BREAK_ON_UNHANDLED_EXCEPTION</DefineConstants>
