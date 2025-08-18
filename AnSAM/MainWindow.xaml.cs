@@ -517,14 +517,14 @@ namespace AnSAM
                     {
                         if (Uri.TryCreate(app.CoverUrl, UriKind.Absolute, out var remoteUri))
                         {
-                            var path = await IconCache.GetIconPathAsync(app.AppId, remoteUri);
+                            var result = await IconCache.GetIconPathAsync(app.AppId, remoteUri);
 #if DEBUG
-                            if (path != null)
+                            if (result.Downloaded)
                             {
-                                Debug.WriteLine($"Icon for {app.AppId} stored at {path}");
+                                Debug.WriteLine($"Icon for {app.AppId} stored at {result.Path}");
                             }
 #endif
-                            if (path != null && Uri.TryCreate(path, UriKind.Absolute, out var localUri))
+                            if (Uri.TryCreate(result.Path, UriKind.Absolute, out var localUri))
                             {
                                 coverUri = localUri;
                             }
