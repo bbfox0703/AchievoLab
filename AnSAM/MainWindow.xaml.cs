@@ -537,7 +537,7 @@ namespace AnSAM
 #endif
                     }
 
-                    coverUri ??= new Uri("ms-appx:///Assets/StoreLogo.png");
+                    coverUri ??= new Uri("ms-appx:///no_icon.png");
                     if (dispatcher != null)
                     {
                         _ = dispatcher.TryEnqueue(() => item.CoverPath = coverUri);
@@ -553,7 +553,7 @@ namespace AnSAM
 #if DEBUG
                 Debug.WriteLine($"No icon URL for {app.AppId}");
 #endif
-                item.CoverPath = new Uri("ms-appx:///Assets/StoreLogo.png");
+                item.CoverPath = new Uri("ms-appx:///no_icon.png");
             }
 
             return item;
