@@ -53,27 +53,27 @@
                 <GridView.ItemsPanel>
                     <ItemsPanelTemplate>
                         <ItemsWrapGrid Orientation="Horizontal"
-                               ItemWidth="180"
-                               ItemHeight="240"/>
+                               ItemWidth="240"
+                               ItemHeight="180"/>
                     </ItemsPanelTemplate>
                 </GridView.ItemsPanel>
 
                 <!-- 卡片樣板：封面 + 標題（整張卡片支援 DoubleTapped） -->
                 <GridView.ItemTemplate>
                     <DataTemplate x:DataType="local:GameItem">
-                        <StackPanel Width="180" DoubleTapped="GameCard_DoubleTapped">
+                        <StackPanel Width="231" DoubleTapped="GameCard_DoubleTapped">
                             <StackPanel.ContextFlyout>
                                 <MenuFlyout>
                                     <MenuFlyoutItem Text="Launch SAM.Game.exe" Click="OnLaunchSamGameClicked"/>
                                     <MenuFlyoutItem Text="Launch Game" Click="OnLaunchGameClicked"/>
                                 </MenuFlyout>
                             </StackPanel.ContextFlyout>
-                            <Border Height="180" CornerRadius="8"
+                            <Border Height="100" CornerRadius="8"
                             Background="{ThemeResource SystemFillColorSolidNeutralBackgroundBrush}" HorizontalAlignment="Center">
                                 <Image Source="{x:Bind CoverImage, Mode=OneWay}" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                             <TextBlock Text="{x:Bind Title, Mode=OneWay}"
-                               Margin="0,8,0,0"
+                               Margin="2,8,0,0"
                                TextWrapping="Wrap"
                                TextTrimming="CharacterEllipsis"
                                MaxLines="3"/>
