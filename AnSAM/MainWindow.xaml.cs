@@ -460,11 +460,12 @@ namespace AnSAM
 
         private void FilterGames(string? keyword)
         {
-            bool hasKeyword = !string.IsNullOrWhiteSpace(keyword);
+            string kw = keyword ?? string.Empty;
+            bool hasKeyword = kw.Length > 0;
             int index = 0;
             foreach (var game in _allGames)
             {
-                if (hasKeyword && !game.Title.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                if (hasKeyword && !game.Title.Contains(kw, StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
                 }
@@ -491,7 +492,7 @@ namespace AnSAM
             StatusProgress.Value = 0;
             StatusExtra.Text = $"{Games.Count}/{_allGames.Count}";
 #if DEBUG
-            Debug.WriteLine($"FilterGames('{keyword}') -> {Games.Count} items");
+            Debug.WriteLine($"FilterGames('{kw}') -> {Games.Count} items");
 #endif
         }
 
