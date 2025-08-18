@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
@@ -66,6 +67,28 @@ namespace AnSAM.Services
             return InFlight.GetOrAdd(path, _ => DownloadAsync(uri, path));
         }
 
+        public static async Task<string?> GetIconPathAsync(int id, IEnumerable<string> uris)
+        {
+            foreach (var url in uris)
+            {
+                if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+                {
+                    try
+                    {
+                        return await GetIconPathAsync(id, uri).ConfigureAwait(false);
+                    }
+                    catch (HttpRequestException ex)
+                    {
+#if DEBUG
+                        Debug.WriteLine($"Icon download failed for {id}: {ex.Message}");
+#endif
+                    }
+                }
+            }
+
+            return null;
+        }
+
         private static async Task<string> DownloadAsync(Uri uri, string path)
         {
             await Concurrency.WaitAsync().ConfigureAwait(false);
@@ -86,6 +109,13 @@ namespace AnSAM.Services
                 }
 
                 return path;
+            }
+            catch (Exception ex)
+            {
+#if DEBUG
+                Debug.WriteLine($"Icon download failed: {ex.Message}");
+#endif
+                throw;
             }
             finally
             {

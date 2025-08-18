@@ -83,22 +83,39 @@ namespace AnSAM
             bool steamReady = _steamClient.Initialized;
 #if DEBUG
             Debug.WriteLine($"Steam API initialized: {steamReady}");
+            Debug.WriteLine($"Game list loaded with {GameListService.Games.Count} entries");
+            if (GameListService.Games.Count > 0)
+            {
+                var sampleIds = string.Join(", ", GameListService.Games.Take(20).Select(g => g.Id));
+                Debug.WriteLine($"Sample parsed IDs: {sampleIds}{(GameListService.Games.Count > 20 ? ", ..." : string.Empty)}");
+            }
 #endif
+            int total = 0, owned = 0;
             foreach (var game in GameListService.Games)
             {
+                total++;
                 uint appId = (uint)game.Id;
                 string title = game.Name;
+                IReadOnlyList<string>? coverUrls = null;
                 if (steamReady)
                 {
                     if (!_steamClient.IsSubscribedApp(appId))
                     {
                         continue;
                     }
+                    owned++;
                     title = _steamClient.GetAppData(appId, "name") ?? title;
+                    coverUrls = GameImageUrlResolver.GetGameImageUrls(
+                        (id, key) => _steamClient.GetAppData(id, key),
+                        appId,
+                        "english");
                 }
-                var data = new SteamAppData(game.Id, title);
+                var data = new SteamAppData(game.Id, title, coverUrls);
                 _allGames.Add(GameItem.FromSteamApp(data));
             }
+#if DEBUG
+            Debug.WriteLine($"Processed {total} games; owned {owned}; added {_allGames.Count}");
+#endif
 
             FilterGames(null);
             StatusText.Text = steamReady
@@ -156,15 +173,30 @@ namespace AnSAM
                 ? _allGames
                 : _allGames.Where(g => g.Title.Contains(keyword, StringComparison.OrdinalIgnoreCase));
 
+            var list = filtered.ToList();
+#if DEBUG
+            Debug.WriteLine($"FilterGames('{keyword}') -> {list.Count} items");
+#endif
             Games.Clear();
-            foreach (var game in filtered)
+            int logged = 0;
+            foreach (var game in list)
             {
                 Games.Add(game);
+#if DEBUG
+                if (logged < 20)
+                {
+                    Debug.WriteLine($"Added game icon: {game.ID} - {game.Title}");
+                    logged++;
+                }
+#endif
             }
 
             StatusText.Text = $"Showing {Games.Count} of {_allGames.Count} games";
             StatusProgress.Value = 0;
             StatusExtra.Text = $"{Games.Count}/{_allGames.Count}";
+#if DEBUG
+            Debug.WriteLine($"Games collection now has {Games.Count} items displayed");
+#endif
         }
 
         private void OnGameListStatusChanged(string message)
@@ -243,6 +275,9 @@ namespace AnSAM
 
         public static GameItem FromSteamApp(SteamAppData app)
         {
+#if DEBUG
+            Debug.WriteLine($"Creating GameItem for {app.AppId} - {app.Title}");
+#endif
             var item = new GameItem(app.Title,
                                     app.AppId,
                                     null,
@@ -250,15 +285,39 @@ namespace AnSAM
                                     app.Arguments,
                                     app.UriScheme);
 
-            if (!string.IsNullOrEmpty(app.CoverUrl) && Uri.TryCreate(app.CoverUrl, UriKind.Absolute, out var uri))
+            if (app.CoverUrls is { Count: >0 })
             {
-                _ = IconCache.GetIconPathAsync(app.AppId, uri).ContinueWith(t =>
+#if DEBUG
+                Debug.WriteLine($"Queueing icon download for {app.AppId} from {string.Join(", ", app.CoverUrls)}");
+#endif
+                _ = IconCache.GetIconPathAsync(app.AppId, app.CoverUrls).ContinueWith(t =>
                 {
-                    if (t.Status == TaskStatus.RanToCompletion)
+                    if (t.Status == TaskStatus.RanToCompletion && t.Result != null)
                     {
+#if DEBUG
+                        Debug.WriteLine($"Icon for {app.AppId} stored at {t.Result}");
+#endif
                         item.CoverPath = t.Result;
                     }
+#if DEBUG
+                    else if (t.IsFaulted)
+                    {
+                        Debug.WriteLine($"Icon download failed for {app.AppId}: {t.Exception?.GetBaseException().Message}");
+                        item.CoverPath = "ms-appx:///Assets/StoreLogo.png";
+                    }
+#endif
+                    else
+                    {
+                        item.CoverPath = "ms-appx:///Assets/StoreLogo.png";
+                    }
                 });
+            }
+            else
+            {
+#if DEBUG
+                Debug.WriteLine($"No icon URL for {app.AppId}");
+#endif
+                item.CoverPath = "ms-appx:///Assets/StoreLogo.png";
             }
 
             return item;
