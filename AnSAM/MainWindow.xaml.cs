@@ -449,7 +449,7 @@ namespace AnSAM
     {
         public string Title { get; set; }
         public int ID { get; set; }
-        public string? CoverPath
+        public Uri? CoverPath
         {
             get => _coverPath;
             set
@@ -462,7 +462,7 @@ namespace AnSAM
             }
         }
 
-        private string? _coverPath;
+        private Uri? _coverPath;
 
         public string? ExePath { get; set; }
         public string? Arguments { get; set; }
@@ -472,7 +472,7 @@ namespace AnSAM
 
         public GameItem(string title,
                          int id,
-                         string? coverPath = null,
+                         Uri? coverPath = null,
                          string? exePath = null,
                          string? arguments = null,
                          string? uriScheme = null)
@@ -507,18 +507,22 @@ namespace AnSAM
 
                 async Task LoadIconAsync()
                 {
-                    string? path = null;
+                    Uri? coverUri = null;
                     try
                     {
-                        if (Uri.TryCreate(app.CoverUrl, UriKind.Absolute, out var uri))
+                        if (Uri.TryCreate(app.CoverUrl, UriKind.Absolute, out var remoteUri))
                         {
-                            path = await IconCache.GetIconPathAsync(app.AppId, uri);
+                            var path = await IconCache.GetIconPathAsync(app.AppId, remoteUri);
 #if DEBUG
                             if (path != null)
                             {
                                 Debug.WriteLine($"Icon for {app.AppId} stored at {path}");
                             }
 #endif
+                            if (path != null && Uri.TryCreate(path, UriKind.Absolute, out var localUri))
+                            {
+                                coverUri = localUri;
+                            }
                         }
                     }
                     catch (Exception ex)
@@ -528,8 +532,15 @@ namespace AnSAM
 #endif
                     }
 
-                    path ??= "ms-appx:///Assets/StoreLogo.png";
-                    _ = dispatcher.TryEnqueue(() => item.CoverPath = path);
+                    coverUri ??= new Uri("ms-appx:///Assets/StoreLogo.png");
+                    if (dispatcher != null)
+                    {
+                        _ = dispatcher.TryEnqueue(() => item.CoverPath = coverUri);
+                    }
+                    else
+                    {
+                        item.CoverPath = coverUri;
+                    }
                 }
             }
             else
@@ -537,7 +548,7 @@ namespace AnSAM
 #if DEBUG
                 Debug.WriteLine($"No icon URL for {app.AppId}");
 #endif
-                item.CoverPath = "ms-appx:///Assets/StoreLogo.png";
+                item.CoverPath = new Uri("ms-appx:///Assets/StoreLogo.png");
             }
 
             return item;
