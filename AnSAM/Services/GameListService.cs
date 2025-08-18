@@ -158,6 +158,11 @@ namespace AnSAM.Services
             Games = parsed;
 #if DEBUG
             Debug.WriteLine($"Parsed {Games.Count} games from XML");
+            if (Games.Count > 0)
+            {
+                var sample = string.Join(", ", Games.Take(20).Select(g => g.Id));
+                Debug.WriteLine($"Sample game IDs: {sample}{(Games.Count > 20 ? ", ..." : string.Empty)}");
+            }
 #endif
         }
 

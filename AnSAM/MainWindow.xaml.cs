@@ -84,6 +84,11 @@ namespace AnSAM
 #if DEBUG
             Debug.WriteLine($"Steam API initialized: {steamReady}");
             Debug.WriteLine($"Game list loaded with {GameListService.Games.Count} entries");
+            if (GameListService.Games.Count > 0)
+            {
+                var sampleIds = string.Join(", ", GameListService.Games.Take(20).Select(g => g.Id));
+                Debug.WriteLine($"Sample parsed IDs: {sampleIds}{(GameListService.Games.Count > 20 ? ", ..." : string.Empty)}");
+            }
 #endif
             int total = 0, owned = 0;
             foreach (var game in GameListService.Games)
@@ -163,15 +168,30 @@ namespace AnSAM
                 ? _allGames
                 : _allGames.Where(g => g.Title.Contains(keyword, StringComparison.OrdinalIgnoreCase));
 
+            var list = filtered.ToList();
+#if DEBUG
+            Debug.WriteLine($"FilterGames('{keyword}') -> {list.Count} items");
+#endif
             Games.Clear();
-            foreach (var game in filtered)
+            int logged = 0;
+            foreach (var game in list)
             {
                 Games.Add(game);
+#if DEBUG
+                if (logged < 20)
+                {
+                    Debug.WriteLine($"Added game icon: {game.ID} - {game.Title}");
+                    logged++;
+                }
+#endif
             }
 
             StatusText.Text = $"Showing {Games.Count} of {_allGames.Count} games";
             StatusProgress.Value = 0;
             StatusExtra.Text = $"{Games.Count}/{_allGames.Count}";
+#if DEBUG
+            Debug.WriteLine($"Games collection now has {Games.Count} items displayed");
+#endif
         }
 
         private void OnGameListStatusChanged(string message)
@@ -250,6 +270,9 @@ namespace AnSAM
 
         public static GameItem FromSteamApp(SteamAppData app)
         {
+#if DEBUG
+            Debug.WriteLine($"Creating GameItem for {app.AppId} - {app.Title}");
+#endif
             var item = new GameItem(app.Title,
                                     app.AppId,
                                     null,
@@ -259,14 +282,32 @@ namespace AnSAM
 
             if (!string.IsNullOrEmpty(app.CoverUrl) && Uri.TryCreate(app.CoverUrl, UriKind.Absolute, out var uri))
             {
+#if DEBUG
+                Debug.WriteLine($"Queueing icon download for {app.AppId} from {uri}");
+#endif
                 _ = IconCache.GetIconPathAsync(app.AppId, uri).ContinueWith(t =>
                 {
                     if (t.Status == TaskStatus.RanToCompletion)
                     {
+#if DEBUG
+                        Debug.WriteLine($"Icon for {app.AppId} stored at {t.Result}");
+#endif
                         item.CoverPath = t.Result;
                     }
+#if DEBUG
+                    else if (t.IsFaulted)
+                    {
+                        Debug.WriteLine($"Icon download failed for {app.AppId}: {t.Exception?.GetBaseException().Message}");
+                    }
+#endif
                 });
             }
+#if DEBUG
+            else
+            {
+                Debug.WriteLine($"No icon URL for {app.AppId}");
+            }
+#endif
 
             return item;
         }
