@@ -276,6 +276,7 @@ namespace AnSAM
 
                     if (_allGames.Count > 0)
                     {
+                        SortAllGames();
                         FilterGames(null);
                         StatusText.Text = $"Loaded {_allGames.Count} games from cache";
                         await Task.Yield();
@@ -326,6 +327,7 @@ namespace AnSAM
             Debug.WriteLine($"Processed {total} games; owned {owned}; added {_allGames.Count}");
 #endif
 
+            SortAllGames();
             FilterGames(null);
 
             if (steamReady)
@@ -451,37 +453,45 @@ namespace AnSAM
             }
         }
 
+        private void SortAllGames()
+        {
+            _allGames.Sort((a, b) => string.Compare(a.Title, b.Title, StringComparison.OrdinalIgnoreCase));
+        }
+
         private void FilterGames(string? keyword)
         {
-            IEnumerable<GameItem> filtered = string.IsNullOrWhiteSpace(keyword)
-                ? _allGames
-                : _allGames.Where(g => g.Title.Contains(keyword, StringComparison.OrdinalIgnoreCase));
-
-            var list = filtered
-                .OrderBy(g => g.Title)
-                .ToList();
-#if DEBUG
-            Debug.WriteLine($"FilterGames('{keyword}') -> {list.Count} items");
-#endif
-            Games.Clear();
-            int logged = 0;
-            foreach (var game in list)
+            bool hasKeyword = !string.IsNullOrWhiteSpace(keyword);
+            int index = 0;
+            foreach (var game in _allGames)
             {
-                Games.Add(game);
-#if DEBUG
-                if (logged < 20)
+                if (hasKeyword && !game.Title.Contains(keyword, StringComparison.OrdinalIgnoreCase))
                 {
-                    Debug.WriteLine($"Added game icon: {game.ID} - {game.Title}");
-                    logged++;
+                    continue;
                 }
-#endif
+
+                while (index < Games.Count && !ReferenceEquals(Games[index], game))
+                {
+                    Games.RemoveAt(index);
+                }
+
+                if (index >= Games.Count)
+                {
+                    Games.Add(game);
+                }
+
+                index++;
+            }
+
+            while (Games.Count > index)
+            {
+                Games.RemoveAt(Games.Count - 1);
             }
 
             StatusText.Text = $"Showing {Games.Count} of {_allGames.Count} games";
             StatusProgress.Value = 0;
             StatusExtra.Text = $"{Games.Count}/{_allGames.Count}";
 #if DEBUG
-            Debug.WriteLine($"Games collection now has {Games.Count} items displayed");
+            Debug.WriteLine($"FilterGames('{keyword}') -> {Games.Count} items");
 #endif
         }
 
