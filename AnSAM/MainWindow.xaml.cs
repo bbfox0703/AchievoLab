@@ -61,7 +61,30 @@ namespace AnSAM
 
         private async void OnRefreshClicked(object sender, RoutedEventArgs e)
         {
-            await RefreshAsync();
+            try
+            {
+                await RefreshAsync();
+            }
+            catch (Exception ex)
+            {
+                StatusProgress.IsIndeterminate = false;
+                StatusProgress.Value = 0;
+                StatusExtra.Text = string.Empty;
+                StatusText.Text = "Refresh failed";
+
+                Debug.WriteLine(ex);
+
+                var dialog = new ContentDialog
+                {
+                    Title = "Refresh failed",
+                    Content = "Unable to refresh game list. Please try again.",
+                    CloseButtonText = "OK",
+                    XamlRoot = Content.XamlRoot
+                };
+
+                await dialog.ShowAsync();
+                StatusText.Text = "Ready";
+            }
         }
 
         private async Task RefreshAsync()
