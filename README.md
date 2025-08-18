@@ -1,12 +1,16 @@
 # SteamAchievementManagerX2
 
-Another Steam Achievement Manager (AnSAM) built with WinUI 3 and .NET 8.
+Another Steam Achievement Manager "SAM.Picker" built with WinUI 3 and .NET 8.
 
 ## Features
 - Wraps the Steamworks API directly via `steamclient64.dll` to query ownership and metadata for installed apps.
 - Downloads and caches the global game list used by SAM.
 - Fetches, caches and reuses cover icons for games.
 - Launches games through custom URI schemes, executables or Steam links.
+- Call SAM.Game under .\SAM folder.
+- Also can launch game from this UI by right click menu.
+- Because of Steamworks calls, it's Windows 64 bit only.
+- SAM.Game keep untouched
 
 ## Getting Started
 1. Install the [.NET 8 SDK](https://dotnet.microsoft.com/download).
@@ -33,3 +37,4 @@ dotnet test AnSAM.Tests/AnSAM.Tests.csproj
 
 ## License
 This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+Use origin SteamAchievementManager game data source, it's Zlib license.
