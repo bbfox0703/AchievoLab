@@ -259,6 +259,7 @@ namespace AnSAM
                 try
                 {
                     var doc = XDocument.Load(userGamesPath);
+                    var gamesById = GameListService.Games.ToDictionary(g => g.Id);
                     foreach (var node in doc.Root?.Elements("game") ?? Enumerable.Empty<XElement>())
                     {
                         if (!int.TryParse(node.Attribute("id")?.Value, out var id))
@@ -266,7 +267,7 @@ namespace AnSAM
                             continue;
                         }
 
-                        var game = GameListService.Games.FirstOrDefault(g => g.Id == id);
+                        gamesById.TryGetValue(id, out var game);
                         var title = string.IsNullOrEmpty(game.Name)
                             ? id.ToString(CultureInfo.InvariantCulture)
                             : game.Name;
