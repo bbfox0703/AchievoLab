@@ -38,6 +38,7 @@ namespace AnSAM
         private readonly SteamClient _steamClient;
 
         private bool _autoLoaded;
+        private ScrollViewer? _gamesScrollViewer;
 
         public MainWindow(SteamClient steamClient)
         {
@@ -97,6 +98,24 @@ namespace AnSAM
             if (_autoLoaded) return;
             _autoLoaded = true;
             await RefreshAsync();
+        }
+
+        private void OnWindowKeyDown(object sender, KeyRoutedEventArgs e)
+        {
+            if (e.Key != Windows.System.VirtualKey.PageDown && e.Key != Windows.System.VirtualKey.PageUp)
+                return;
+
+            var sv = _gamesScrollViewer ??= FindScrollViewer(GamesView);
+            if (sv == null)
+                return;
+
+            var delta = sv.ViewportHeight;
+            if (delta <= 0)
+                return;
+
+            var offset = sv.VerticalOffset + (e.Key == Windows.System.VirtualKey.PageDown ? delta : -delta);
+            sv.ChangeView(null, offset, null);
+            e.Handled = true;
         }
 
         private void GameCard_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
@@ -456,6 +475,21 @@ namespace AnSAM
                     StatusText.Text = $"Loaded {_allGames.Count} games";
                 }
             });
+        }
+
+        private static ScrollViewer? FindScrollViewer(DependencyObject root)
+        {
+            if (root is ScrollViewer sv)
+                return sv;
+
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+            {
+                var child = VisualTreeHelper.GetChild(root, i);
+                if (FindScrollViewer(child) is ScrollViewer result)
+                    return result;
+            }
+
+            return null;
         }
 
     }
