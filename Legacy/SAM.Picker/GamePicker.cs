@@ -386,7 +386,7 @@ namespace SAM.Picker
         private const int MaxLogoBytes = 4 * 1024 * 1024; // 4 MB
         private const int MaxLogoDimension = 1024; // px
 
-        private async System.Threading.Tasks.Task<(byte[] Data, string ContentType)> DownloadDataAsync(Uri uri)
+        private async System.Threading.Tasks.Task<(byte[] Data, string ContentType, Uri ResponseUri)> DownloadDataAsync(Uri uri)
         {
             HttpResponseMessage response = await this._HttpClient.SendAsync(new HttpRequestMessage(HttpMethod.Get, uri), HttpCompletionOption.ResponseHeadersRead);
 
@@ -395,7 +395,11 @@ namespace SAM.Picker
             {
                 response.Dispose();
                 var fallbackUri = new UriBuilder(uri) { Host = "shared.steamstatic.com" }.Uri;
-                response = await this._HttpClient.SendAsync(new HttpRequestMessage(HttpMethod.Get, fallbackUri), HttpCompletionOption.ResponseHeadersRead);
+#if DEBUG
+                Debug.WriteLine(_($"Falling back to {fallbackUri} for {uri}"));
+#endif
+                uri = fallbackUri;
+                response = await this._HttpClient.SendAsync(new HttpRequestMessage(HttpMethod.Get, uri), HttpCompletionOption.ResponseHeadersRead);
             }
 
             using (response)
@@ -416,7 +420,7 @@ namespace SAM.Picker
 
                 using var stream = await response.Content.ReadAsStreamAsync();
                 var data = ReadWithLimit(stream, MaxLogoBytes);
-                return (data, contentType);
+                return (data, contentType, response.RequestMessage!.RequestUri!);
             }
         }
 
@@ -712,7 +716,7 @@ namespace SAM.Picker
 
                 try
                 {
-                    var (data, contentType) = this.DownloadDataAsync(nonNullUri).GetAwaiter().GetResult();
+                    var (data, contentType, responseUri) = this.DownloadDataAsync(nonNullUri).GetAwaiter().GetResult();
                     if (contentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) == false)
                     {
                         throw new InvalidDataException("Invalid content type");
@@ -734,7 +738,7 @@ namespace SAM.Picker
 
                                 Bitmap bitmap = image.ResizeToFit(this._LogoImageList.ImageSize);
                                 e.Result = new LogoInfo(info.Id, bitmap);
-                                info.ImageUrl = url;
+                                info.ImageUrl = responseUri.ToString();
 
                                 if (this._UseIconCache == true && cacheFile != null)
                                 {
