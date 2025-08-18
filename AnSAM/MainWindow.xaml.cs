@@ -1,4 +1,6 @@
+using Microsoft.UI;
 using Microsoft.UI.Dispatching;
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -19,6 +21,7 @@ using System.Xml;
 using System.Xml.Linq;
 using AnSAM.Services;
 using AnSAM.Steam;
+using WinRT.Interop;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -33,6 +36,7 @@ namespace AnSAM
         public ObservableCollection<GameItem> Games { get; } = new();
         private readonly List<GameItem> _allGames = new();
         private readonly SteamClient _steamClient;
+        private readonly AppWindow _appWindow;
 
         private bool _autoLoaded;
 
@@ -40,6 +44,12 @@ namespace AnSAM
         {
             _steamClient = steamClient;
             InitializeComponent();
+
+            // Initialize AppWindow reference for title bar customization
+            var hwnd = WindowNative.GetWindowHandle(this);
+            var windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
+            _appWindow = AppWindow.GetFromWindowId(windowId);
+
             RefreshButton.IsEnabled = _steamClient.Initialized;
             if (!_steamClient.Initialized)
             {
@@ -49,12 +59,20 @@ namespace AnSAM
             GameListService.ProgressChanged += OnGameListProgressChanged;
             IconCache.ProgressChanged += OnIconProgressChanged;
             Activated += OnWindowActivated;
+
+            if (Content is FrameworkElement root)
+            {
+                root.ActualThemeChanged += Root_ActualThemeChanged;
+                ApplyTitleBarTheme(root.ActualTheme);
+            }
         }
         private void ApplyTheme(ElementTheme theme)
         {
             if (Content is FrameworkElement root)
             {
                 root.RequestedTheme = theme;
+                // Update title bar immediately when theme is changed via menu
+                ApplyTitleBarTheme(root.ActualTheme);
             }
             // ]i^sAC
             StatusText.Text = theme switch
@@ -73,6 +91,38 @@ namespace AnSAM
         private void Theme_Default_Click(object sender, RoutedEventArgs e) => ApplyTheme(ElementTheme.Default);
         private void Theme_Light_Click(object sender, RoutedEventArgs e) => ApplyTheme(ElementTheme.Light);
         private void Theme_Dark_Click(object sender, RoutedEventArgs e) => ApplyTheme(ElementTheme.Dark);
+
+        private void Root_ActualThemeChanged(FrameworkElement sender, object args)
+            => ApplyTitleBarTheme(sender.ActualTheme);
+
+        private void ApplyTitleBarTheme(ElementTheme theme)
+        {
+            var titleBar = _appWindow.TitleBar;
+            if (theme == ElementTheme.Default)
+            {
+                titleBar.ResetToDefault();
+                return;
+            }
+
+            var isDark = theme == ElementTheme.Dark;
+            var fg = isDark ? Colors.White : Colors.Black;
+            var hover = Windows.UI.Color.FromArgb(0x20, fg.R, fg.G, fg.B);
+            var pressed = Windows.UI.Color.FromArgb(0x40, fg.R, fg.G, fg.B);
+
+            titleBar.ForegroundColor = fg;
+            titleBar.BackgroundColor = Colors.Transparent;
+            titleBar.InactiveForegroundColor = fg;
+            titleBar.InactiveBackgroundColor = Colors.Transparent;
+
+            titleBar.ButtonForegroundColor = fg;
+            titleBar.ButtonBackgroundColor = Colors.Transparent;
+            titleBar.ButtonHoverForegroundColor = fg;
+            titleBar.ButtonHoverBackgroundColor = hover;
+            titleBar.ButtonPressedForegroundColor = fg;
+            titleBar.ButtonPressedBackgroundColor = pressed;
+            titleBar.ButtonInactiveForegroundColor = fg;
+            titleBar.ButtonInactiveBackgroundColor = Colors.Transparent;
+        }
 
         // ]i^b MainWindow() غcŪ^WܡG
         //if (Windows.Storage.ApplicationData.Current.LocalSettings.Values.TryGetValue("AppTheme", out var t)
