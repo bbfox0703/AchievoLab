@@ -19,6 +19,7 @@ namespace AnSAM.Services
         private static readonly HttpClient Http = new();
         private static readonly SemaphoreSlim Concurrency = new(4);
         private static readonly ConcurrentDictionary<string, Task<string>> InFlight = new();
+        private static readonly TimeSpan CacheDuration = TimeSpan.FromDays(30);
 
         private static int _totalRequests;
         private static int _completed;
@@ -57,11 +58,16 @@ namespace AnSAM.Services
 
             var path = Path.Combine(CacheDir, $"{id}{ext}");
             Interlocked.Increment(ref _totalRequests);
-            if (File.Exists(path))
+            if (IsCacheValid(path))
             {
                 Interlocked.Increment(ref _completed);
                 ReportProgress();
                 return Task.FromResult(path);
+            }
+
+            if (File.Exists(path))
+            {
+                try { File.Delete(path); } catch { }
             }
 
             return InFlight.GetOrAdd(path, _ => DownloadAsync(uri, path));
@@ -108,6 +114,12 @@ namespace AnSAM.Services
 #endif
                 }
 
+                if (!IsCacheValid(path))
+                {
+                    try { File.Delete(path); } catch { }
+                    throw new InvalidDataException("Invalid image file");
+                }
+
                 return path;
             }
             catch (Exception ex)
@@ -124,6 +136,47 @@ namespace AnSAM.Services
                 Interlocked.Increment(ref _completed);
                 ReportProgress();
             }
+        }
+
+        private static bool IsCacheValid(string path)
+        {
+            try
+            {
+                var info = new FileInfo(path);
+                if (!info.Exists || info.Length == 0)
+                {
+                    return false;
+                }
+
+                if (DateTime.UtcNow - info.LastWriteTimeUtc > CacheDuration)
+                {
+                    return false;
+                }
+
+                Span<byte> header = stackalloc byte[8];
+                using var fs = File.OpenRead(path);
+                int read = fs.Read(header);
+                if (read >= 4)
+                {
+                    if (header[0] == 0x89 && header[1] == 0x50 && header[2] == 0x4E && header[3] == 0x47)
+                    {
+                        return true; // PNG
+                    }
+                    if (header[0] == 0xFF && header[1] == 0xD8)
+                    {
+                        return true; // JPEG
+                    }
+                    if (header[0] == 0x47 && header[1] == 0x49 && header[2] == 0x46)
+                    {
+                        return true; // GIF
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            return false;
         }
 
         private static void ReportProgress()
