@@ -31,6 +31,16 @@
             <AppBarSeparator/>
             <AppBarButton Icon="Sync"   Label="Refresh" Click="OnRefreshClicked"/>
             <AppBarButton Icon="Remove"   Label="Clear Cache" Click="OnClearCacheClicked"/>
+            <!-- ▼ 主題切換下拉 -->
+            <AppBarButton Icon="Setting" Label="Theme">
+                <AppBarButton.Flyout>
+                    <MenuFlyout>
+                        <MenuFlyoutItem Text="Use system (Default)" Click="Theme_Default_Click"/>
+                        <MenuFlyoutItem Text="Light" Click="Theme_Light_Click"/>
+                        <MenuFlyoutItem Text="Dark" Click="Theme_Dark_Click"/>
+                    </MenuFlyout>
+                </AppBarButton.Flyout>
+            </AppBarButton>
         </CommandBar>
         <Grid Grid.Row="1" x:Name="CenterPanel"
       Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">

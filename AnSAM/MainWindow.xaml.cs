@@ -40,7 +40,35 @@ namespace AnSAM
             IconCache.ProgressChanged += OnIconProgressChanged;
             Activated += OnWindowActivated;
         }
+        private void ApplyTheme(ElementTheme theme)
+        {
+            if (Content is FrameworkElement root)
+            {
+                root.RequestedTheme = theme;
+            }
+            // （可選）更新狀態列提示
+            StatusText.Text = theme switch
+            {
+                ElementTheme.Default => "Theme: System default",
+                ElementTheme.Light => "Theme: Light",
+                ElementTheme.Dark => "Theme: Dark",
+                _ => "Theme: ?"
+            };
 
+            // （可選）持久化使用者選擇
+            //var settings = Windows.Storage.ApplicationData.Current.LocalSettings;
+            //settings.Values["AppTheme"] = theme.ToString();
+        }
+
+        private void Theme_Default_Click(object sender, RoutedEventArgs e) => ApplyTheme(ElementTheme.Default);
+        private void Theme_Light_Click(object sender, RoutedEventArgs e) => ApplyTheme(ElementTheme.Light);
+        private void Theme_Dark_Click(object sender, RoutedEventArgs e) => ApplyTheme(ElementTheme.Dark);
+
+        // （可選）在 MainWindow() 建構式讀回上次選擇：
+        //if (Windows.Storage.ApplicationData.Current.LocalSettings.Values.TryGetValue("AppTheme", out var t)
+        //    && Enum.TryParse<ElementTheme>(t?.ToString(), out var saved)) {
+        //    ApplyTheme(saved);
+        //}
         private async void OnWindowActivated(object sender, WindowActivatedEventArgs args)
         {
             if (_autoLoaded) return;
