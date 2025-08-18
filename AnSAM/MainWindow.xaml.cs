@@ -140,6 +140,9 @@ namespace AnSAM
                     var cached = await JsonSerializer.DeserializeAsync<List<SteamAppData>>(fs);
                     if (cached != null)
                     {
+#if DEBUG
+                        Debug.WriteLine($"Using cached owned games from {ownedPath}");
+#endif
                         foreach (var app in cached)
                         {
                             _allGames.Add(GameItem.FromSteamApp(app));
@@ -228,8 +231,32 @@ namespace AnSAM
 
         private void OnClearCacheClicked(object sender, RoutedEventArgs e)
         {
-            //TODO: Implement cache clearing logic
-            //StatusText.Text = "....";
+            try
+            {
+                var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AnSAM");
+                var iconDir = Path.Combine(baseDir, "appcache");
+                var cacheDir = Path.Combine(baseDir, "cache");
+                var gameListPath = Path.Combine(cacheDir, "games.xml");
+
+                if (Directory.Exists(iconDir))
+                {
+                    Directory.Delete(iconDir, true);
+                }
+
+                if (File.Exists(gameListPath))
+                {
+                    File.Delete(gameListPath);
+                }
+
+                StatusText.Text = "Cache cleared";
+            }
+            catch (Exception ex)
+            {
+#if DEBUG
+                Debug.WriteLine($"Failed to clear cache: {ex.Message}");
+#endif
+                StatusText.Text = "Failed to clear cache";
+            }
         }
 
         private void SearchBox_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
