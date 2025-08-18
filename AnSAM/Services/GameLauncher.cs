@@ -55,7 +55,7 @@ namespace AnSAM.Services
                 return;
             }
 
-            var samGame = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "SAM.Game.exe");
+            var samGame = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, ".\\SAM\\SAM.Game.exe");
             TryStart(samGame, item.ID.ToString(CultureInfo.InvariantCulture));
         }
 
