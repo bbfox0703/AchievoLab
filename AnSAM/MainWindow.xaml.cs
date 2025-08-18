@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using System.IO;
 using System.Net.Http;
 using System.Diagnostics;
+using System.Globalization;
 using System.Text.Json;
 using AnSAM.Services;
 using AnSAM.Steam;
@@ -46,7 +47,7 @@ namespace AnSAM
             {
                 root.RequestedTheme = theme;
             }
-            // ¡]¥i¿ï¡^§ó·sª¬ºA¦C´£¥Ü
+            // ï¼ˆå¯é¸ï¼‰æ›´æ–°ç‹€æ…‹åˆ—æç¤º
             StatusText.Text = theme switch
             {
                 ElementTheme.Default => "Theme: System default",
@@ -55,16 +56,47 @@ namespace AnSAM
                 _ => "Theme: ?"
             };
 
-            // ¡]¥i¿ï¡^«ù¤[¤Æ¨Ï¥ÎªÌ¿ï¾Ü
-            //var settings = Windows.Storage.ApplicationData.Current.LocalSettings;
-            //settings.Values["AppTheme"] = theme.ToString();
+        private async void GameCard_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+                StatusText.Text = $"Launching SAM.Game for {game.Title}...";
+
+                var exePath = Path.Combine(AppContext.BaseDirectory, "SAM.Game.exe");
+                if (!File.Exists(exePath))
+                {
+                    var dialog = new ContentDialog
+                    {
+                        Title = "Error",
+                        Content = "SAM.Game.exe is missing.",
+                        CloseButtonText = "OK",
+                        XamlRoot = Content.XamlRoot
+                    };
+                    await dialog.ShowAsync();
+                }
+                else
+                {
+                    try
+                    {
+                        Process.Start(exePath, game.ID.ToString(CultureInfo.InvariantCulture));
+                    }
+                    catch (Exception)
+                    {
+                        var dialog = new ContentDialog
+                        {
+                            Title = "Error",
+                            Content = "Failed to start SAM.Game.exe.",
+                            CloseButtonText = "OK",
+                            XamlRoot = Content.XamlRoot
+                        };
+                        await dialog.ShowAsync();
+                    }
+                }
+
         }
 
         private void Theme_Default_Click(object sender, RoutedEventArgs e) => ApplyTheme(ElementTheme.Default);
         private void Theme_Light_Click(object sender, RoutedEventArgs e) => ApplyTheme(ElementTheme.Light);
         private void Theme_Dark_Click(object sender, RoutedEventArgs e) => ApplyTheme(ElementTheme.Dark);
 
-        // ¡]¥i¿ï¡^¦b MainWindow() «Øºc¦¡Åª¦^¤W¦¸¿ï¾Ü¡G
+        // ï¼ˆå¯é¸ï¼‰åœ¨ MainWindow() å»ºæ§‹å¼è®€å›ä¸Šæ¬¡é¸æ“‡ï¼š
         //if (Windows.Storage.ApplicationData.Current.LocalSettings.Values.TryGetValue("AppTheme", out var t)
         //    && Enum.TryParse<ElementTheme>(t?.ToString(), out var saved)) {
         //    ApplyTheme(saved);
