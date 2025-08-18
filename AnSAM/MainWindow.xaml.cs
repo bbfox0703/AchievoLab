@@ -35,6 +35,11 @@ namespace AnSAM
         {
             _steamClient = steamClient;
             InitializeComponent();
+            RefreshButton.IsEnabled = _steamClient.Initialized;
+            if (!_steamClient.Initialized)
+            {
+                StatusText.Text = "Steam unavailable";
+            }
             GameListService.StatusChanged += OnGameListStatusChanged;
             GameListService.ProgressChanged += OnGameListProgressChanged;
             IconCache.ProgressChanged += OnIconProgressChanged;
@@ -150,6 +155,26 @@ namespace AnSAM
 
         private async Task RefreshAsync()
         {
+            if (!_steamClient.Initialized)
+            {
+                StatusProgress.IsIndeterminate = false;
+                StatusProgress.Value = 0;
+                StatusExtra.Text = string.Empty;
+                StatusText.Text = "Steam unavailable";
+
+                var dialog = new ContentDialog
+                {
+                    Title = "Steam unavailable",
+                    Content = "Unable to refresh because Steam is not available.",
+                    CloseButtonText = "OK",
+                    XamlRoot = Content.XamlRoot
+                };
+
+                await dialog.ShowAsync();
+                RefreshButton.IsEnabled = false;
+                return;
+            }
+
             StatusText.Text = "Refresh";
             StatusProgress.Value = 0;
             StatusExtra.Text = "0%";
