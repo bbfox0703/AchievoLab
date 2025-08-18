@@ -176,16 +176,37 @@ namespace AnSAM.Steam
 #endif
                 return null;
             }
-            var sb = new StringBuilder(4096);
-            int len = _getAppData(_apps001, id, key, sb, sb.Capacity);
-#if DEBUG
-            if (_loggedAppData < 20)
+            const int bufferSize = 4096;
+            IntPtr buffer = Marshal.AllocHGlobal(bufferSize);
+            try
             {
-                Debug.WriteLine($"GetAppData({id}, '{key}') => {(len > 0 ? sb.ToString() : "<null>")}");
-                _loggedAppData++;
-            }
+                int len = _getAppData(_apps001, id, key, buffer, bufferSize);
+                if (len <= 0)
+                {
+                    return null;
+                }
+
+                var bytes = new byte[len];
+                Marshal.Copy(buffer, bytes, 0, len);
+                int terminator = Array.IndexOf<byte>(bytes, 0);
+                if (terminator >= 0)
+                {
+                    len = terminator;
+                }
+                string result = Encoding.UTF8.GetString(bytes, 0, len);
+#if DEBUG
+                if (_loggedAppData < 20)
+                {
+                    Debug.WriteLine($"GetAppData({id}, '{key}') => {result}");
+                    _loggedAppData++;
+                }
 #endif
-            return len > 0 ? sb.ToString() : null;
+                return result;
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(buffer);
+            }
         }
 
         private void PumpCallbacks()
@@ -309,7 +330,7 @@ namespace AnSAM.Steam
         private delegate int GetAppDataDelegate(IntPtr self,
                                                 uint appId,
                                                 [MarshalAs(UnmanagedType.LPStr)] string key,
-                                                StringBuilder value,
+                                                IntPtr value,
                                                 int valueBufferSize);
     }
 }

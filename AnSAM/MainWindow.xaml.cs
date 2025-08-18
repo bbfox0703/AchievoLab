@@ -96,6 +96,7 @@ namespace AnSAM
                 total++;
                 uint appId = (uint)game.Id;
                 string title = game.Name;
+                string? coverUrl = null;
                 if (steamReady)
                 {
                     if (!_steamClient.IsSubscribedApp(appId))
@@ -104,8 +105,9 @@ namespace AnSAM
                     }
                     owned++;
                     title = _steamClient.GetAppData(appId, "name") ?? title;
+                    coverUrl = BuildLogoUrl(appId, _steamClient.GetAppData(appId, "logo"));
                 }
-                var data = new SteamAppData(game.Id, title);
+                var data = new SteamAppData(game.Id, title, coverUrl);
                 _allGames.Add(GameItem.FromSteamApp(data));
             }
 #if DEBUG
@@ -226,6 +228,20 @@ namespace AnSAM
             });
         }
 
+        private static string? BuildLogoUrl(uint appId, string? candidate)
+        {
+            if (string.IsNullOrEmpty(candidate))
+                return null;
+
+            var safe = Path.GetFileName(candidate);
+            if (safe.IndexOf("..", StringComparison.Ordinal) >= 0 || safe.Contains(':'))
+                return null;
+            if (Uri.TryCreate(candidate, UriKind.Absolute, out var uri) && !string.IsNullOrEmpty(uri.Scheme))
+                return null;
+
+            return $"https://cdn.steamstatic.com/steamcommunity/public/images/apps/{appId}/{safe}.jpg";
+        }
+
     }
 
     public class GameItem : System.ComponentModel.INotifyPropertyChanged
@@ -302,12 +318,13 @@ namespace AnSAM
 #endif
                 });
             }
-#if DEBUG
             else
             {
+#if DEBUG
                 Debug.WriteLine($"No icon URL for {app.AppId}");
-            }
 #endif
+                item.CoverPath = "ms-appx:///Assets/StoreLogo.png";
+            }
 
             return item;
         }
