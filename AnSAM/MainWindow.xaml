@@ -68,7 +68,7 @@
                                     <MenuFlyoutItem Text="Launch Game" Click="OnLaunchGameClicked"/>
                                 </MenuFlyout>
                             </StackPanel.ContextFlyout>
-                            <Border Height="200" CornerRadius="8"
+                            <Border Height="180" CornerRadius="8"
                             Background="{ThemeResource SystemFillColorSolidNeutralBackgroundBrush}" HorizontalAlignment="Center">
                                 <Image Source="{x:Bind CoverImage, Mode=OneWay}" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
