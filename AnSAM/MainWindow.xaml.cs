@@ -383,7 +383,9 @@ namespace AnSAM
                 ? _allGames
                 : _allGames.Where(g => g.Title.Contains(keyword, StringComparison.OrdinalIgnoreCase));
 
-            var list = filtered.ToList();
+            var list = filtered
+                .OrderBy(g => g.Title)
+                .ToList();
 #if DEBUG
             Debug.WriteLine($"FilterGames('{keyword}') -> {list.Count} items");
 #endif

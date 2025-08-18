@@ -74,7 +74,9 @@
                             </Border>
                             <TextBlock Text="{x:Bind Title, Mode=OneWay}"
                                Margin="0,8,0,0"
-                               TextTrimming="CharacterEllipsis"/>
+                               TextWrapping="Wrap"
+                               TextTrimming="CharacterEllipsis"
+                               MaxLines="3"/>
                         </StackPanel>
                     </DataTemplate>
                 </GridView.ItemTemplate>
