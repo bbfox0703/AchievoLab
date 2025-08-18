@@ -39,7 +39,7 @@ namespace AnSAM.Services
 
         /// <summary>
         /// Raised whenever icon download progress changes. Parameters are the
-        /// number of completed downloads and the total number of requested icons.
+        /// number of completed downloads and the total number of initiated downloads.
         /// </summary>
         public static event Action<int, int>? ProgressChanged;
 
@@ -64,7 +64,6 @@ namespace AnSAM.Services
             Directory.CreateDirectory(CacheDir);
 
             var basePath = Path.Combine(CacheDir, id.ToString());
-            Interlocked.Increment(ref _totalRequests);
 
             if (InFlight.TryGetValue(basePath, out var existing))
             {
@@ -78,8 +77,6 @@ namespace AnSAM.Services
 #if DEBUG
                     Debug.WriteLine($"Using cached icon for {id} at {file}");
 #endif
-                    Interlocked.Increment(ref _completed);
-                    ReportProgress();
                     return Task.FromResult(new IconPathResult(file, false));
                 }
 
@@ -92,7 +89,12 @@ namespace AnSAM.Services
                 ext = ".jpg";
             }
 
-            return InFlight.GetOrAdd(basePath, _ => DownloadAsync(uri, basePath, ext));
+            return InFlight.GetOrAdd(basePath, _ =>
+            {
+                Interlocked.Increment(ref _totalRequests);
+                ReportProgress();
+                return DownloadAsync(uri, basePath, ext);
+            });
         }
 
         public static async Task<IconPathResult?> GetIconPathAsync(int id, IEnumerable<string> uris)

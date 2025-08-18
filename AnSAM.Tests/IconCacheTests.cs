@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Net;
+using System.Net.Sockets;
 using System.Threading.Tasks;
 using AnSAM.Services;
 using Xunit;
@@ -32,5 +34,64 @@ public class IconCacheTests
         Assert.Equal(path, result.Path);
         Assert.False(result.Downloaded);
         try { File.Delete(path); } catch { }
+}
+
+    [Fact]
+    public async Task ProgressReportsDownloadsOnly()
+    {
+        IconCache.ResetProgress();
+        var events = new List<(int completed, int total)>();
+        void Handler(int c, int t) => events.Add((c, t));
+        IconCache.ProgressChanged += Handler;
+        try
+        {
+            var cacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AnSAM", "appcache");
+            Directory.CreateDirectory(cacheDir);
+
+            var cachedId = Random.Shared.Next(200001, 300000);
+            foreach (var file in Directory.EnumerateFiles(cacheDir, $"{cachedId}.*"))
+            {
+                try { File.Delete(file); } catch { }
+            }
+            var cachedPath = Path.Combine(cacheDir, $"{cachedId}.png");
+            await File.WriteAllBytesAsync(cachedPath, new byte[] { 0x89, 0x50, 0x4E, 0x47, 0, 0, 0, 0 });
+            await IconCache.GetIconPathAsync(cachedId, new Uri($"http://example.invalid/{cachedId}.png"));
+
+            int port;
+            using (var l = new TcpListener(IPAddress.Loopback, 0))
+            {
+                l.Start();
+                port = ((IPEndPoint)l.LocalEndpoint).Port;
+            }
+            var prefix = $"http://localhost:{port}/";
+            using var listener = new HttpListener();
+            listener.Prefixes.Add(prefix);
+            listener.Start();
+            var serverTask = Task.Run(async () =>
+            {
+                var ctx = await listener.GetContextAsync();
+                var data = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0, 0, 0, 0 };
+                ctx.Response.ContentType = "image/png";
+                ctx.Response.ContentLength64 = data.Length;
+                await ctx.Response.OutputStream.WriteAsync(data);
+                ctx.Response.Close();
+                listener.Stop();
+            });
+
+            var downloadId = cachedId + 1;
+            foreach (var file in Directory.EnumerateFiles(cacheDir, $"{downloadId}.*"))
+            {
+                try { File.Delete(file); } catch { }
+            }
+            var result = await IconCache.GetIconPathAsync(downloadId, new Uri(prefix + "icon.png"));
+            await serverTask;
+            Assert.True(result.Downloaded);
+        }
+        finally
+        {
+            IconCache.ProgressChanged -= Handler;
+        }
+
+        Assert.Equal(new (int completed, int total)[] { (0, 1), (1, 1) }, events.ToArray());
     }
 }
