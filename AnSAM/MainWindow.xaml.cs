@@ -46,7 +46,7 @@ namespace AnSAM
             {
                 root.RequestedTheme = theme;
             }
-            // （可選）更新狀態列提示
+            // ]i^sAC
             StatusText.Text = theme switch
             {
                 ElementTheme.Default => "Theme: System default",
@@ -55,7 +55,7 @@ namespace AnSAM
                 _ => "Theme: ?"
             };
 
-            // （可選）持久化使用者選擇
+            // ]i^[い洏峈抰
             //var settings = Windows.Storage.ApplicationData.Current.LocalSettings;
             //settings.Values["AppTheme"] = theme.ToString();
         }
@@ -64,7 +64,7 @@ namespace AnSAM
         private void Theme_Light_Click(object sender, RoutedEventArgs e) => ApplyTheme(ElementTheme.Light);
         private void Theme_Dark_Click(object sender, RoutedEventArgs e) => ApplyTheme(ElementTheme.Dark);
 
-        // （可選）在 MainWindow() 建構式讀回上次選擇：
+        // ]i^b MainWindow() 媞c讀^W隉G
         //if (Windows.Storage.ApplicationData.Current.LocalSettings.Values.TryGetValue("AppTheme", out var t)
         //    && Enum.TryParse<ElementTheme>(t?.ToString(), out var saved)) {
         //    ApplyTheme(saved);
@@ -80,13 +80,44 @@ namespace AnSAM
         {
             if (sender is FrameworkElement element && element.DataContext is GameItem game)
             {
-                StatusText.Text = $"Launching {game.Title}...";
-                StatusProgress.IsIndeterminate = true;
-                StatusExtra.Text = string.Empty;
-                GameLauncher.Launch(game);
-                StatusProgress.IsIndeterminate = false;
-                StatusText.Text = "Ready";
+                StartSamGame(game);
             }
+        }
+
+        private void OnLaunchSamGameClicked(object sender, RoutedEventArgs e)
+        {
+            if (sender is FrameworkElement element && element.DataContext is GameItem game)
+            {
+                StartSamGame(game);
+            }
+        }
+
+        private void OnLaunchGameClicked(object sender, RoutedEventArgs e)
+        {
+            if (sender is FrameworkElement element && element.DataContext is GameItem game)
+            {
+                StartGame(game);
+            }
+        }
+
+        private void StartSamGame(GameItem game)
+        {
+            StatusText.Text = $"Launching SAM.Game for {game.Title}...";
+            StatusProgress.IsIndeterminate = true;
+            StatusExtra.Text = string.Empty;
+            GameLauncher.LaunchSamGame(game);
+            StatusProgress.IsIndeterminate = false;
+            StatusText.Text = "Ready";
+        }
+
+        private void StartGame(GameItem game)
+        {
+            StatusText.Text = $"Launching {game.Title}...";
+            StatusProgress.IsIndeterminate = true;
+            StatusExtra.Text = string.Empty;
+            GameLauncher.Launch(game);
+            StatusProgress.IsIndeterminate = false;
+            StatusText.Text = "Ready";
         }
 
         private async void OnRefreshClicked(object sender, RoutedEventArgs e)

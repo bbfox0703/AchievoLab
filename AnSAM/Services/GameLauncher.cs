@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO;
 
 namespace AnSAM.Services
 {
@@ -41,6 +42,21 @@ namespace AnSAM.Services
             // Fallback to Steam run URL
             var steamUri = $"steam://run/{item.ID.ToString(CultureInfo.InvariantCulture)}";
             TryStart(steamUri);
+        }
+
+        /// <summary>
+        /// Launches SAM.Game.exe for the given <see cref="GameItem"/>.
+        /// </summary>
+        /// <param name="item">Game item containing launch information.</param>
+        public static void LaunchSamGame(GameItem item)
+        {
+            if (item == null)
+            {
+                return;
+            }
+
+            var samGame = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "SAM.Game.exe");
+            TryStart(samGame, item.ID.ToString(CultureInfo.InvariantCulture));
         }
 
         private static bool TryStart(string fileName, string? arguments = null)
