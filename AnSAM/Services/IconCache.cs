@@ -20,6 +20,14 @@ namespace AnSAM.Services
         private static readonly SemaphoreSlim Concurrency = new(4);
         private static readonly ConcurrentDictionary<string, Task<string>> InFlight = new();
         private static readonly TimeSpan CacheDuration = TimeSpan.FromDays(30);
+        private static readonly Dictionary<string, string> MimeToExtension = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["image/jpeg"] = ".jpg",
+            ["image/jpg"] = ".jpg",
+            ["image/png"] = ".png",
+            ["image/gif"] = ".gif",
+            ["image/webp"] = ".webp",
+        };
 
         private static int _totalRequests;
         private static int _completed;
@@ -50,30 +58,36 @@ namespace AnSAM.Services
         {
             Directory.CreateDirectory(CacheDir);
 
+            var basePath = Path.Combine(CacheDir, id.ToString());
+            Interlocked.Increment(ref _totalRequests);
+
+            if (InFlight.TryGetValue(basePath, out var existing))
+            {
+                return existing;
+            }
+
+            foreach (var file in Directory.EnumerateFiles(CacheDir, $"{id}.*"))
+            {
+                if (IsCacheValid(file))
+                {
+#if DEBUG
+                    Debug.WriteLine($"Using cached icon for {id} at {file}");
+#endif
+                    Interlocked.Increment(ref _completed);
+                    ReportProgress();
+                    return Task.FromResult(file);
+                }
+
+                try { File.Delete(file); } catch { }
+            }
+
             var ext = Path.GetExtension(uri.AbsolutePath);
             if (string.IsNullOrEmpty(ext))
             {
                 ext = ".jpg";
             }
 
-            var path = Path.Combine(CacheDir, $"{id}{ext}");
-            Interlocked.Increment(ref _totalRequests);
-            if (IsCacheValid(path))
-            {
-#if DEBUG
-                Debug.WriteLine($"Using cached icon for {id} at {path}");
-#endif
-                Interlocked.Increment(ref _completed);
-                ReportProgress();
-                return Task.FromResult(path);
-            }
-
-            if (File.Exists(path))
-            {
-                try { File.Delete(path); } catch { }
-            }
-
-            return InFlight.GetOrAdd(path, _ => DownloadAsync(uri, path));
+            return InFlight.GetOrAdd(basePath, _ => DownloadAsync(uri, basePath, ext));
         }
 
         public static async Task<string?> GetIconPathAsync(int id, IEnumerable<string> uris)
@@ -98,23 +112,28 @@ namespace AnSAM.Services
             return null;
         }
 
-        private static async Task<string> DownloadAsync(Uri uri, string path)
+        private static async Task<string> DownloadAsync(Uri uri, string basePath, string defaultExt)
         {
             await Concurrency.WaitAsync().ConfigureAwait(false);
             try
             {
-                if (!File.Exists(path))
+                using var response = await Http.GetAsync(uri).ConfigureAwait(false);
+                response.EnsureSuccessStatusCode();
+
+                var mediaType = response.Content.Headers.ContentType?.MediaType;
+                var ext = defaultExt;
+                if (!string.IsNullOrWhiteSpace(mediaType) && MimeToExtension.TryGetValue(mediaType, out var mapped))
                 {
+                    ext = mapped;
+                }
+
+                var path = basePath + ext;
 #if DEBUG
-                    Debug.WriteLine($"Downloading icon {uri} -> {path}");
+                Debug.WriteLine($"Downloading icon {uri} -> {path}");
 #endif
-                    using var response = await Http.GetAsync(uri).ConfigureAwait(false);
-                    response.EnsureSuccessStatusCode();
-                    await using var fs = File.Create(path);
+                await using (var fs = File.Create(path))
+                {
                     await response.Content.CopyToAsync(fs).ConfigureAwait(false);
-#if DEBUG
-                    Debug.WriteLine($"Icon downloaded to {path}");
-#endif
                 }
 
                 if (!IsCacheValid(path))
@@ -135,7 +154,7 @@ namespace AnSAM.Services
             finally
             {
                 Concurrency.Release();
-                InFlight.TryRemove(path, out _);
+                InFlight.TryRemove(basePath, out _);
                 Interlocked.Increment(ref _completed);
                 ReportProgress();
             }
@@ -156,7 +175,7 @@ namespace AnSAM.Services
                     return false;
                 }
 
-                Span<byte> header = stackalloc byte[8];
+                Span<byte> header = stackalloc byte[12];
                 using var fs = File.OpenRead(path);
                 int read = fs.Read(header);
                 if (read >= 4)
@@ -172,6 +191,11 @@ namespace AnSAM.Services
                     if (header[0] == 0x47 && header[1] == 0x49 && header[2] == 0x46)
                     {
                         return true; // GIF
+                    }
+                    if (read >= 12 && header[0] == 0x52 && header[1] == 0x49 && header[2] == 0x46 && header[3] == 0x46 &&
+                        header[8] == 0x57 && header[9] == 0x45 && header[10] == 0x42 && header[11] == 0x50)
+                    {
+                        return true; // WEBP
                     }
                 }
             }
