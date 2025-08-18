@@ -409,13 +409,27 @@ namespace AnSAM
             if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput)
             {
                 var keyword = sender.Text.Trim();
-                var matches = string.IsNullOrWhiteSpace(keyword)
-                    ? new List<string>()
-                    : Games.Where(g => g.Title.Contains(keyword, StringComparison.OrdinalIgnoreCase))
-                           .Select(g => g.Title)
-                           .Distinct()
-                           .Take(10)
-                           .ToList();
+                List<string> matches;
+                if (string.IsNullOrWhiteSpace(keyword))
+                {
+                    matches = new List<string>();
+                }
+                else
+                {
+                    var titles = new HashSet<string>();
+                    matches = new List<string>();
+                    foreach (var game in Games)
+                    {
+                        if (game.Title.Contains(keyword, StringComparison.OrdinalIgnoreCase) && titles.Add(game.Title))
+                        {
+                            matches.Add(game.Title);
+                            if (matches.Count == 10)
+                            {
+                                break;
+                            }
+                        }
+                    }
+                }
                 sender.ItemsSource = matches;
             }
         }
