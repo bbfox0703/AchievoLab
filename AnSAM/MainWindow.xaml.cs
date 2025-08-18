@@ -12,6 +12,9 @@ using System.IO;
 using System.Net.Http;
 using System.Diagnostics;
 using System.Text.Json;
+using System.Globalization;
+using System.Xml;
+using System.Xml.Linq;
 using AnSAM.Services;
 using AnSAM.Steam;
 
@@ -160,6 +163,7 @@ namespace AnSAM
             Directory.CreateDirectory(baseDir);
             var cacheDir = Path.Combine(baseDir, "cache");
             var ownedPath = Path.Combine(baseDir, "owned.json");
+            var userGamesPath = Path.Combine(cacheDir, "usergames.xml");
 
             Games.Clear();
             _allGames.Clear();
@@ -192,6 +196,40 @@ namespace AnSAM
 
             using var http = new HttpClient();
             await GameListService.LoadAsync(cacheDir, http);
+
+            if (_allGames.Count == 0 && File.Exists(userGamesPath))
+            {
+                try
+                {
+                    var doc = XDocument.Load(userGamesPath);
+                    foreach (var node in doc.Root?.Elements("game") ?? Enumerable.Empty<XElement>())
+                    {
+                        if (!int.TryParse(node.Attribute("id")?.Value, out var id))
+                        {
+                            continue;
+                        }
+
+                        var game = GameListService.Games.FirstOrDefault(g => g.Id == id);
+                        var title = string.IsNullOrEmpty(game.Name)
+                            ? id.ToString(CultureInfo.InvariantCulture)
+                            : game.Name;
+                        _allGames.Add(GameItem.FromSteamApp(new SteamAppData(id, title, null)));
+                    }
+
+                    if (_allGames.Count > 0)
+                    {
+                        FilterGames(null);
+                        StatusText.Text = $"Loaded {_allGames.Count} games from cache";
+                        await Task.Yield();
+                    }
+                }
+                catch (Exception ex)
+                {
+#if DEBUG
+                    Debug.WriteLine($"Failed to load user games cache: {ex.GetBaseException().Message}");
+#endif
+                }
+            }
 
             Games.Clear();
             _allGames.Clear();
@@ -251,6 +289,38 @@ namespace AnSAM
                 {
 #if DEBUG
                     Debug.WriteLine($"Failed to save owned cache: {ex.GetBaseException().Message}");
+#endif
+                }
+
+                try
+                {
+                    Directory.CreateDirectory(cacheDir);
+                    var tempPath = userGamesPath + ".tmp";
+                    using (var writer = XmlWriter.Create(tempPath, new XmlWriterSettings { Indent = true, Encoding = Encoding.UTF8 }))
+                    {
+                        writer.WriteStartElement("games");
+                        foreach (var id in _allGames.Select(g => g.ID).Distinct().OrderBy(i => i))
+                        {
+                            writer.WriteStartElement("game");
+                            writer.WriteAttributeString("id", id.ToString(CultureInfo.InvariantCulture));
+                            writer.WriteEndElement();
+                        }
+                        writer.WriteEndElement();
+                    }
+
+                    if (File.Exists(userGamesPath))
+                    {
+                        File.Replace(tempPath, userGamesPath, null);
+                    }
+                    else
+                    {
+                        File.Move(tempPath, userGamesPath);
+                    }
+                }
+                catch (Exception ex)
+                {
+#if DEBUG
+                    Debug.WriteLine($"Failed to save user games cache: {ex.GetBaseException().Message}");
 #endif
                 }
             }
