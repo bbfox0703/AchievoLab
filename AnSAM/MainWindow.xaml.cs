@@ -105,7 +105,10 @@ namespace AnSAM
                     }
                     owned++;
                     title = _steamClient.GetAppData(appId, "name") ?? title;
-                    coverUrl = BuildLogoUrl(appId, _steamClient.GetAppData(appId, "logo"));
+                    coverUrl = GameImageUrlResolver.GetGameImageUrl(
+                        (id, key) => _steamClient.GetAppData(id, key),
+                        appId,
+                        "english");
                 }
                 var data = new SteamAppData(game.Id, title, coverUrl);
                 _allGames.Add(GameItem.FromSteamApp(data));
@@ -228,20 +231,6 @@ namespace AnSAM
             });
         }
 
-        private static string? BuildLogoUrl(uint appId, string? candidate)
-        {
-            if (string.IsNullOrEmpty(candidate))
-                return null;
-
-            var safe = Path.GetFileName(candidate);
-            if (safe.IndexOf("..", StringComparison.Ordinal) >= 0 || safe.Contains(':'))
-                return null;
-            if (Uri.TryCreate(candidate, UriKind.Absolute, out var uri) && !string.IsNullOrEmpty(uri.Scheme))
-                return null;
-
-            return $"https://cdn.steamstatic.com/steamcommunity/public/images/apps/{appId}/{safe}.jpg";
-        }
-
     }
 
     public class GameItem : System.ComponentModel.INotifyPropertyChanged
@@ -314,6 +303,7 @@ namespace AnSAM
                     else if (t.IsFaulted)
                     {
                         Debug.WriteLine($"Icon download failed for {app.AppId}: {t.Exception?.GetBaseException().Message}");
+                        item.CoverPath = "ms-appx:///Assets/StoreLogo.png";
                     }
 #endif
                 });

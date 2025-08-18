@@ -87,6 +87,13 @@ namespace AnSAM.Services
 
                 return path;
             }
+            catch (Exception ex)
+            {
+#if DEBUG
+                Debug.WriteLine($"Icon download failed: {ex.Message}");
+#endif
+                throw;
+            }
             finally
             {
                 Concurrency.Release();
