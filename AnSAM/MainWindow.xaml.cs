@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using System.IO;
 using System.Net.Http;
 using System.Diagnostics;
+using System.Text.Json;
 using AnSAM.Services;
 using AnSAM.Steam;
 
@@ -94,15 +95,44 @@ namespace AnSAM
             StatusProgress.Value = 0;
             StatusExtra.Text = "0%";
 
-            Games.Clear();
-            _allGames.Clear();
             IconCache.ResetProgress();
 
-            using var http = new HttpClient();
             var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AnSAM");
+            Directory.CreateDirectory(baseDir);
             var cacheDir = Path.Combine(baseDir, "cache");
+            var ownedPath = Path.Combine(baseDir, "owned.json");
 
+            Games.Clear();
+            _allGames.Clear();
+            if (File.Exists(ownedPath))
+            {
+                try
+                {
+                    await using var fs = File.OpenRead(ownedPath);
+                    var cached = await JsonSerializer.DeserializeAsync<List<SteamAppData>>(fs);
+                    if (cached != null)
+                    {
+                        foreach (var app in cached)
+                        {
+                            _allGames.Add(GameItem.FromSteamApp(app));
+                        }
+                        FilterGames(null);
+                        StatusText.Text = $"Loaded {_allGames.Count} games from cache";
+                    }
+                }
+                catch (Exception ex)
+                {
+#if DEBUG
+                    Debug.WriteLine($"Failed to load owned cache: {ex.GetBaseException().Message}");
+#endif
+                }
+            }
+
+            using var http = new HttpClient();
             await GameListService.LoadAsync(cacheDir, http);
+
+            Games.Clear();
+            _allGames.Clear();
 
             bool steamReady = _steamClient.Initialized;
 #if DEBUG
@@ -115,6 +145,7 @@ namespace AnSAM
             }
 #endif
             int total = 0, owned = 0;
+            var ownedApps = new List<SteamAppData>();
             foreach (var game in GameListService.Games)
             {
                 total++;
@@ -136,12 +167,32 @@ namespace AnSAM
                 }
                 var data = new SteamAppData(game.Id, title, coverUrls);
                 _allGames.Add(GameItem.FromSteamApp(data));
+                if (steamReady)
+                {
+                    ownedApps.Add(data);
+                }
             }
 #if DEBUG
             Debug.WriteLine($"Processed {total} games; owned {owned}; added {_allGames.Count}");
 #endif
 
             FilterGames(null);
+
+            if (steamReady)
+            {
+                try
+                {
+                    await using var fs = File.Create(ownedPath);
+                    await JsonSerializer.SerializeAsync(fs, ownedApps);
+                }
+                catch (Exception ex)
+                {
+#if DEBUG
+                    Debug.WriteLine($"Failed to save owned cache: {ex.GetBaseException().Message}");
+#endif
+                }
+            }
+
             StatusText.Text = steamReady
                 ? $"Loaded {_allGames.Count} games"
                 : $"Steam unavailable - showing {_allGames.Count} games";
