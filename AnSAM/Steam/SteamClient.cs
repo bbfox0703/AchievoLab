@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
@@ -177,35 +178,41 @@ namespace AnSAM.Steam
                 return null;
             }
             const int bufferSize = 4096;
-            IntPtr buffer = Marshal.AllocHGlobal(bufferSize);
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(bufferSize);
             try
             {
-                int len = _getAppData(_apps001, id, key, buffer, bufferSize);
-                if (len <= 0)
+                var handle = GCHandle.Alloc(buffer, GCHandleType.Pinned);
+                try
                 {
-                    return null;
-                }
+                    int len = _getAppData(_apps001, id, key, handle.AddrOfPinnedObject(), bufferSize);
+                    if (len <= 0)
+                    {
+                        return null;
+                    }
 
-                var bytes = new byte[len];
-                Marshal.Copy(buffer, bytes, 0, len);
-                int terminator = Array.IndexOf<byte>(bytes, 0);
-                if (terminator >= 0)
-                {
-                    len = terminator;
-                }
-                string result = Encoding.UTF8.GetString(bytes, 0, len);
+                    int terminator = Array.IndexOf<byte>(buffer, 0, 0, len);
+                    if (terminator >= 0)
+                    {
+                        len = terminator;
+                    }
+                    string result = Encoding.UTF8.GetString(buffer, 0, len);
 #if DEBUG
-                if (_loggedAppData < 20)
-                {
-                    Debug.WriteLine($"GetAppData({id}, '{key}') => {result}");
-                    _loggedAppData++;
-                }
+                    if (_loggedAppData < 20)
+                    {
+                        Debug.WriteLine($"GetAppData({id}, '{key}') => {result}");
+                        _loggedAppData++;
+                    }
 #endif
-                return result;
+                    return result;
+                }
+                finally
+                {
+                    handle.Free();
+                }
             }
             finally
             {
-                Marshal.FreeHGlobal(buffer);
+                ArrayPool<byte>.Shared.Return(buffer, clearArray: true);
             }
         }
 
