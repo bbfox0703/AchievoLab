@@ -146,10 +146,11 @@ namespace AnSAM
                 : $"Steam unavailable - showing {_allGames.Count} games";
         }
 
-        //private void OnSearchClicked(object sender, RoutedEventArgs e)
-        //{
-        //    StatusText.Text = "Filter..";
-        //}
+        private void OnClearCacheClicked(object sender, RoutedEventArgs e)
+        {
+            //TODO: Implement cache clearing logic
+            //StatusText.Text = "....";
+        }
 
         private void SearchBox_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
         {
