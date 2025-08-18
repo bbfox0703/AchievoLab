@@ -45,6 +45,11 @@ namespace AnSAM
             _steamClient = steamClient;
             InitializeComponent();
 
+            if (Content is FrameworkElement root)
+            {
+                root.KeyDown += OnWindowKeyDown;
+            }
+
             // 取得 AppWindow
             var hwnd = WindowNative.GetWindowHandle(this);
             var winId = Win32Interop.GetWindowIdFromWindow(hwnd);
