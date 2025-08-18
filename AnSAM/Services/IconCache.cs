@@ -70,17 +70,21 @@ namespace AnSAM.Services
                 return existing;
             }
 
-            foreach (var file in Directory.EnumerateFiles(CacheDir, $"{id}.*"))
+            foreach (var candidateExt in new HashSet<string>(MimeToExtension.Values))
             {
-                if (IsCacheValid(file))
+                var path = basePath + candidateExt;
+                if (File.Exists(path))
                 {
+                    if (IsCacheValid(path))
+                    {
 #if DEBUG
-                    Debug.WriteLine($"Using cached icon for {id} at {file}");
+                        Debug.WriteLine($"Using cached icon for {id} at {path}");
 #endif
-                    return Task.FromResult(new IconPathResult(file, false));
-                }
+                        return Task.FromResult(new IconPathResult(path, false));
+                    }
 
-                try { File.Delete(file); } catch { }
+                    try { File.Delete(path); } catch { }
+                }
             }
 
             var ext = Path.GetExtension(uri.AbsolutePath);
