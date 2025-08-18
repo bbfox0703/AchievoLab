@@ -5,7 +5,6 @@ using System.Linq;
 using System.Net.Http;
 using System.Threading.Tasks;
 using System.Xml;
-using System.Xml.Linq;
 using System.Diagnostics;
 
 namespace AnSAM.Services
@@ -129,12 +128,16 @@ namespace AnSAM.Services
             };
 
             using var reader = XmlReader.Create(ms, settings);
-            var doc = XDocument.Load(reader, LoadOptions.None);
 
             var parsed = new List<GameInfo>();
-            foreach (var element in doc.Root?.Elements("game") ?? Enumerable.Empty<XElement>())
+            while (reader.Read())
             {
-                var raw = element.Value?.Trim();
+                if (reader.NodeType != XmlNodeType.Element || reader.Name != "game")
+                {
+                    continue;
+                }
+
+                var raw = reader.ReadElementContentAsString()?.Trim();
                 if (string.IsNullOrEmpty(raw))
                 {
 #if DEBUG
