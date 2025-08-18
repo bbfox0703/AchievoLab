@@ -1,28 +1,27 @@
 using System;
 using System.IO;
 using System.Diagnostics;
-using System.Collections.Generic;
 
 namespace AnSAM.Steam
 {
+    /// <summary>
+    /// Resolves a suitable cover image URL for a Steam application by querying
+    /// the same keys used by the legacy SAM version.
+    /// </summary>
     internal static class GameImageUrlResolver
     {
-        internal static IReadOnlyList<string> GetGameImageUrls(Func<uint, string, string?> getAppData, uint id, string language)
+        internal static string GetGameImageUrl(SteamClient client, uint id, string language)
         {
-            var urls = new List<string>();
+            string? candidate;
 
-            void TryAdd(string? raw, string format)
-            {
-                if (!string.IsNullOrEmpty(raw) && TrySanitize(raw, out var safe))
-                {
-                    urls.Add(string.Format(format, id, safe));
-                }
-            }
-
-            var candidate = getAppData(id, $"small_capsule/{language}");
+            candidate = client.GetAppData(id, $"small_capsule/{language}");
             if (!string.IsNullOrEmpty(candidate))
             {
-                TryAdd(candidate, "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{0}/{1}");
+                if (TrySanitize(candidate, out var safe))
+                {
+                    return $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{id}/{safe}";
+                }
+                Debug.WriteLine($"Invalid small_capsule path for app {id} language {language}: {candidate}");
             }
             else
             {
@@ -31,10 +30,14 @@ namespace AnSAM.Steam
 
             if (!string.Equals(language, "english", StringComparison.OrdinalIgnoreCase))
             {
-                candidate = getAppData(id, "small_capsule/english");
+                candidate = client.GetAppData(id, "small_capsule/english");
                 if (!string.IsNullOrEmpty(candidate))
                 {
-                    TryAdd(candidate, "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{0}/{1}");
+                    if (TrySanitize(candidate, out var safe))
+                    {
+                        return $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{id}/{safe}";
+                    }
+                    Debug.WriteLine($"Invalid small_capsule path for app {id} language english: {candidate}");
                 }
                 else
                 {
@@ -42,30 +45,42 @@ namespace AnSAM.Steam
                 }
             }
 
-            candidate = getAppData(id, "logo");
+            candidate = client.GetAppData(id, "logo");
             if (!string.IsNullOrEmpty(candidate))
             {
-                TryAdd(candidate, "https://cdn.steamstatic.com/steamcommunity/public/images/apps/{0}/{1}.jpg");
+                if (TrySanitize(candidate, out var safe))
+                {
+                    return $"https://cdn.steamstatic.com/steamcommunity/public/images/apps/{id}/{safe}.jpg";
+                }
+                Debug.WriteLine($"Invalid logo path for app {id}: {candidate}");
             }
             else
             {
                 Debug.WriteLine($"Missing logo for app {id}");
             }
 
-            candidate = getAppData(id, "library_600x900");
+            candidate = client.GetAppData(id, "library_600x900");
             if (!string.IsNullOrEmpty(candidate))
             {
-                TryAdd(candidate, "https://shared.cloudflare.steamstatic.com/steam/apps/{0}/{1}");
+                if (TrySanitize(candidate, out var safe))
+                {
+                    return $"https://shared.cloudflare.steamstatic.com/steam/apps/{id}/{safe}";
+                }
+                Debug.WriteLine($"Invalid library_600x900 path for app {id}: {candidate}");
             }
             else
             {
                 Debug.WriteLine($"Missing library_600x900 for app {id}");
             }
 
-            candidate = getAppData(id, "header_image");
+            candidate = client.GetAppData(id, "header_image");
             if (!string.IsNullOrEmpty(candidate))
             {
-                TryAdd(candidate, "https://shared.cloudflare.steamstatic.com/steam/apps/{0}/{1}");
+                if (TrySanitize(candidate, out var safe))
+                {
+                    return $"https://shared.cloudflare.steamstatic.com/steam/apps/{id}/{safe}";
+                }
+                Debug.WriteLine($"Invalid header_image path for app {id}: {candidate}");
             }
             else
             {
@@ -73,9 +88,7 @@ namespace AnSAM.Steam
             }
 
             // Default to generic header as last resort
-            urls.Add($"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{id}/header.jpg");
-
-            return urls;
+            return $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{id}/header.jpg";
         }
 
         private static bool TrySanitize(string candidate, out string sanitized)

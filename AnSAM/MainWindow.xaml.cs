@@ -238,7 +238,7 @@ namespace AnSAM
                 total++;
                 uint appId = (uint)game.Id;
                 string title = game.Name;
-                IReadOnlyList<string>? coverUrls = null;
+                string? coverUrl = null;
                 if (steamReady)
                 {
                     if (!_steamClient.IsSubscribedApp(appId))
@@ -247,12 +247,9 @@ namespace AnSAM
                     }
                     owned++;
                     title = _steamClient.GetAppData(appId, "name") ?? title;
-                    coverUrls = GameImageUrlResolver.GetGameImageUrls(
-                        (id, key) => _steamClient.GetAppData(id, key),
-                        appId,
-                        "english");
+                    coverUrl = GameImageUrlResolver.GetGameImageUrl(_steamClient, appId, "english");
                 }
-                var data = new SteamAppData(game.Id, title, coverUrls);
+                var data = new SteamAppData(game.Id, title, coverUrl);
                 _allGames.Add(GameItem.FromSteamApp(data));
                 if (steamReady)
                 {
@@ -472,10 +469,10 @@ namespace AnSAM
                                     app.Arguments,
                                     app.UriScheme);
 
-            if (app.CoverUrls is { Count: >0 })
+            if (app.CoverUrl != null)
             {
 #if DEBUG
-                Debug.WriteLine($"Queueing icon download for {app.AppId} from {string.Join(", ", app.CoverUrls)}");
+                Debug.WriteLine($"Queueing icon download for {app.AppId} from {app.CoverUrl}");
 #endif
                 var dispatcher = DispatcherQueue.GetForCurrentThread();
                 _ = LoadIconAsync();
@@ -485,13 +482,16 @@ namespace AnSAM
                     string? path = null;
                     try
                     {
-                        path = await IconCache.GetIconPathAsync(app.AppId, app.CoverUrls);
-#if DEBUG
-                        if (path != null)
+                        if (Uri.TryCreate(app.CoverUrl, UriKind.Absolute, out var uri))
                         {
-                            Debug.WriteLine($"Icon for {app.AppId} stored at {path}");
-                        }
+                            path = await IconCache.GetIconPathAsync(app.AppId, uri);
+#if DEBUG
+                            if (path != null)
+                            {
+                                Debug.WriteLine($"Icon for {app.AppId} stored at {path}");
+                            }
 #endif
+                        }
                     }
                     catch (Exception ex)
                     {
