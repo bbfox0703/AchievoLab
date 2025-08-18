@@ -30,7 +30,7 @@
             </CommandBar.Content>
             <AppBarSeparator/>
             <AppBarButton Icon="Sync"   Label="Refresh" Click="OnRefreshClicked"/>
-            <!--AppBarButton Icon="Find" Label="Search" Click="OnSearchClicked"/-->
+            <AppBarButton Icon="Remove"   Label="Clear Cache" Click="OnClearCacheClicked"/>
         </CommandBar>
         <Grid Grid.Row="1" x:Name="CenterPanel"
       Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
