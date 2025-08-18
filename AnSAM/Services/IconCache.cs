@@ -60,6 +60,9 @@ namespace AnSAM.Services
             Interlocked.Increment(ref _totalRequests);
             if (IsCacheValid(path))
             {
+#if DEBUG
+                Debug.WriteLine($"Using cached icon for {id} at {path}");
+#endif
                 Interlocked.Increment(ref _completed);
                 ReportProgress();
                 return Task.FromResult(path);

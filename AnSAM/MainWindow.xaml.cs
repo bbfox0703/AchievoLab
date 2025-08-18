@@ -112,6 +112,9 @@ namespace AnSAM
                     var cached = await JsonSerializer.DeserializeAsync<List<SteamAppData>>(fs);
                     if (cached != null)
                     {
+#if DEBUG
+                        Debug.WriteLine($"Using cached owned games from {ownedPath}");
+#endif
                         foreach (var app in cached)
                         {
                             _allGames.Add(GameItem.FromSteamApp(app));
