@@ -1,6 +1,6 @@
 # SteamAchievementManagerX2
 
-Another Steam Achievement Manager "SAM.Picker" built with WinUI 3 and .NET 8.
+A better looking UI for Steam Achievement Manager "SAM.Picker", built with WinUI 3 and .NET 8.
 
 ## Features
 - Wraps the Steamworks API directly via `steamclient64.dll` to query ownership and metadata for installed apps.
