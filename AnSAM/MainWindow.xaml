@@ -62,6 +62,12 @@
                 <GridView.ItemTemplate>
                     <DataTemplate x:DataType="local:GameItem">
                         <StackPanel Width="180" DoubleTapped="GameCard_DoubleTapped">
+                            <StackPanel.ContextFlyout>
+                                <MenuFlyout>
+                                    <MenuFlyoutItem Text="Launch SAM.Game.exe" Click="OnLaunchSamGameClicked"/>
+                                    <MenuFlyoutItem Text="Launch Game" Click="OnLaunchGameClicked"/>
+                                </MenuFlyout>
+                            </StackPanel.ContextFlyout>
                             <Border Height="200" CornerRadius="8"
                             Background="{ThemeResource SystemFillColorSolidNeutralBackgroundBrush}" HorizontalAlignment="Center">
                                 <Image Source="{x:Bind CoverPath}" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
