@@ -96,7 +96,7 @@ namespace AnSAM
                 total++;
                 uint appId = (uint)game.Id;
                 string title = game.Name;
-                string? coverUrl = null;
+                IReadOnlyList<string>? coverUrls = null;
                 if (steamReady)
                 {
                     if (!_steamClient.IsSubscribedApp(appId))
@@ -105,12 +105,12 @@ namespace AnSAM
                     }
                     owned++;
                     title = _steamClient.GetAppData(appId, "name") ?? title;
-                    coverUrl = GameImageUrlResolver.GetGameImageUrl(
+                    coverUrls = GameImageUrlResolver.GetGameImageUrls(
                         (id, key) => _steamClient.GetAppData(id, key),
                         appId,
                         "english");
                 }
-                var data = new SteamAppData(game.Id, title, coverUrl);
+                var data = new SteamAppData(game.Id, title, coverUrls);
                 _allGames.Add(GameItem.FromSteamApp(data));
             }
 #if DEBUG
@@ -285,14 +285,14 @@ namespace AnSAM
                                     app.Arguments,
                                     app.UriScheme);
 
-            if (!string.IsNullOrEmpty(app.CoverUrl) && Uri.TryCreate(app.CoverUrl, UriKind.Absolute, out var uri))
+            if (app.CoverUrls is { Count: >0 })
             {
 #if DEBUG
-                Debug.WriteLine($"Queueing icon download for {app.AppId} from {uri}");
+                Debug.WriteLine($"Queueing icon download for {app.AppId} from {string.Join(", ", app.CoverUrls)}");
 #endif
-                _ = IconCache.GetIconPathAsync(app.AppId, uri).ContinueWith(t =>
+                _ = IconCache.GetIconPathAsync(app.AppId, app.CoverUrls).ContinueWith(t =>
                 {
-                    if (t.Status == TaskStatus.RanToCompletion)
+                    if (t.Status == TaskStatus.RanToCompletion && t.Result != null)
                     {
 #if DEBUG
                         Debug.WriteLine($"Icon for {app.AppId} stored at {t.Result}");
@@ -306,6 +306,10 @@ namespace AnSAM
                         item.CoverPath = "ms-appx:///Assets/StoreLogo.png";
                     }
 #endif
+                    else
+                    {
+                        item.CoverPath = "ms-appx:///Assets/StoreLogo.png";
+                    }
                 });
             }
             else
