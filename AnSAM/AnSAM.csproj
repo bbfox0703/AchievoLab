@@ -59,6 +59,11 @@
     <PublishTrimmed Condition="'$(Configuration)' != 'Debug'">True</PublishTrimmed>
     <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
     <UseWindowsForms>False</UseWindowsForms>
+    <StartupObject></StartupObject>
+    <Title>Another SAM.Picker</Title>
+    <PackageProjectUrl>https://github.com/bbfox0703/SteamAchievementManagerX2</PackageProjectUrl>
+    <Copyright>bbfox</Copyright>
+    <RepositoryUrl>https://github.com/bbfox0703/SteamAchievementManagerX2</RepositoryUrl>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x86'">
     <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_BREAK_ON_UNHANDLED_EXCEPTION</DefineConstants>
