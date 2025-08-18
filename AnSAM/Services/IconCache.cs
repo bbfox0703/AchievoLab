@@ -15,10 +15,11 @@ namespace AnSAM.Services
     /// </summary>
     public static class IconCache
     {
+        public readonly record struct IconPathResult(string Path, bool Downloaded);
         private static readonly string CacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AnSAM", "appcache");
         private static readonly HttpClient Http = new();
         private static readonly SemaphoreSlim Concurrency = new(4);
-        private static readonly ConcurrentDictionary<string, Task<string>> InFlight = new();
+        private static readonly ConcurrentDictionary<string, Task<IconPathResult>> InFlight = new();
         private static readonly TimeSpan CacheDuration = TimeSpan.FromDays(30);
         private static readonly Dictionary<string, string> MimeToExtension = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -54,7 +55,7 @@ namespace AnSAM.Services
         /// </summary>
         /// <param name="id">Steam application identifier used to name the file.</param>
         /// <param name="uri">Remote URI for the cover image.</param>
-        public static Task<string> GetIconPathAsync(int id, Uri uri)
+        public static Task<IconPathResult> GetIconPathAsync(int id, Uri uri)
         {
             Directory.CreateDirectory(CacheDir);
 
@@ -75,7 +76,7 @@ namespace AnSAM.Services
 #endif
                     Interlocked.Increment(ref _completed);
                     ReportProgress();
-                    return Task.FromResult(file);
+                    return Task.FromResult(new IconPathResult(file, false));
                 }
 
                 try { File.Delete(file); } catch { }
@@ -90,7 +91,7 @@ namespace AnSAM.Services
             return InFlight.GetOrAdd(basePath, _ => DownloadAsync(uri, basePath, ext));
         }
 
-        public static async Task<string?> GetIconPathAsync(int id, IEnumerable<string> uris)
+        public static async Task<IconPathResult?> GetIconPathAsync(int id, IEnumerable<string> uris)
         {
             foreach (var url in uris)
             {
@@ -112,7 +113,7 @@ namespace AnSAM.Services
             return null;
         }
 
-        private static async Task<string> DownloadAsync(Uri uri, string basePath, string defaultExt)
+        private static async Task<IconPathResult> DownloadAsync(Uri uri, string basePath, string defaultExt)
         {
             await Concurrency.WaitAsync().ConfigureAwait(false);
             try
@@ -142,7 +143,7 @@ namespace AnSAM.Services
                     throw new InvalidDataException("Invalid image file");
                 }
 
-                return path;
+                return new IconPathResult(path, true);
             }
             catch (Exception ex)
             {
