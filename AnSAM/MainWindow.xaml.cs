@@ -1,4 +1,8 @@
+using AnSAM.Services;
+using AnSAM.Steam;
+using Microsoft.UI;
 using Microsoft.UI.Dispatching;
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -8,17 +12,16 @@ using Microsoft.UI.Xaml.Media.Imaging;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Linq;
-using System.Threading.Tasks;
-using System.IO;
-using System.Net.Http;
 using System.Diagnostics;
-using System.Text;
 using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Net.Http;
+using System.Text;
+using System.Threading.Tasks;
 using System.Xml;
 using System.Xml.Linq;
-using AnSAM.Services;
-using AnSAM.Steam;
+using WinRT.Interop;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -40,6 +43,16 @@ namespace AnSAM
         {
             _steamClient = steamClient;
             InitializeComponent();
+
+            // 取得 AppWindow
+            var hwnd = WindowNative.GetWindowHandle(this);
+            var winId = Win32Interop.GetWindowIdFromWindow(hwnd);
+            var appWin = AppWindow.GetFromWindowId(winId);
+            // 設定 Icon：指向打包後的實體檔案路徑
+            var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "AnSAM.ico");
+            if (File.Exists(iconPath))
+                appWin.SetIcon(iconPath);
+
             RefreshButton.IsEnabled = _steamClient.Initialized;
             if (!_steamClient.Initialized)
             {
