@@ -1,3 +1,4 @@
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -314,27 +315,32 @@ namespace AnSAM
 #if DEBUG
                 Debug.WriteLine($"Queueing icon download for {app.AppId} from {string.Join(", ", app.CoverUrls)}");
 #endif
-                _ = IconCache.GetIconPathAsync(app.AppId, app.CoverUrls).ContinueWith(t =>
+                var dispatcher = DispatcherQueue.GetForCurrentThread();
+                _ = LoadIconAsync();
+
+                async Task LoadIconAsync()
                 {
-                    if (t.Status == TaskStatus.RanToCompletion && t.Result != null)
+                    string? path = null;
+                    try
+                    {
+                        path = await IconCache.GetIconPathAsync(app.AppId, app.CoverUrls);
+#if DEBUG
+                        if (path != null)
+                        {
+                            Debug.WriteLine($"Icon for {app.AppId} stored at {path}");
+                        }
+#endif
+                    }
+                    catch (Exception ex)
                     {
 #if DEBUG
-                        Debug.WriteLine($"Icon for {app.AppId} stored at {t.Result}");
+                        Debug.WriteLine($"Icon download failed for {app.AppId}: {ex.GetBaseException().Message}");
 #endif
-                        item.CoverPath = t.Result;
                     }
-#if DEBUG
-                    else if (t.IsFaulted)
-                    {
-                        Debug.WriteLine($"Icon download failed for {app.AppId}: {t.Exception?.GetBaseException().Message}");
-                        item.CoverPath = "ms-appx:///Assets/StoreLogo.png";
-                    }
-#endif
-                    else
-                    {
-                        item.CoverPath = "ms-appx:///Assets/StoreLogo.png";
-                    }
-                });
+
+                    path ??= "ms-appx:///Assets/StoreLogo.png";
+                    _ = dispatcher.TryEnqueue(() => item.CoverPath = path);
+                }
             }
             else
             {
