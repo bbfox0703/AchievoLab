@@ -6,6 +6,7 @@ using System.Net.Http;
 using System.Threading.Tasks;
 using System.Xml;
 using System.Diagnostics;
+using AnSAM.Services;
 
 namespace AnSAM.Services
 {
@@ -53,7 +54,7 @@ namespace AnSAM.Services
             {
                 ReportStatus("Using cached game list...");
 #if DEBUG
-                Debug.WriteLine($"Using cached game list at {cachePath}");
+                DebugLogger.LogDebug($"Using cached game list at {cachePath}");
 #endif
                 ValidateAndParse(cached);
                 ReportProgress(100);
@@ -62,7 +63,7 @@ namespace AnSAM.Services
 
             ReportStatus("Downloading game list...");
 #if DEBUG
-            Debug.WriteLine($"Downloading game list from {GameListUrl} to {cachePath}");
+            DebugLogger.LogDebug($"Downloading game list from {GameListUrl} to {cachePath}");
 #endif
             using var response = await http.GetAsync(GameListUrl, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
@@ -104,7 +105,7 @@ namespace AnSAM.Services
                     File.Move(tempPath, cachePath);
                 }
 #if DEBUG
-                Debug.WriteLine($"Game list saved to {cachePath}");
+                DebugLogger.LogDebug($"Game list saved to {cachePath}");
 #endif
             }
             catch
@@ -192,7 +193,7 @@ namespace AnSAM.Services
                     if (string.IsNullOrEmpty(raw))
                     {
 #if DEBUG
-                        Debug.WriteLine("Skipping empty <game> entry in XML");
+                        DebugLogger.LogDebug("Skipping empty <game> entry in XML");
 #endif
                         reader.MoveToContent();
                         continue;
@@ -205,7 +206,7 @@ namespace AnSAM.Services
 #if DEBUG
                     else
                     {
-                        Debug.WriteLine($"Invalid game id '{raw}' in XML");
+                        DebugLogger.LogDebug($"Invalid game id '{raw}' in XML");
                     }
 #endif
                     reader.MoveToContent();
@@ -214,11 +215,11 @@ namespace AnSAM.Services
 
             Games = parsed;
 #if DEBUG
-            Debug.WriteLine($"Parsed {Games.Count} games from XML");
+            DebugLogger.LogDebug($"Parsed {Games.Count} games from XML");
             if (Games.Count > 0)
             {
                 var sample = string.Join(", ", Games.Take(20).Select(g => g.Id));
-                Debug.WriteLine($"Sample game IDs: {sample}{(Games.Count > 20 ? ", ..." : string.Empty)}");
+                DebugLogger.LogDebug($"Sample game IDs: {sample}{(Games.Count > 20 ? ", ..." : string.Empty)}");
             }
 #endif
         }
