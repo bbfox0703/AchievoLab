@@ -118,13 +118,16 @@ namespace AnSAM.RunGame
             _isLoadingStats = true;
             LoadingRing.IsActive = true;
             StatusLabel.Text = "Loading game statistics...";
-            
+
             try
             {
+                DebugLogger.LogDebug("LoadStatsAsync: Requesting user stats...");
                 bool success = await _gameStatsService.RequestUserStatsAsync();
+                DebugLogger.LogDebug($"LoadStatsAsync: RequestUserStatsAsync returned {success}");
                 if (!success)
                 {
                     StatusLabel.Text = "Failed to request user stats from Steam";
+                    DebugLogger.LogDebug("LoadStatsAsync: Failed to request user stats from Steam");
                 }
             }
             catch (Exception ex)

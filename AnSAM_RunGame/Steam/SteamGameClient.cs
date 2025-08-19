@@ -153,10 +153,27 @@ namespace AnSAM.RunGame.Steam
 
         public bool RequestUserStats(uint gameId)
         {
-            if (!Initialized || _requestUserStats == null || _getSteamId == null) return false;
-            
+            if (!Initialized)
+            {
+                DebugLogger.LogDebug($"SteamGameClient.RequestUserStats failed: client not initialized (gameId={gameId})");
+                return false;
+            }
+            if (_requestUserStats == null)
+            {
+                DebugLogger.LogDebug("SteamGameClient.RequestUserStats failed: _requestUserStats delegate is null");
+                return false;
+            }
+            if (_getSteamId == null)
+            {
+                DebugLogger.LogDebug("SteamGameClient.RequestUserStats failed: _getSteamId delegate is null");
+                return false;
+            }
+
             ulong steamId = _getSteamId(_user006);
-            return _requestUserStats(_userStats, steamId) != 0;
+            DebugLogger.LogDebug($"SteamGameClient.RequestUserStats calling for game {gameId} (steamId={steamId})");
+            bool result = _requestUserStats(_userStats, steamId) != 0;
+            DebugLogger.LogDebug($"SteamGameClient.RequestUserStats result for game {gameId}: {result}");
+            return result;
         }
 
         public bool GetAchievementAndUnlockTime(string id, out bool achieved, out uint unlockTime)
