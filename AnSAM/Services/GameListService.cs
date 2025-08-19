@@ -5,7 +5,6 @@ using System.Linq;
 using System.Net.Http;
 using System.Threading.Tasks;
 using System.Xml;
-using System.Xml.Linq;
 using System.Diagnostics;
 
 namespace AnSAM.Services
@@ -129,30 +128,35 @@ namespace AnSAM.Services
             };
 
             using var reader = XmlReader.Create(ms, settings);
-            var doc = XDocument.Load(reader, LoadOptions.None);
+            reader.MoveToContent();
 
             var parsed = new List<GameInfo>();
-            foreach (var element in doc.Root?.Elements("game") ?? Enumerable.Empty<XElement>())
+            if (reader.ReadToDescendant("game"))
             {
-                var raw = element.Value?.Trim();
-                if (string.IsNullOrEmpty(raw))
+                while (reader.NodeType == XmlNodeType.Element && reader.Name == "game")
                 {
+                    var raw = reader.ReadElementContentAsString().Trim();
+                    if (string.IsNullOrEmpty(raw))
+                    {
 #if DEBUG
-                    Debug.WriteLine("Skipping empty <game> entry in XML");
+                        Debug.WriteLine("Skipping empty <game> entry in XML");
 #endif
-                    continue;
-                }
+                        reader.MoveToContent();
+                        continue;
+                    }
 
-                if (int.TryParse(raw, out int id) && id > 0)
-                {
-                    parsed.Add(new GameInfo(id, string.Empty, string.Empty));
-                }
+                    if (int.TryParse(raw, out int id) && id > 0)
+                    {
+                        parsed.Add(new GameInfo(id, string.Empty, string.Empty));
+                    }
 #if DEBUG
-                else
-                {
-                    Debug.WriteLine($"Invalid game id '{raw}' in XML");
-                }
+                    else
+                    {
+                        Debug.WriteLine($"Invalid game id '{raw}' in XML");
+                    }
 #endif
+                    reader.MoveToContent();
+                }
             }
 
             Games = parsed;
