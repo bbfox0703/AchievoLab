@@ -1,0 +1,436 @@
+using System;
+using System.Buffers;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading;
+using Microsoft.Win32;
+
+namespace AnSAM.RunGame.Steam
+{
+    public sealed class SteamGameClient : IDisposable, ISteamUserStats
+    {
+        private readonly Timer? _callbackTimer;
+        private readonly IntPtr _client;
+        private readonly IntPtr _apps008;
+        private readonly IntPtr _apps001;
+        private readonly IntPtr _userStats;
+        private readonly IntPtr _user006;
+        private readonly int _pipe;
+        private readonly int _user;
+        private readonly long _gameId;
+
+        // ISteamClient018 delegates
+        private readonly CreateSteamPipeDelegate? _createSteamPipe;
+        private readonly ConnectToGlobalUserDelegate? _connectToGlobalUser;
+        private readonly GetISteamAppsDelegate? _getISteamApps;
+        private readonly GetISteamUserStatsDelegate? _getISteamUserStats;
+        private readonly GetISteamUserDelegate? _getISteamUser;
+        private readonly ReleaseUserDelegate? _releaseUser;
+        private readonly ReleaseSteamPipeDelegate? _releaseSteamPipe;
+
+        // ISteamApps008 delegates
+        private readonly IsSubscribedAppDelegate? _isSubscribedApp;
+        private readonly GetAppDataDelegate? _getAppData;
+
+        // ISteamUserStats013 delegates
+        private readonly RequestUserStatsDelegate? _requestUserStats;
+        private readonly GetAchievementAndUnlockTimeDelegate? _getAchievementAndUnlockTime;
+        private readonly SetAchievementDelegate? _setAchievement;
+        private readonly GetStatIntDelegate? _getStatInt;
+        private readonly GetStatFloatDelegate? _getStatFloat;
+        private readonly SetStatIntDelegate? _setStatInt;
+        private readonly SetStatFloatDelegate? _setStatFloat;
+        private readonly StoreStatsDelegate? _storeStats;
+        private readonly ResetAllStatsDelegate? _resetAllStats;
+
+        // ISteamUser020 delegates
+        private readonly GetSteamIdDelegate? _getSteamId;
+
+        private readonly List<Action<UserStatsReceived>> _userStatsCallbacks = new();
+
+        static SteamGameClient()
+        {
+            NativeLibrary.SetDllImportResolver(typeof(SteamGameClient).Assembly, ResolveSteamClient);
+        }
+
+        public bool Initialized { get; }
+        
+        public string? GetCurrentGameLanguage()
+        {
+            // Default to English if we can't determine the language
+            return "english";
+        }
+
+        public SteamGameClient(long gameId)
+        {
+            _gameId = gameId;
+            
+            try
+            {
+                _client = Steam_CreateInterface("SteamClient018", IntPtr.Zero);
+                if (_client != IntPtr.Zero)
+                {
+                    // Get ISteamClient018 vtable
+                    IntPtr vtable = Marshal.ReadIntPtr(_client);
+                    _createSteamPipe = Marshal.GetDelegateForFunctionPointer<CreateSteamPipeDelegate>(Marshal.ReadIntPtr(vtable + IntPtr.Size * 0));
+                    _releaseSteamPipe = Marshal.GetDelegateForFunctionPointer<ReleaseSteamPipeDelegate>(Marshal.ReadIntPtr(vtable + IntPtr.Size * 1));
+                    _connectToGlobalUser = Marshal.GetDelegateForFunctionPointer<ConnectToGlobalUserDelegate>(Marshal.ReadIntPtr(vtable + IntPtr.Size * 2));
+                    _releaseUser = Marshal.GetDelegateForFunctionPointer<ReleaseUserDelegate>(Marshal.ReadIntPtr(vtable + IntPtr.Size * 4));
+                    _getISteamApps = Marshal.GetDelegateForFunctionPointer<GetISteamAppsDelegate>(Marshal.ReadIntPtr(vtable + IntPtr.Size * 15));
+                    _getISteamUserStats = Marshal.GetDelegateForFunctionPointer<GetISteamUserStatsDelegate>(Marshal.ReadIntPtr(vtable + IntPtr.Size * 18));
+                    _getISteamUser = Marshal.GetDelegateForFunctionPointer<GetISteamUserDelegate>(Marshal.ReadIntPtr(vtable + IntPtr.Size * 5));
+
+                    if (_createSteamPipe != null && _connectToGlobalUser != null)
+                    {
+                        _pipe = _createSteamPipe(_client);
+                        if (_pipe != 0)
+                        {
+                            _user = _connectToGlobalUser(_client, _pipe);
+                            if (_user != 0)
+                            {
+                                _apps008 = _getISteamApps?.Invoke(_client, _user, _pipe, "STEAMAPPS_INTERFACE_VERSION008") ?? IntPtr.Zero;
+                                _apps001 = _getISteamApps?.Invoke(_client, _user, _pipe, "STEAMAPPS_INTERFACE_VERSION001") ?? IntPtr.Zero;
+                                _userStats = _getISteamUserStats?.Invoke(_client, _user, _pipe, "STEAMUSERSTATS_INTERFACE_VERSION013") ?? IntPtr.Zero;
+                                _user006 = _getISteamUser?.Invoke(_client, _user, _pipe, "SteamUser020") ?? IntPtr.Zero;
+
+                                // Initialize ISteamApps delegates
+                                if (_apps008 != IntPtr.Zero)
+                                {
+                                    IntPtr appsVTable = Marshal.ReadIntPtr(_apps008);
+                                    _isSubscribedApp = Marshal.GetDelegateForFunctionPointer<IsSubscribedAppDelegate>(Marshal.ReadIntPtr(appsVTable + IntPtr.Size * 6));
+                                }
+                                
+                                if (_apps001 != IntPtr.Zero)
+                                {
+                                    IntPtr apps1VTable = Marshal.ReadIntPtr(_apps001);
+                                    _getAppData = Marshal.GetDelegateForFunctionPointer<GetAppDataDelegate>(Marshal.ReadIntPtr(apps1VTable));
+                                }
+
+                                // Initialize ISteamUserStats delegates
+                                if (_userStats != IntPtr.Zero)
+                                {
+                                    IntPtr userStatsVTable = Marshal.ReadIntPtr(_userStats);
+                                    _requestUserStats = Marshal.GetDelegateForFunctionPointer<RequestUserStatsDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 0));
+                                    _getAchievementAndUnlockTime = Marshal.GetDelegateForFunctionPointer<GetAchievementAndUnlockTimeDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 4));
+                                    _setAchievement = Marshal.GetDelegateForFunctionPointer<SetAchievementDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 6));
+                                    _getStatInt = Marshal.GetDelegateForFunctionPointer<GetStatIntDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 8));
+                                    _getStatFloat = Marshal.GetDelegateForFunctionPointer<GetStatFloatDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 9));
+                                    _setStatInt = Marshal.GetDelegateForFunctionPointer<SetStatIntDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 10));
+                                    _setStatFloat = Marshal.GetDelegateForFunctionPointer<SetStatFloatDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 11));
+                                    _storeStats = Marshal.GetDelegateForFunctionPointer<StoreStatsDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 12));
+                                    _resetAllStats = Marshal.GetDelegateForFunctionPointer<ResetAllStatsDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 13));
+                                }
+
+                                // Initialize ISteamUser delegates
+                                if (_user006 != IntPtr.Zero)
+                                {
+                                    IntPtr userVTable = Marshal.ReadIntPtr(_user006);
+                                    _getSteamId = Marshal.GetDelegateForFunctionPointer<GetSteamIdDelegate>(Marshal.ReadIntPtr(userVTable + IntPtr.Size * 2));
+                                }
+
+                                Initialized = _userStats != IntPtr.Zero && _requestUserStats != null;
+                            }
+                        }
+                    }
+                }
+
+                if (Initialized)
+                {
+                    _callbackTimer = new Timer(_ => RunCallbacks(), null, 0, 100);
+                }
+            }
+            catch (Exception ex)
+            {
+                Initialized = false;
+                Debug.WriteLine($"Steam API init threw: {ex}");
+            }
+        }
+
+        public bool RequestUserStats(uint gameId)
+        {
+            if (!Initialized || _requestUserStats == null || _getSteamId == null) return false;
+            
+            ulong steamId = _getSteamId(_user006);
+            return _requestUserStats(_userStats, steamId) != 0;
+        }
+
+        public bool GetAchievementAndUnlockTime(string id, out bool achieved, out uint unlockTime)
+        {
+            achieved = false;
+            unlockTime = 0;
+            
+            if (!Initialized || _getAchievementAndUnlockTime == null) return false;
+            
+            return _getAchievementAndUnlockTime(_userStats, id, out achieved, out unlockTime);
+        }
+
+        public bool SetAchievement(string id, bool achieved)
+        {
+            if (!Initialized || _setAchievement == null) return false;
+            
+            return _setAchievement(_userStats, id, achieved);
+        }
+
+        public bool GetStatValue(string name, out int value)
+        {
+            value = 0;
+            if (!Initialized || _getStatInt == null) return false;
+            
+            return _getStatInt(_userStats, name, out value);
+        }
+
+        public bool GetStatValue(string name, out float value)
+        {
+            value = 0.0f;
+            if (!Initialized || _getStatFloat == null) return false;
+            
+            return _getStatFloat(_userStats, name, out value);
+        }
+
+        public bool SetStatValue(string name, int value)
+        {
+            if (!Initialized || _setStatInt == null) return false;
+            
+            return _setStatInt(_userStats, name, value);
+        }
+
+        public bool SetStatValue(string name, float value)
+        {
+            if (!Initialized || _setStatFloat == null) return false;
+            
+            return _setStatFloat(_userStats, name, value);
+        }
+
+        public bool StoreStats()
+        {
+            if (!Initialized || _storeStats == null) return false;
+            
+            return _storeStats(_userStats);
+        }
+
+        public bool ResetAllStats(bool achievementsToo)
+        {
+            if (!Initialized || _resetAllStats == null) return false;
+            
+            return _resetAllStats(_userStats, achievementsToo);
+        }
+
+        public void RunCallbacks()
+        {
+            while (Steam_BGetCallback(_pipe, out var msg, out _))
+            {
+                if (msg.Id == 1101) // UserStatsReceived callback
+                {
+                    var userStatsReceived = Marshal.PtrToStructure<UserStatsReceived>(msg.ParamPointer);
+                    foreach (var callback in _userStatsCallbacks)
+                    {
+                        callback(userStatsReceived);
+                    }
+                }
+                Steam_FreeLastCallback(_pipe);
+            }
+        }
+
+        public void RegisterUserStatsCallback(Action<UserStatsReceived> callback)
+        {
+            _userStatsCallbacks.Add(callback);
+        }
+
+        public string? GetAppData(uint id, string key)
+        {
+            if (!Initialized || _getAppData == null || _apps001 == IntPtr.Zero) return null;
+
+            const int bufferSize = 4096;
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(bufferSize);
+            try
+            {
+                var handle = GCHandle.Alloc(buffer, GCHandleType.Pinned);
+                try
+                {
+                    int len = _getAppData(_apps001, id, key, handle.AddrOfPinnedObject(), bufferSize);
+                    if (len <= 0) return null;
+
+                    int terminator = Array.IndexOf<byte>(buffer, 0, 0, len);
+                    if (terminator >= 0) len = terminator;
+                    
+                    return Encoding.UTF8.GetString(buffer, 0, len);
+                }
+                finally
+                {
+                    handle.Free();
+                }
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer, clearArray: true);
+            }
+        }
+
+        public void Dispose()
+        {
+            _callbackTimer?.Dispose();
+            if (Initialized)
+            {
+                _releaseUser?.Invoke(_client, _pipe, _user);
+                _releaseSteamPipe?.Invoke(_client, _pipe);
+            }
+        }
+
+        private static IntPtr ResolveSteamClient(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
+        {
+            if (!libraryName.Equals("steamclient64", StringComparison.OrdinalIgnoreCase))
+                return IntPtr.Zero;
+
+            string? installPath = GetSteamPath();
+            if (string.IsNullOrEmpty(installPath)) return IntPtr.Zero;
+
+            string libraryPath = Path.Combine(installPath, "steamclient64.dll");
+            if (!File.Exists(libraryPath))
+            {
+                libraryPath = Path.Combine(installPath, "bin", "steamclient64.dll");
+            }
+            
+            if (!File.Exists(libraryPath)) return IntPtr.Zero;
+
+            Native.AddDllDirectory(installPath);
+            Native.AddDllDirectory(Path.Combine(installPath, "bin"));
+            return Native.LoadLibraryEx(libraryPath, IntPtr.Zero,
+                Native.LoadLibrarySearchDefaultDirs | Native.LoadLibrarySearchUserDirs);
+        }
+
+        private static string? GetSteamPath()
+        {
+            const string subKey = @"Software\\Valve\\Steam";
+            foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
+            {
+                using var key = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, view).OpenSubKey(subKey);
+                if (key == null) continue;
+                var path = key.GetValue("InstallPath") as string;
+                if (!string.IsNullOrEmpty(path)) return path;
+            }
+            return null;
+        }
+
+        // P/Invoke and delegate declarations
+        [StructLayout(LayoutKind.Sequential)]
+        private struct CallbackMsg
+        {
+            public int User;
+            public int Id;
+            public IntPtr ParamPointer;
+            public int ParamSize;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct UserStatsReceived
+        {
+            public ulong GameId;
+            public int Result;
+            public ulong UserId;
+        }
+
+        private static class Native
+        {
+            [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+            internal static extern IntPtr LoadLibraryEx(string lpFileName, IntPtr hFile, uint dwFlags);
+
+            [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+            internal static extern IntPtr AddDllDirectory(string lpPathName);
+
+            internal const uint LoadLibrarySearchDefaultDirs = 0x00001000;
+            internal const uint LoadLibrarySearchUserDirs = 0x00000400;
+        }
+
+        [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl,
+            CharSet = CharSet.Ansi, EntryPoint = "CreateInterface")]
+        private static extern IntPtr Steam_CreateInterface(string version, IntPtr returnCode);
+
+        [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "Steam_BGetCallback")]
+        [return: MarshalAs(UnmanagedType.I1)]
+        private static extern bool Steam_BGetCallback(int pipe, out CallbackMsg message, out int call);
+
+        [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "Steam_FreeLastCallback")]
+        [return: MarshalAs(UnmanagedType.I1)]
+        private static extern bool Steam_FreeLastCallback(int pipe);
+
+        // ISteamClient018 delegates
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
+        private delegate int CreateSteamPipeDelegate(IntPtr self);
+
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
+        private delegate int ConnectToGlobalUserDelegate(IntPtr self, int pipe);
+
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall, CharSet = CharSet.Ansi)]
+        private delegate IntPtr GetISteamAppsDelegate(IntPtr self, int user, int pipe, string version);
+
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall, CharSet = CharSet.Ansi)]
+        private delegate IntPtr GetISteamUserStatsDelegate(IntPtr self, int user, int pipe, string version);
+
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall, CharSet = CharSet.Ansi)]
+        private delegate IntPtr GetISteamUserDelegate(IntPtr self, int user, int pipe, string version);
+
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
+        private delegate void ReleaseUserDelegate(IntPtr self, int pipe, int user);
+
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
+        private delegate void ReleaseSteamPipeDelegate(IntPtr self, int pipe);
+
+        // ISteamApps delegates
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
+        [return: MarshalAs(UnmanagedType.I1)]
+        private delegate bool IsSubscribedAppDelegate(IntPtr self, uint appId);
+
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall, CharSet = CharSet.Ansi)]
+        private delegate int GetAppDataDelegate(IntPtr self, uint appId,
+            [MarshalAs(UnmanagedType.LPStr)] string key, IntPtr value, int valueBufferSize);
+
+        // ISteamUserStats delegates
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
+        private delegate ulong RequestUserStatsDelegate(IntPtr self, ulong steamIdUser);
+
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall, CharSet = CharSet.Ansi)]
+        [return: MarshalAs(UnmanagedType.I1)]
+        private delegate bool GetAchievementAndUnlockTimeDelegate(IntPtr self,
+            [MarshalAs(UnmanagedType.LPStr)] string name, out bool achieved, out uint unlockTime);
+
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall, CharSet = CharSet.Ansi)]
+        [return: MarshalAs(UnmanagedType.I1)]
+        private delegate bool SetAchievementDelegate(IntPtr self,
+            [MarshalAs(UnmanagedType.LPStr)] string name, bool achieved);
+
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall, CharSet = CharSet.Ansi)]
+        [return: MarshalAs(UnmanagedType.I1)]
+        private delegate bool GetStatIntDelegate(IntPtr self,
+            [MarshalAs(UnmanagedType.LPStr)] string name, out int value);
+
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall, CharSet = CharSet.Ansi)]
+        [return: MarshalAs(UnmanagedType.I1)]
+        private delegate bool GetStatFloatDelegate(IntPtr self,
+            [MarshalAs(UnmanagedType.LPStr)] string name, out float value);
+
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall, CharSet = CharSet.Ansi)]
+        [return: MarshalAs(UnmanagedType.I1)]
+        private delegate bool SetStatIntDelegate(IntPtr self,
+            [MarshalAs(UnmanagedType.LPStr)] string name, int value);
+
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall, CharSet = CharSet.Ansi)]
+        [return: MarshalAs(UnmanagedType.I1)]
+        private delegate bool SetStatFloatDelegate(IntPtr self,
+            [MarshalAs(UnmanagedType.LPStr)] string name, float value);
+
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
+        [return: MarshalAs(UnmanagedType.I1)]
+        private delegate bool StoreStatsDelegate(IntPtr self);
+
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
+        [return: MarshalAs(UnmanagedType.I1)]
+        private delegate bool ResetAllStatsDelegate(IntPtr self, bool achievementsToo);
+
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
+        private delegate ulong GetSteamIdDelegate(IntPtr self);
+    }
+}
