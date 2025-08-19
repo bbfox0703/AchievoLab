@@ -251,8 +251,7 @@ namespace AnSAM
             Games.Clear();
             _allGames.Clear();
 
-            using var http = new HttpClient();
-            await GameListService.LoadAsync(cacheDir, http);
+            GameListService.TryLoadCache(cacheDir);
 
             if (File.Exists(userGamesPath))
             {
@@ -289,6 +288,12 @@ namespace AnSAM
 #endif
                 }
             }
+
+            StatusProgress.Value = 0;
+            StatusExtra.Text = "0%";
+
+            using var http = new HttpClient();
+            await GameListService.LoadAsync(cacheDir, http);
 
             Games.Clear();
             _allGames.Clear();
