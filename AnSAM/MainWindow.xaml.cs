@@ -23,6 +23,7 @@ using System.Xml;
 using System.Xml.Linq;
 using WinRT.Interop;
 using Windows.UI;
+using Windows.UI.ViewManagement;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -41,11 +42,14 @@ namespace AnSAM
 
         private bool _autoLoaded;
         private ScrollViewer? _gamesScrollViewer;
+        private readonly UISettings _uiSettings = new();
 
         public MainWindow(SteamClient steamClient)
         {
             _steamClient = steamClient;
             InitializeComponent();
+
+            _uiSettings.ColorValuesChanged += UiSettings_ColorValuesChanged;
 
             // 取得 AppWindow
             var hwnd = WindowNative.GetWindowHandle(this);
@@ -63,6 +67,7 @@ namespace AnSAM
                 {
                     root.ActualThemeChanged += (_, _) => UpdateTitleBar(root.ActualTheme);
                     UpdateTitleBar(root.ActualTheme);
+                    ApplyAccentBrush(root);
                 }
             }
 
@@ -81,6 +86,7 @@ namespace AnSAM
             if (Content is FrameworkElement root)
             {
                 root.RequestedTheme = theme;
+                ApplyAccentBrush(root);
             }
             // ]i^sAC
             StatusText.Text = theme switch
@@ -106,41 +112,71 @@ namespace AnSAM
                 return;
 
             var titleBar = _appWindow.TitleBar;
+            var accent = _uiSettings.GetColorValue(UIColorType.Accent);
+            var accentDark1 = _uiSettings.GetColorValue(UIColorType.AccentDark1);
+            var accentDark2 = _uiSettings.GetColorValue(UIColorType.AccentDark2);
+            var accentLight1 = _uiSettings.GetColorValue(UIColorType.AccentLight1);
+            var foreground = _uiSettings.GetColorValue(UIColorType.Foreground);
+            var inactiveForeground = Color.FromArgb(
+                foreground.A,
+                (byte)(foreground.R / 2),
+                (byte)(foreground.G / 2),
+                (byte)(foreground.B / 2));
+
             if (theme == ElementTheme.Dark)
             {
-                var darkBackground = Color.FromArgb(255, 32, 32, 32);
-                titleBar.BackgroundColor = darkBackground;
-                titleBar.ForegroundColor = Colors.White;
+                titleBar.BackgroundColor = accentDark2;
+                titleBar.ForegroundColor = foreground;
 
-                titleBar.ButtonBackgroundColor = darkBackground;
-                titleBar.ButtonForegroundColor = Colors.White;
-                titleBar.ButtonHoverBackgroundColor = Color.FromArgb(255, 48, 48, 48);
-                titleBar.ButtonHoverForegroundColor = Colors.White;
-                titleBar.ButtonPressedBackgroundColor = Color.FromArgb(255, 64, 64, 64);
-                titleBar.ButtonPressedForegroundColor = Colors.White;
+                titleBar.ButtonBackgroundColor = accentDark2;
+                titleBar.ButtonForegroundColor = foreground;
+                titleBar.ButtonHoverBackgroundColor = accent;
+                titleBar.ButtonHoverForegroundColor = foreground;
+                titleBar.ButtonPressedBackgroundColor = accentDark1;
+                titleBar.ButtonPressedForegroundColor = foreground;
 
-                titleBar.InactiveBackgroundColor = darkBackground;
-                titleBar.InactiveForegroundColor = Colors.Gray;
-                titleBar.ButtonInactiveBackgroundColor = darkBackground;
-                titleBar.ButtonInactiveForegroundColor = Colors.Gray;
+                titleBar.InactiveBackgroundColor = accentDark2;
+                titleBar.InactiveForegroundColor = inactiveForeground;
+                titleBar.ButtonInactiveBackgroundColor = accentDark2;
+                titleBar.ButtonInactiveForegroundColor = inactiveForeground;
             }
             else
             {
-                titleBar.BackgroundColor = Colors.White;
-                titleBar.ForegroundColor = Colors.Black;
+                titleBar.BackgroundColor = accentLight1;
+                titleBar.ForegroundColor = foreground;
 
-                titleBar.ButtonBackgroundColor = Colors.White;
-                titleBar.ButtonForegroundColor = Colors.Black;
-                titleBar.ButtonHoverBackgroundColor = Colors.LightGray;
-                titleBar.ButtonHoverForegroundColor = Colors.Black;
-                titleBar.ButtonPressedBackgroundColor = Colors.DarkGray;
-                titleBar.ButtonPressedForegroundColor = Colors.Black;
+                titleBar.ButtonBackgroundColor = accentLight1;
+                titleBar.ButtonForegroundColor = foreground;
+                titleBar.ButtonHoverBackgroundColor = accent;
+                titleBar.ButtonHoverForegroundColor = foreground;
+                titleBar.ButtonPressedBackgroundColor = accentDark1;
+                titleBar.ButtonPressedForegroundColor = foreground;
 
-                titleBar.InactiveBackgroundColor = Colors.White;
-                titleBar.InactiveForegroundColor = Colors.Gray;
-                titleBar.ButtonInactiveBackgroundColor = Colors.White;
-                titleBar.ButtonInactiveForegroundColor = Colors.Gray;
+                titleBar.InactiveBackgroundColor = accentLight1;
+                titleBar.InactiveForegroundColor = inactiveForeground;
+                titleBar.ButtonInactiveBackgroundColor = accentLight1;
+                titleBar.ButtonInactiveForegroundColor = inactiveForeground;
             }
+        }
+
+        private void ApplyAccentBrush(FrameworkElement root)
+        {
+            var accent = _uiSettings.GetColorValue(UIColorType.Accent);
+            var brush = new SolidColorBrush(accent);
+            root.Resources["AppAccentBrush"] = brush;
+            StatusText.Foreground = brush;
+        }
+
+        private void UiSettings_ColorValuesChanged(UISettings sender, object args)
+        {
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (Content is FrameworkElement root)
+                {
+                    ApplyAccentBrush(root);
+                    UpdateTitleBar(root.ActualTheme);
+                }
+            });
         }
 
         // ]i^b MainWindow() غcŪ^WܡG
