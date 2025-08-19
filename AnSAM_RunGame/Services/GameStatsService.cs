@@ -161,7 +161,10 @@ namespace AnSAM.RunGame.Services
 
         public async Task<bool> RequestUserStatsAsync()
         {
-            return await Task.Run(() => _steamClient.RequestUserStats((uint)_gameId));
+            DebugLogger.LogDebug($"GameStatsService.RequestUserStatsAsync called for game {_gameId}");
+            bool result = await Task.Run(() => _steamClient.RequestUserStats((uint)_gameId));
+            DebugLogger.LogDebug($"GameStatsService.RequestUserStatsAsync result: {result}");
+            return result;
         }
         
         public string GetCurrentGameLanguage()
