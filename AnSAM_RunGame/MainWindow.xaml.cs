@@ -38,6 +38,11 @@ namespace AnSAM.RunGame
             this.InitializeComponent();
             
             _gameId = gameId;
+            
+            // Set Steam AppID environment variable - some games require this
+            Environment.SetEnvironmentVariable("SteamAppId", gameId.ToString());
+            DebugLogger.LogDebug($"Set SteamAppId environment variable to {gameId}");
+            
             _steamClient = new SteamGameClient(gameId);
             _gameStatsService = new GameStatsService(_steamClient, gameId);
             
@@ -91,6 +96,9 @@ namespace AnSAM.RunGame
             // 初始化日誌
             DebugLogger.LogDebug($"AnSAM_RunGame started for game {gameId} in {(DebugLogger.IsDebugMode ? "DEBUG" : "RELEASE")} mode");
             
+            // Test game ownership before loading stats
+            TestGameOwnership();
+            
             // Start loading stats
             _ = LoadStatsAsync();
         }
@@ -143,24 +151,33 @@ namespace AnSAM.RunGame
 
         private void OnUserStatsReceived(object? sender, UserStatsReceivedEventArgs e)
         {
+            DebugLogger.LogDebug($"MainWindow.OnUserStatsReceived - GameId: {e.GameId}, Result: {e.Result}, UserId: {e.UserId}");
+            
             this.DispatcherQueue.TryEnqueue(() =>
             {
+                DebugLogger.LogDebug($"MainWindow.OnUserStatsReceived dispatched to UI thread");
+                
                 if (e.Result != 1)
                 {
+                    DebugLogger.LogDebug($"UserStatsReceived failed with result: {e.Result}");
                     StatusLabel.Text = $"Error retrieving stats: {GetErrorDescription(e.Result)}";
                     return;
                 }
 
                 string currentLanguage = LanguageComboBox.SelectedItem as string ?? "english";
+                DebugLogger.LogDebug($"Loading schema for language: {currentLanguage}");
+                
                 if (!_gameStatsService.LoadUserGameStatsSchema(currentLanguage))
                 {
                     StatusLabel.Text = "Failed to load game schema";
                     return;
                 }
 
+                DebugLogger.LogDebug("Loading achievements and statistics...");
                 LoadAchievements();
                 LoadStatistics();
                 
+                DebugLogger.LogDebug($"UI updated - {_achievements.Count} achievements, {_statistics.Count} statistics");
                 StatusLabel.Text = $"Retrieved {_achievements.Count} achievements and {_statistics.Count} statistics";
             });
         }
@@ -543,9 +560,48 @@ namespace AnSAM.RunGame
         {
             return errorCode switch
             {
-                2 => "Generic error - you may not own this game",
-                _ => $"Error code: {errorCode}"
+                1 => "Success",
+                2 => "Generic error - game may not be running, data not synchronized, or access denied",
+                3 => "No connection to Steam",
+                4 => "Invalid user",
+                5 => "Invalid app ID",
+                6 => "Invalid state",
+                7 => "Invalid parameter",
+                8 => "Not logged in",
+                9 => "Wrong user",
+                10 => "Invalid version",
+                _ => $"Unknown error code: {errorCode}"
             };
+        }
+
+        private void TestGameOwnership()
+        {
+            try
+            {
+                // Check if user owns the game
+                bool ownsGame = _steamClient.IsSubscribedApp((uint)_gameId);
+                DebugLogger.LogDebug($"Game ownership check for {_gameId}: {ownsGame}");
+                
+                // Check if we can get game name
+                string? gameName = _steamClient.GetAppData((uint)_gameId, "name");
+                DebugLogger.LogDebug($"Game name: {gameName ?? "Unknown"}");
+                
+                // Check if we can get other game data
+                string? gameType = _steamClient.GetAppData((uint)_gameId, "type");
+                DebugLogger.LogDebug($"Game type: {gameType ?? "Unknown"}");
+                
+                string? gameState = _steamClient.GetAppData((uint)_gameId, "state");
+                DebugLogger.LogDebug($"Game state: {gameState ?? "Unknown"}");
+                
+                if (!ownsGame)
+                {
+                    StatusLabel.Text = "Warning: Steam reports you don't own this game";
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error testing game ownership: {ex.Message}");
+            }
         }
 
         private void OnClearLog(object sender, RoutedEventArgs e)

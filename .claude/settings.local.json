@@ -8,7 +8,11 @@
       "Bash(robocopy:*)",
       "Bash(dotnet build:*)",
       "Bash(move:*)",
-      "Bash(mv:*)"
+      "Bash(mv:*)",
+      "Bash(start:*)",
+      "Bash(timeout:*)",
+      "Bash(cat:*)",
+      "Bash(echo $LOCALAPPDATA)"
     ],
     "deny": [],
     "ask": []

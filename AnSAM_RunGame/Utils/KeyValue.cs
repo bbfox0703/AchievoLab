@@ -80,14 +80,97 @@ namespace AnSAM.RunGame.Utils
         {
             try
             {
-                using var fs = new FileStream(path, FileMode.Open, FileAccess.Read);
-                using var reader = new BinaryReader(fs);
+                using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
                 
-                return ReadBinaryKeyValue(reader);
+                var kv = new KeyValue 
+                { 
+                    Valid = true,
+                    Type = KeyValueType.None,
+                    Children = new List<KeyValue>()
+                };
+                
+                if (kv.ReadAsBinary(fs))
+                {
+                    return kv;
+                }
+                
+                return null;
             }
             catch
             {
                 return null;
+            }
+        }
+
+        public bool ReadAsBinary(Stream input)
+        {
+            Children = new List<KeyValue>();
+            try
+            {
+                while (true)
+                {
+                    var type = (KeyValueType)input.ReadByte();
+
+                    if (type == KeyValueType.End)
+                    {
+                        break;
+                    }
+
+                    var current = new KeyValue
+                    {
+                        Type = type,
+                        Name = input.ReadStringUnicode(),
+                    };
+
+                    switch (type)
+                    {
+                        case KeyValueType.None:
+                            current.ReadAsBinary(input);
+                            break;
+
+                        case KeyValueType.String:
+                            current.Valid = true;
+                            current.Value = input.ReadStringUnicode();
+                            break;
+
+                        case KeyValueType.Int32:
+                            current.Valid = true;
+                            current.Value = input.ReadInt32();
+                            break;
+
+                        case KeyValueType.UInt64:
+                            current.Valid = true;
+                            current.Value = input.ReadUInt64();
+                            break;
+
+                        case KeyValueType.Float32:
+                            current.Valid = true;
+                            current.Value = input.ReadSingle();
+                            break;
+
+                        case KeyValueType.Pointer:
+                            current.Valid = true;
+                            current.Value = input.ReadUInt32();
+                            break;
+
+                        case KeyValueType.Color:
+                            current.Valid = true;
+                            current.Value = input.ReadUInt32();
+                            break;
+
+                        default:
+                            return false;
+                    }
+
+                    Children.Add(current);
+                }
+
+                Valid = true;
+                return true;
+            }
+            catch
+            {
+                return false;
             }
         }
 
@@ -189,6 +272,49 @@ namespace AnSAM.RunGame.Utils
         Pointer = 4,
         WideString = 5,
         Color = 6,
-        UInt64 = 7
+        UInt64 = 7,
+        End = 8
+    }
+
+    public static class StreamExtensions
+    {
+        public static string ReadStringUnicode(this Stream stream)
+        {
+            var bytes = new List<byte>();
+            byte b;
+            while ((b = (byte)stream.ReadByte()) != 0)
+            {
+                bytes.Add(b);
+            }
+            return Encoding.UTF8.GetString(bytes.ToArray());
+        }
+
+        public static int ReadInt32(this Stream stream)
+        {
+            var bytes = new byte[4];
+            stream.Read(bytes, 0, 4);
+            return BitConverter.ToInt32(bytes, 0);
+        }
+
+        public static uint ReadUInt32(this Stream stream)
+        {
+            var bytes = new byte[4];
+            stream.Read(bytes, 0, 4);
+            return BitConverter.ToUInt32(bytes, 0);
+        }
+
+        public static ulong ReadUInt64(this Stream stream)
+        {
+            var bytes = new byte[8];
+            stream.Read(bytes, 0, 8);
+            return BitConverter.ToUInt64(bytes, 0);
+        }
+
+        public static float ReadSingle(this Stream stream)
+        {
+            var bytes = new byte[4];
+            stream.Read(bytes, 0, 4);
+            return BitConverter.ToSingle(bytes, 0);
+        }
     }
 }

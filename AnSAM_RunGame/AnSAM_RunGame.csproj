@@ -12,6 +12,7 @@
     <EnableMsixTooling>true</EnableMsixTooling>
     <Nullable>enable</Nullable>
     <WindowsPackageType>None</WindowsPackageType>
+    <AssemblyName>SteamGame</AssemblyName>
   </PropertyGroup>
 
 

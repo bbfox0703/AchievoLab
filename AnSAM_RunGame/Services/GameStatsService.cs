@@ -32,25 +32,185 @@ namespace AnSAM.RunGame.Services
             {
                 string fileName = $"UserGameStatsSchema_{_gameId}.bin";
                 string installPath = GetSteamInstallPath();
-                string path = Path.Combine(installPath, "appcache", "stats", fileName);
+                DebugLogger.LogDebug($"Steam install path: {installPath}");
                 
-                if (!File.Exists(path)) return false;
+                string appcachePath = Path.Combine(installPath, "appcache", "stats");
+                DebugLogger.LogDebug($"Appcache stats path: {appcachePath}");
+                
+                string path = Path.Combine(appcachePath, fileName);
+                DebugLogger.LogDebug($"Looking for schema file: {path}");
+                
+                if (!Directory.Exists(appcachePath))
+                {
+                    DebugLogger.LogDebug($"Appcache stats directory does not exist: {appcachePath}");
+                    return false;
+                }
+                
+                if (!File.Exists(path))
+                {
+                    DebugLogger.LogDebug($"Schema file does not exist: {path}");
+                    
+                    // List all files in the appcache stats directory for debugging
+                    try
+                    {
+                        var files = Directory.GetFiles(appcachePath, "*.bin");
+                        DebugLogger.LogDebug($"Available .bin files in {appcachePath}:");
+                        foreach (var file in files)
+                        {
+                            DebugLogger.LogDebug($"  - {Path.GetFileName(file)}");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        DebugLogger.LogDebug($"Error listing files in {appcachePath}: {ex.Message}");
+                    }
+                    
+                    return false;
+                }
 
-                var kv = KeyValue.LoadAsBinary(path);
-                if (kv == null) return false;
+                DebugLogger.LogDebug($"Found schema file, attempting to load: {path}");
+                
+                KeyValue? kv = null;
+                try
+                {
+                    // Try multiple times with different approaches
+                    for (int attempt = 0; attempt < 3; attempt++)
+                    {
+                        try
+                        {
+                            kv = KeyValue.LoadAsBinary(path);
+                            if (kv != null)
+                            {
+                                DebugLogger.LogDebug($"Successfully loaded KeyValue on attempt {attempt + 1}");
+                                break;
+                            }
+                            DebugLogger.LogDebug($"KeyValue.LoadAsBinary returned null on attempt {attempt + 1}");
+                        }
+                        catch (IOException ioEx)
+                        {
+                            DebugLogger.LogDebug($"IOException on attempt {attempt + 1}: {ioEx.Message}");
+                            if (attempt < 2) // Wait and retry
+                            {
+                                System.Threading.Thread.Sleep(100 * (attempt + 1)); // 100ms, 200ms
+                                continue;
+                            }
+                            throw;
+                        }
+                        catch (UnauthorizedAccessException authEx)
+                        {
+                            DebugLogger.LogDebug($"UnauthorizedAccessException: {authEx.Message}");
+                            throw;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    DebugLogger.LogDebug($"Exception loading KeyValue: {ex.GetType().Name} - {ex.Message}");
+                    return false;
+                }
+                
+                if (kv == null)
+                {
+                    DebugLogger.LogDebug("Failed to parse KeyValue from schema file after all attempts");
+                    return false;
+                }
 
+                DebugLogger.LogDebug("Successfully loaded KeyValue from schema file");
+                
+                // Debug: Print the structure of the loaded KeyValue
+                DebugLogger.LogDebug($"Root KeyValue name: '{kv.Name}', Valid: {kv.Valid}, HasChildren: {kv.Children != null}");
+                if (kv.Children != null)
+                {
+                    DebugLogger.LogDebug($"Root has {kv.Children.Count} children:");
+                    foreach (var child in kv.Children.Take(10)) // Limit to first 10 children
+                    {
+                        DebugLogger.LogDebug($"  - Child: '{child.Name}', Valid: {child.Valid}, HasChildren: {child.Children != null}");
+                    }
+                }
+                else
+                {
+                    DebugLogger.LogDebug("Root KeyValue has no children");
+                    // Try to get raw data info
+                    DebugLogger.LogDebug($"KeyValue AsString: '{kv.AsString("")}'");
+                    DebugLogger.LogDebug($"KeyValue AsInteger: {kv.AsInteger(-1)}");
+                    
+                    // Check if this is a different KeyValue structure
+                    // Sometimes the root itself might be the game ID section
+                    if (kv.Valid)
+                    {
+                        var directStats = kv["stats"];
+                        DebugLogger.LogDebug($"Direct stats check - Valid: {directStats.Valid}, HasChildren: {directStats.Children != null}");
+                        if (directStats.Valid && directStats.Children != null)
+                        {
+                            DebugLogger.LogDebug($"Direct stats has {directStats.Children.Count} children");
+                        }
+                    }
+                }
+                
                 _achievementDefinitions.Clear();
                 _statDefinitions.Clear();
 
-                var stats = kv[_gameId.ToString(CultureInfo.InvariantCulture)]["stats"];
-                if (!stats.Valid || stats.Children == null) return false;
+                var gameIdStr = _gameId.ToString(CultureInfo.InvariantCulture);
+                DebugLogger.LogDebug($"Looking for game ID section: {gameIdStr}");
+                
+                var gameSection = kv[gameIdStr];
+                if (!gameSection.Valid)
+                {
+                    DebugLogger.LogDebug($"Game section not found for ID: {gameIdStr}");
+                    
+                    // Try different approaches to find the game data
+                    // 1. Try the root directly
+                    if (kv.Valid && kv.Children != null)
+                    {
+                        DebugLogger.LogDebug("Trying root level stats...");
+                        var rootStats = kv["stats"];
+                        if (rootStats.Valid)
+                        {
+                            DebugLogger.LogDebug("Found stats at root level");
+                            gameSection = kv;
+                        }
+                    }
+                    
+                    // 2. Try looking in first child
+                    if (!gameSection.Valid && kv.Children != null && kv.Children.Count > 0)
+                    {
+                        DebugLogger.LogDebug("Trying first child...");
+                        var firstChild = kv.Children[0];
+                        DebugLogger.LogDebug($"First child name: '{firstChild.Name}'");
+                        var firstChildStats = firstChild["stats"];
+                        if (firstChildStats.Valid)
+                        {
+                            DebugLogger.LogDebug("Found stats in first child");
+                            gameSection = firstChild;
+                        }
+                    }
+                    
+                    if (!gameSection.Valid)
+                    {
+                        DebugLogger.LogDebug("No valid game section found. This game may not have achievements/stats defined.");
+                        // For games without achievements, we can still show the interface
+                        // but with no data - this matches Legacy SAM behavior
+                        return true; // Return true but with empty definitions
+                    }
+                }
+                
+                var stats = gameSection["stats"];
+                if (!stats.Valid || stats.Children == null)
+                {
+                    DebugLogger.LogDebug("Stats section not found or invalid");
+                    return false;
+                }
 
+                DebugLogger.LogDebug($"Found stats section with {stats.Children.Count} children");
+                
                 foreach (var stat in stats.Children)
                 {
                     if (!stat.Valid) continue;
 
                     var rawType = stat["type_int"].Valid ? stat["type_int"].AsInteger(0) : stat["type"].AsInteger(0);
                     var type = (UserStatType)rawType;
+                    
+                    DebugLogger.LogDebug($"Processing stat: {stat.Name}, type: {type}");
                     
                     switch (type)
                     {
@@ -68,10 +228,12 @@ namespace AnSAM.RunGame.Services
                     }
                 }
 
+                DebugLogger.LogDebug($"Schema loading completed. Found {_achievementDefinitions.Count} achievements and {_statDefinitions.Count} stats");
                 return true;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                DebugLogger.LogDebug($"Exception in LoadUserGameStatsSchema: {ex.Message}");
                 return false;
             }
         }
@@ -279,6 +441,9 @@ namespace AnSAM.RunGame.Services
 
         private void OnUserStatsReceived(SteamGameClient.UserStatsReceived userStatsReceived)
         {
+            DebugLogger.LogDebug($"GameStatsService.OnUserStatsReceived - GameId: {userStatsReceived.GameId}, Result: {userStatsReceived.Result}, UserId: {userStatsReceived.UserId}");
+            DebugLogger.LogDebug($"UserStatsReceived event has {(UserStatsReceived == null ? 0 : UserStatsReceived.GetInvocationList().Length)} subscribers");
+            
             UserStatsReceived?.Invoke(this, new UserStatsReceivedEventArgs
             {
                 GameId = userStatsReceived.GameId,
@@ -289,14 +454,55 @@ namespace AnSAM.RunGame.Services
 
         private static string GetSteamInstallPath()
         {
-            const string subKey = @"Software\\Valve\\Steam";
+            const string subKey = @"Software\Valve\Steam";
+            
+            DebugLogger.LogDebug("Searching for Steam install path in registry...");
+            
+            // Check HKLM 64-bit and 32-bit (WOW6432Node) views
             foreach (var view in new[] { Microsoft.Win32.RegistryView.Registry64, Microsoft.Win32.RegistryView.Registry32 })
             {
-                using var key = Microsoft.Win32.RegistryKey.OpenBaseKey(Microsoft.Win32.RegistryHive.LocalMachine, view).OpenSubKey(subKey);
-                if (key == null) continue;
-                var path = key.GetValue("InstallPath") as string;
-                if (!string.IsNullOrEmpty(path)) return path;
+                try
+                {
+                    using var key = Microsoft.Win32.RegistryKey.OpenBaseKey(Microsoft.Win32.RegistryHive.LocalMachine, view).OpenSubKey(subKey);
+                    if (key != null)
+                    {
+                        var path = key.GetValue("InstallPath") as string;
+                        if (!string.IsNullOrEmpty(path))
+                        {
+                            DebugLogger.LogDebug($"Found Steam install path in HKLM {view}: {path}");
+                            return path;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    DebugLogger.LogDebug($"Error reading HKLM {view}: {ex.Message}");
+                }
             }
+
+            // Fall back to HKCU
+            foreach (var view in new[] { Microsoft.Win32.RegistryView.Registry64, Microsoft.Win32.RegistryView.Registry32 })
+            {
+                try
+                {
+                    using var key = Microsoft.Win32.RegistryKey.OpenBaseKey(Microsoft.Win32.RegistryHive.CurrentUser, view).OpenSubKey(subKey);
+                    if (key != null)
+                    {
+                        var path = key.GetValue("InstallPath") as string;
+                        if (!string.IsNullOrEmpty(path))
+                        {
+                            DebugLogger.LogDebug($"Found Steam install path in HKCU {view}: {path}");
+                            return path;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    DebugLogger.LogDebug($"Error reading HKCU {view}: {ex.Message}");
+                }
+            }
+            
+            DebugLogger.LogDebug("Steam install path not found in registry");
             return "";
         }
     }

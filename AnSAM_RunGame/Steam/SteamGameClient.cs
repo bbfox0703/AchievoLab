@@ -1,6 +1,7 @@
 using System;
 using System.Buffers;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -29,6 +30,7 @@ namespace AnSAM.RunGame.Steam
         private readonly GetISteamAppsDelegate? _getISteamApps;
         private readonly GetISteamUserStatsDelegate? _getISteamUserStats;
         private readonly GetISteamUserDelegate? _getISteamUser;
+        private readonly GetISteamUtilsDelegate? _getISteamUtils;
         private readonly ReleaseUserDelegate? _releaseUser;
         private readonly ReleaseSteamPipeDelegate? _releaseSteamPipe;
 
@@ -47,8 +49,12 @@ namespace AnSAM.RunGame.Steam
         private readonly StoreStatsDelegate? _storeStats;
         private readonly ResetAllStatsDelegate? _resetAllStats;
 
-        // ISteamUser020 delegates
+        // ISteamUser012 delegates
         private readonly GetSteamIdDelegate? _getSteamId;
+
+        // ISteamUtils delegates
+        private readonly GetAppIdDelegate? _getAppId;
+        private readonly IntPtr _utils;
 
         private readonly List<Action<UserStatsReceived>> _userStatsCallbacks = new();
 
@@ -71,37 +77,89 @@ namespace AnSAM.RunGame.Steam
             
             try
             {
+                DebugLogger.LogDebug($"Initializing SteamGameClient for game {gameId}");
+                
+                // Check if Steam is running
+                if (!IsSteamRunning())
+                {
+                    DebugLogger.LogDebug("Steam is not running - cannot initialize Steam client");
+                    return;
+                }
+                
                 _client = Steam_CreateInterface("SteamClient018", IntPtr.Zero);
+                DebugLogger.LogDebug($"Steam_CreateInterface result: {_client}");
+                
                 if (_client != IntPtr.Zero)
                 {
                     // Get ISteamClient018 vtable
                     IntPtr vtable = Marshal.ReadIntPtr(_client);
+                    DebugLogger.LogDebug($"ISteamClient018 vtable: {vtable}");
+                    
                     _createSteamPipe = Marshal.GetDelegateForFunctionPointer<CreateSteamPipeDelegate>(Marshal.ReadIntPtr(vtable + IntPtr.Size * 0));
                     _releaseSteamPipe = Marshal.GetDelegateForFunctionPointer<ReleaseSteamPipeDelegate>(Marshal.ReadIntPtr(vtable + IntPtr.Size * 1));
                     _connectToGlobalUser = Marshal.GetDelegateForFunctionPointer<ConnectToGlobalUserDelegate>(Marshal.ReadIntPtr(vtable + IntPtr.Size * 2));
                     _releaseUser = Marshal.GetDelegateForFunctionPointer<ReleaseUserDelegate>(Marshal.ReadIntPtr(vtable + IntPtr.Size * 4));
-                    _getISteamApps = Marshal.GetDelegateForFunctionPointer<GetISteamAppsDelegate>(Marshal.ReadIntPtr(vtable + IntPtr.Size * 15));
-                    _getISteamUserStats = Marshal.GetDelegateForFunctionPointer<GetISteamUserStatsDelegate>(Marshal.ReadIntPtr(vtable + IntPtr.Size * 18));
                     _getISteamUser = Marshal.GetDelegateForFunctionPointer<GetISteamUserDelegate>(Marshal.ReadIntPtr(vtable + IntPtr.Size * 5));
+                    _getISteamUtils = Marshal.GetDelegateForFunctionPointer<GetISteamUtilsDelegate>(Marshal.ReadIntPtr(vtable + IntPtr.Size * 9));
+                    _getISteamUserStats = Marshal.GetDelegateForFunctionPointer<GetISteamUserStatsDelegate>(Marshal.ReadIntPtr(vtable + IntPtr.Size * 13));
+                    _getISteamApps = Marshal.GetDelegateForFunctionPointer<GetISteamAppsDelegate>(Marshal.ReadIntPtr(vtable + IntPtr.Size * 15));
 
                     if (_createSteamPipe != null && _connectToGlobalUser != null)
                     {
                         _pipe = _createSteamPipe(_client);
+                        DebugLogger.LogDebug($"Steam pipe created: {_pipe}");
+                        
                         if (_pipe != 0)
                         {
                             _user = _connectToGlobalUser(_client, _pipe);
+                            DebugLogger.LogDebug($"Connected to global user: {_user}");
+                            
                             if (_user != 0)
                             {
                                 _apps008 = _getISteamApps?.Invoke(_client, _user, _pipe, "STEAMAPPS_INTERFACE_VERSION008") ?? IntPtr.Zero;
                                 _apps001 = _getISteamApps?.Invoke(_client, _user, _pipe, "STEAMAPPS_INTERFACE_VERSION001") ?? IntPtr.Zero;
-                                _userStats = _getISteamUserStats?.Invoke(_client, _user, _pipe, "STEAMUSERSTATS_INTERFACE_VERSION013") ?? IntPtr.Zero;
-                                _user006 = _getISteamUser?.Invoke(_client, _user, _pipe, "SteamUser020") ?? IntPtr.Zero;
+                                _utils = _getISteamUtils?.Invoke(_client, _pipe, "SteamUtils005") ?? IntPtr.Zero;
+                                
+                                // Try different UserStats interface versions
+                                string[] userStatsVersions = { "STEAMUSERSTATS_INTERFACE_VERSION013", "STEAMUSERSTATS_INTERFACE_VERSION012", "STEAMUSERSTATS_INTERFACE_VERSION011" };
+                                foreach (var version in userStatsVersions)
+                                {
+                                    _userStats = _getISteamUserStats?.Invoke(_client, _user, _pipe, version) ?? IntPtr.Zero;
+                                    if (_userStats != IntPtr.Zero)
+                                    {
+                                        DebugLogger.LogDebug($"Successfully obtained {version} interface: {_userStats}");
+                                        break;
+                                    }
+                                    else
+                                    {
+                                        DebugLogger.LogDebug($"Failed to get {version} interface");
+                                    }
+                                }
+                                
+                                // Try different SteamUser interface versions starting with the one SAM uses
+                                string[] userVersions = { "SteamUser012", "SteamUser020", "SteamUser019", "SteamUser018" };
+                                foreach (var version in userVersions)
+                                {
+                                    _user006 = _getISteamUser?.Invoke(_client, _user, _pipe, version) ?? IntPtr.Zero;
+                                    if (_user006 != IntPtr.Zero)
+                                    {
+                                        DebugLogger.LogDebug($"Successfully obtained {version} interface: {_user006}");
+                                        break;
+                                    }
+                                    else
+                                    {
+                                        DebugLogger.LogDebug($"Failed to get {version} interface");
+                                    }
+                                }
 
-                                // Initialize ISteamApps delegates
+                                DebugLogger.LogDebug($"Steam interfaces - Apps008: {_apps008}, Apps001: {_apps001}, UserStats: {_userStats}, User006: {_user006}, Utils: {_utils}");
+
+                                // Initialize ISteamApps delegates using correct offsets from ISteamApps008
                                 if (_apps008 != IntPtr.Zero)
                                 {
                                     IntPtr appsVTable = Marshal.ReadIntPtr(_apps008);
                                     _isSubscribedApp = Marshal.GetDelegateForFunctionPointer<IsSubscribedAppDelegate>(Marshal.ReadIntPtr(appsVTable + IntPtr.Size * 6));
+                                    DebugLogger.LogDebug($"ISteamApps008 IsSubscribedApp delegate initialized");
                                 }
                                 
                                 if (_apps001 != IntPtr.Zero)
@@ -110,19 +168,19 @@ namespace AnSAM.RunGame.Steam
                                     _getAppData = Marshal.GetDelegateForFunctionPointer<GetAppDataDelegate>(Marshal.ReadIntPtr(apps1VTable));
                                 }
 
-                                // Initialize ISteamUserStats delegates
+                                // Initialize ISteamUserStats delegates using correct offsets from ISteamUserStats013
                                 if (_userStats != IntPtr.Zero)
                                 {
                                     IntPtr userStatsVTable = Marshal.ReadIntPtr(_userStats);
-                                    _requestUserStats = Marshal.GetDelegateForFunctionPointer<RequestUserStatsDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 0));
-                                    _getAchievementAndUnlockTime = Marshal.GetDelegateForFunctionPointer<GetAchievementAndUnlockTimeDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 4));
+                                    _getStatFloat = Marshal.GetDelegateForFunctionPointer<GetStatFloatDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 0));
+                                    _getStatInt = Marshal.GetDelegateForFunctionPointer<GetStatIntDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 1));
+                                    _setStatFloat = Marshal.GetDelegateForFunctionPointer<SetStatFloatDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 2));
+                                    _setStatInt = Marshal.GetDelegateForFunctionPointer<SetStatIntDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 3));
                                     _setAchievement = Marshal.GetDelegateForFunctionPointer<SetAchievementDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 6));
-                                    _getStatInt = Marshal.GetDelegateForFunctionPointer<GetStatIntDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 8));
-                                    _getStatFloat = Marshal.GetDelegateForFunctionPointer<GetStatFloatDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 9));
-                                    _setStatInt = Marshal.GetDelegateForFunctionPointer<SetStatIntDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 10));
-                                    _setStatFloat = Marshal.GetDelegateForFunctionPointer<SetStatFloatDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 11));
-                                    _storeStats = Marshal.GetDelegateForFunctionPointer<StoreStatsDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 12));
-                                    _resetAllStats = Marshal.GetDelegateForFunctionPointer<ResetAllStatsDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 13));
+                                    _getAchievementAndUnlockTime = Marshal.GetDelegateForFunctionPointer<GetAchievementAndUnlockTimeDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 8));
+                                    _storeStats = Marshal.GetDelegateForFunctionPointer<StoreStatsDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 9));
+                                    _requestUserStats = Marshal.GetDelegateForFunctionPointer<RequestUserStatsDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 15));
+                                    _resetAllStats = Marshal.GetDelegateForFunctionPointer<ResetAllStatsDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 20));
                                 }
 
                                 // Initialize ISteamUser delegates
@@ -132,21 +190,129 @@ namespace AnSAM.RunGame.Steam
                                     _getSteamId = Marshal.GetDelegateForFunctionPointer<GetSteamIdDelegate>(Marshal.ReadIntPtr(userVTable + IntPtr.Size * 2));
                                 }
 
-                                Initialized = _userStats != IntPtr.Zero && _requestUserStats != null;
+                                // Initialize ISteamUtils delegates
+                                if (_utils != IntPtr.Zero)
+                                {
+                                    IntPtr utilsVTable = Marshal.ReadIntPtr(_utils);
+                                    _getAppId = Marshal.GetDelegateForFunctionPointer<GetAppIdDelegate>(Marshal.ReadIntPtr(utilsVTable + IntPtr.Size * 9));
+                                    DebugLogger.LogDebug($"ISteamUtils005 GetAppId delegate initialized");
+                                }
+
+                                // Check if we can get Steam ID to verify user is logged in
+                                ulong steamId = 0;
+                                if (_getSteamId != null && _user006 != IntPtr.Zero)
+                                {
+                                    try
+                                    {
+                                        _getSteamId(_user006, out steamId);
+                                        DebugLogger.LogDebug($"Current Steam ID: {steamId}");
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        DebugLogger.LogDebug($"Error getting Steam ID: {ex.Message}");
+                                        steamId = 0;
+                                    }
+                                }
+                                
+                                // Verify AppID matches - this is key for Legacy SAM compatibility
+                                uint currentAppId = 0;
+                                bool appIdMatches = false;
+                                if (_getAppId != null && _utils != IntPtr.Zero)
+                                {
+                                    try
+                                    {
+                                        currentAppId = _getAppId(_utils);
+                                        DebugLogger.LogDebug($"Steam Utils GetAppId returned: {currentAppId}");
+                                        appIdMatches = currentAppId == (uint)_gameId;
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        DebugLogger.LogDebug($"Error getting AppId from Steam Utils: {ex.Message}");
+                                        // For now, continue without AppID verification
+                                        appIdMatches = true;
+                                    }
+                                }
+                                else
+                                {
+                                    DebugLogger.LogDebug("SteamUtils not available, skipping AppID verification");
+                                    appIdMatches = true; // Continue without verification for now
+                                }
+
+                                DebugLogger.LogDebug($"AppID verification - Expected: {_gameId}, Current: {currentAppId}, Matches: {appIdMatches}");
+
+                                // Now we can safely require Steam ID since the function signature is correct
+                                Initialized = _userStats != IntPtr.Zero && _requestUserStats != null && _getSteamId != null && steamId != 0 && appIdMatches;
+                                DebugLogger.LogDebug($"Steam client initialization result: {Initialized}");
+                                
+                                if (!Initialized)
+                                {
+                                    DebugLogger.LogDebug($"Init failed - UserStats: {_userStats != IntPtr.Zero}, RequestUserStats: {_requestUserStats != null}, GetSteamId: {_getSteamId != null}, SteamId: {steamId}, AppIdMatches: {appIdMatches}");
+                                    if (steamId == 0)
+                                    {
+                                        DebugLogger.LogDebug("User may not be logged in to Steam");
+                                    }
+                                    if (!appIdMatches)
+                                    {
+                                        DebugLogger.LogDebug($"AppID mismatch! Steam thinks current app is {currentAppId}, but we need {_gameId}");
+                                        DebugLogger.LogDebug("This suggests the SteamAppId environment variable is not working correctly");
+                                    }
+                                }
+                                else
+                                {
+                                    DebugLogger.LogDebug($"Steam client successfully initialized - UserStats: {_userStats}, SteamId: {steamId}");
+                                }
+                            }
+                            else
+                            {
+                                DebugLogger.LogDebug("Failed to connect to global user");
                             }
                         }
+                        else
+                        {
+                            DebugLogger.LogDebug("Failed to create Steam pipe");
+                        }
                     }
+                    else
+                    {
+                        DebugLogger.LogDebug($"Required delegates not found - CreateSteamPipe: {_createSteamPipe != null}, ConnectToGlobalUser: {_connectToGlobalUser != null}");
+                    }
+                }
+                else
+                {
+                    DebugLogger.LogDebug("Failed to create Steam client interface");
                 }
 
                 if (Initialized)
                 {
                     _callbackTimer = new Timer(_ => RunCallbacks(), null, 0, 100);
+                    DebugLogger.LogDebug("Steam client successfully initialized and callback timer started");
                 }
             }
             catch (Exception ex)
             {
                 Initialized = false;
                 DebugLogger.LogDebug($"Steam API init threw: {ex}");
+            }
+        }
+
+        public bool IsSubscribedApp(uint gameId)
+        {
+            if (!Initialized || _isSubscribedApp == null || _apps008 == IntPtr.Zero)
+            {
+                DebugLogger.LogDebug($"IsSubscribedApp failed: not initialized or missing delegates");
+                return false;
+            }
+
+            try
+            {
+                bool result = _isSubscribedApp(_apps008, gameId);
+                DebugLogger.LogDebug($"IsSubscribedApp for game {gameId}: {result}");
+                return result;
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Exception in IsSubscribedApp: {ex.Message}");
+                return false;
             }
         }
 
@@ -162,17 +328,47 @@ namespace AnSAM.RunGame.Steam
                 DebugLogger.LogDebug("SteamGameClient.RequestUserStats failed: _requestUserStats delegate is null");
                 return false;
             }
-            if (_getSteamId == null)
+            if (_userStats == IntPtr.Zero)
             {
-                DebugLogger.LogDebug("SteamGameClient.RequestUserStats failed: _getSteamId delegate is null");
+                DebugLogger.LogDebug("SteamGameClient.RequestUserStats failed: _userStats interface is null");
                 return false;
             }
 
-            ulong steamId = _getSteamId(_user006);
-            DebugLogger.LogDebug($"SteamGameClient.RequestUserStats calling for game {gameId} (steamId={steamId})");
-            bool result = _requestUserStats(_userStats, steamId) != 0;
-            DebugLogger.LogDebug($"SteamGameClient.RequestUserStats result for game {gameId}: {result}");
-            return result;
+            // First check if user owns the game
+            if (!IsSubscribedApp(gameId))
+            {
+                DebugLogger.LogDebug($"User does not own game {gameId} - RequestUserStats will likely fail");
+                // Continue anyway, as some games might still work
+            }
+
+            try
+            {
+                // Try to get Steam ID, but don't fail if it doesn't work
+                ulong steamId = 0;
+                if (_getSteamId != null && _user006 != IntPtr.Zero)
+                {
+                    try
+                    {
+                        _getSteamId(_user006, out steamId);
+                    }
+                    catch (Exception ex)
+                    {
+                        DebugLogger.LogDebug($"Warning: Could not get Steam ID: {ex.Message}");
+                        // Try using a default Steam ID or the current user
+                        steamId = 0x0110000100000000UL; // Generic Steam ID format
+                    }
+                }
+
+                DebugLogger.LogDebug($"SteamGameClient.RequestUserStats calling for game {gameId} (steamId={steamId})");
+                bool result = _requestUserStats(_userStats, steamId) != 0;
+                DebugLogger.LogDebug($"SteamGameClient.RequestUserStats result for game {gameId}: {result}");
+                return result;
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Exception in RequestUserStats: {ex.Message}");
+                return false;
+            }
         }
 
         public bool GetAchievementAndUnlockTime(string id, out bool achieved, out uint unlockTime)
@@ -280,9 +476,13 @@ namespace AnSAM.RunGame.Steam
         {
             while (Steam_BGetCallback(_pipe, out var msg, out _))
             {
+                DebugLogger.LogDebug($"Steam callback received - ID: {msg.Id}, GameId: {_gameId}");
+                
                 if (msg.Id == 1101) // UserStatsReceived callback
                 {
                     var userStatsReceived = Marshal.PtrToStructure<UserStatsReceived>(msg.ParamPointer);
+                    DebugLogger.LogDebug($"UserStatsReceived - GameId: {userStatsReceived.GameId}, Result: {userStatsReceived.Result}, UserId: {userStatsReceived.UserId}");
+                    
                     foreach (var callback in _userStatsCallbacks)
                     {
                         callback(userStatsReceived);
@@ -358,6 +558,22 @@ namespace AnSAM.RunGame.Steam
             Native.AddDllDirectory(Path.Combine(installPath, "bin"));
             return Native.LoadLibraryEx(libraryPath, IntPtr.Zero,
                 Native.LoadLibrarySearchDefaultDirs | Native.LoadLibrarySearchUserDirs);
+        }
+
+        private static bool IsSteamRunning()
+        {
+            try
+            {
+                var steamProcesses = Process.GetProcessesByName("steam");
+                bool isRunning = steamProcesses.Length > 0;
+                DebugLogger.LogDebug($"Steam process check: {isRunning} (found {steamProcesses.Length} processes)");
+                return isRunning;
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error checking Steam process: {ex.Message}");
+                return false;
+            }
         }
 
         private static string? GetSteamPath()
@@ -451,6 +667,9 @@ namespace AnSAM.RunGame.Steam
         [UnmanagedFunctionPointer(CallingConvention.ThisCall, CharSet = CharSet.Ansi)]
         private delegate IntPtr GetISteamUserDelegate(IntPtr self, int user, int pipe, string version);
 
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall, CharSet = CharSet.Ansi)]
+        private delegate IntPtr GetISteamUtilsDelegate(IntPtr self, int pipe, string version);
+
         [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
         private delegate void ReleaseUserDelegate(IntPtr self, int pipe, int user);
 
@@ -509,6 +728,9 @@ namespace AnSAM.RunGame.Steam
         private delegate bool ResetAllStatsDelegate(IntPtr self, bool achievementsToo);
 
         [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
-        private delegate ulong GetSteamIdDelegate(IntPtr self);
+        private delegate void GetSteamIdDelegate(IntPtr self, out ulong steamId);
+
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
+        private delegate uint GetAppIdDelegate(IntPtr self);
     }
 }
