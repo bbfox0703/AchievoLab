@@ -22,6 +22,7 @@ using System.Threading.Tasks;
 using System.Xml;
 using System.Xml.Linq;
 using WinRT.Interop;
+using Windows.UI;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -36,6 +37,7 @@ namespace AnSAM
         public ObservableCollection<GameItem> Games { get; } = new();
         private readonly List<GameItem> _allGames = new();
         private readonly SteamClient _steamClient;
+        private readonly AppWindow _appWindow;
 
         private bool _autoLoaded;
         private ScrollViewer? _gamesScrollViewer;
@@ -45,19 +47,24 @@ namespace AnSAM
             _steamClient = steamClient;
             InitializeComponent();
 
-            if (Content is FrameworkElement root)
-            {
-                root.KeyDown += OnWindowKeyDown;
-            }
-
             // 取得 AppWindow
             var hwnd = WindowNative.GetWindowHandle(this);
             var winId = Win32Interop.GetWindowIdFromWindow(hwnd);
-            var appWin = AppWindow.GetFromWindowId(winId);
+            _appWindow = AppWindow.GetFromWindowId(winId);
             // 設定 Icon：指向打包後的實體檔案路徑
             var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "AnSAM.ico");
             if (File.Exists(iconPath))
-                appWin.SetIcon(iconPath);
+                _appWindow.SetIcon(iconPath);
+
+            if (Content is FrameworkElement root)
+            {
+                root.KeyDown += OnWindowKeyDown;
+                if (AppWindowTitleBar.IsCustomizationSupported())
+                {
+                    root.ActualThemeChanged += (_, _) => UpdateTitleBar(root.ActualTheme);
+                    UpdateTitleBar(root.ActualTheme);
+                }
+            }
 
             RefreshButton.IsEnabled = _steamClient.Initialized;
             if (!_steamClient.Initialized)
@@ -92,6 +99,49 @@ namespace AnSAM
         private void Theme_Default_Click(object sender, RoutedEventArgs e) => ApplyTheme(ElementTheme.Default);
         private void Theme_Light_Click(object sender, RoutedEventArgs e) => ApplyTheme(ElementTheme.Light);
         private void Theme_Dark_Click(object sender, RoutedEventArgs e) => ApplyTheme(ElementTheme.Dark);
+
+        private void UpdateTitleBar(ElementTheme theme)
+        {
+            if (!AppWindowTitleBar.IsCustomizationSupported())
+                return;
+
+            var titleBar = _appWindow.TitleBar;
+            if (theme == ElementTheme.Dark)
+            {
+                var darkBackground = Color.FromArgb(255, 32, 32, 32);
+                titleBar.BackgroundColor = darkBackground;
+                titleBar.ForegroundColor = Colors.White;
+
+                titleBar.ButtonBackgroundColor = darkBackground;
+                titleBar.ButtonForegroundColor = Colors.White;
+                titleBar.ButtonHoverBackgroundColor = Color.FromArgb(255, 48, 48, 48);
+                titleBar.ButtonHoverForegroundColor = Colors.White;
+                titleBar.ButtonPressedBackgroundColor = Color.FromArgb(255, 64, 64, 64);
+                titleBar.ButtonPressedForegroundColor = Colors.White;
+
+                titleBar.InactiveBackgroundColor = darkBackground;
+                titleBar.InactiveForegroundColor = Colors.Gray;
+                titleBar.ButtonInactiveBackgroundColor = darkBackground;
+                titleBar.ButtonInactiveForegroundColor = Colors.Gray;
+            }
+            else
+            {
+                titleBar.BackgroundColor = Colors.White;
+                titleBar.ForegroundColor = Colors.Black;
+
+                titleBar.ButtonBackgroundColor = Colors.White;
+                titleBar.ButtonForegroundColor = Colors.Black;
+                titleBar.ButtonHoverBackgroundColor = Colors.LightGray;
+                titleBar.ButtonHoverForegroundColor = Colors.Black;
+                titleBar.ButtonPressedBackgroundColor = Colors.DarkGray;
+                titleBar.ButtonPressedForegroundColor = Colors.Black;
+
+                titleBar.InactiveBackgroundColor = Colors.White;
+                titleBar.InactiveForegroundColor = Colors.Gray;
+                titleBar.ButtonInactiveBackgroundColor = Colors.White;
+                titleBar.ButtonInactiveForegroundColor = Colors.Gray;
+            }
+        }
 
         // ]i^b MainWindow() غcŪ^WܡG
         //if (Windows.Storage.ApplicationData.Current.LocalSettings.Values.TryGetValue("AppTheme", out var t)
