@@ -1,6 +1,6 @@
 using System;
 using System.IO;
-using System.Diagnostics;
+using AnSAM.Services;
 
 namespace AnSAM.Steam
 {
@@ -21,11 +21,11 @@ namespace AnSAM.Steam
                 {
                     return $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{id}/{safe}";
                 }
-                Debug.WriteLine($"Invalid small_capsule path for app {id} language {language}: {candidate}");
+                DebugLogger.LogDebug($"Invalid small_capsule path for app {id} language {language}: {candidate}");
             }
             else
             {
-                Debug.WriteLine($"Missing small_capsule for app {id} language {language}");
+                DebugLogger.LogDebug($"Missing small_capsule for app {id} language {language}");
             }
 
             if (!string.Equals(language, "english", StringComparison.OrdinalIgnoreCase))
@@ -37,11 +37,11 @@ namespace AnSAM.Steam
                     {
                         return $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{id}/{safe}";
                     }
-                    Debug.WriteLine($"Invalid small_capsule path for app {id} language english: {candidate}");
+                    DebugLogger.LogDebug($"Invalid small_capsule path for app {id} language english: {candidate}");
                 }
                 else
                 {
-                    Debug.WriteLine($"Missing small_capsule for app {id} language english");
+                    DebugLogger.LogDebug($"Missing small_capsule for app {id} language english");
                 }
             }
 
@@ -52,11 +52,11 @@ namespace AnSAM.Steam
                 {
                     return $"https://cdn.steamstatic.com/steamcommunity/public/images/apps/{id}/{safe}.jpg";
                 }
-                Debug.WriteLine($"Invalid logo path for app {id}: {candidate}");
+                DebugLogger.LogDebug($"Invalid logo path for app {id}: {candidate}");
             }
             else
             {
-                Debug.WriteLine($"Missing logo for app {id}");
+                DebugLogger.LogDebug($"Missing logo for app {id}");
             }
 
             candidate = client.GetAppData(id, "library_600x900");
@@ -66,11 +66,11 @@ namespace AnSAM.Steam
                 {
                     return $"https://shared.cloudflare.steamstatic.com/steam/apps/{id}/{safe}";
                 }
-                Debug.WriteLine($"Invalid library_600x900 path for app {id}: {candidate}");
+                DebugLogger.LogDebug($"Invalid library_600x900 path for app {id}: {candidate}");
             }
             else
             {
-                Debug.WriteLine($"Missing library_600x900 for app {id}");
+                DebugLogger.LogDebug($"Missing library_600x900 for app {id}");
             }
 
             candidate = client.GetAppData(id, "header_image");
@@ -80,11 +80,11 @@ namespace AnSAM.Steam
                 {
                     return $"https://shared.cloudflare.steamstatic.com/steam/apps/{id}/{safe}";
                 }
-                Debug.WriteLine($"Invalid header_image path for app {id}: {candidate}");
+                DebugLogger.LogDebug($"Invalid header_image path for app {id}: {candidate}");
             }
             else
             {
-                Debug.WriteLine($"Missing header_image for app {id}");
+                DebugLogger.LogDebug($"Missing header_image for app {id}");
             }
 
             // Default to generic header as last resort
