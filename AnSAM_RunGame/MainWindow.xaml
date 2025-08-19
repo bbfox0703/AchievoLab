@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window x:Class="AnSAM.RunGame.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Top CommandBar -->
+        <CommandBar Grid.Row="0">
+            <AppBarButton x:Name="RefreshButton" Icon="Refresh" Label="Refresh" Click="OnRefresh"/>
+            <AppBarButton x:Name="StoreButton" Icon="Save" Label="Store" Click="OnStore"/>
+            <AppBarSeparator/>
+            <AppBarButton x:Name="LockAllButton" Icon="DisableUpdates" Label="Lock All" Click="OnLockAll"/>
+            <AppBarButton x:Name="UnlockAllButton" Icon="CheckMark" Label="Unlock All" Click="OnUnlockAll"/>
+            <AppBarButton x:Name="InvertAllButton" Icon="Switch" Label="Invert All" Click="OnInvertAll"/>
+            <AppBarButton x:Name="ResetStatsButton" Icon="Delete" Label="Reset Stats" Click="OnResetAllStats"/>
+            <AppBarButton x:Name="AutoMouseMoveButton" Icon="Target" Label="Auto Mouse" Click="OnAutoMouseMove"/>
+            <AppBarToggleButton x:Name="TimerToggleButton" Icon="Clock" Label="Timer" Click="OnTimerToggle"/>
+        </CommandBar>
+
+        <!-- Main Content -->
+        <TabView Grid.Row="1" x:Name="MainTabView">
+            <!-- Achievements Tab -->
+            <TabViewItem Header="Achievements">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Achievement Filters -->
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="10" Margin="10">
+                        <TextBox x:Name="SearchTextBox" PlaceholderText="Search achievements..." Width="200" TextChanged="OnSearchTextChanged"/>
+                        <ToggleButton x:Name="ShowLockedButton" Content="Show Locked Only" Click="OnShowLockedToggle"/>
+                        <ToggleButton x:Name="ShowUnlockedButton" Content="Show Unlocked Only" Click="OnShowUnlockedToggle"/>
+                        <ComboBox x:Name="LanguageComboBox" PlaceholderText="Language" Width="120" SelectionChanged="OnLanguageChanged"/>
+                        <NumberBox x:Name="TimerValueBox" PlaceholderText="Timer value" Width="100"/>
+                        <Button x:Name="SetTimerButton" Content="Set Timer" Click="OnSetTimer"/>
+                    </StackPanel>
+
+                    <!-- Achievement List -->
+                    <ListView Grid.Row="1" x:Name="AchievementListView" SelectionMode="Multiple" Margin="10,0,10,10"/>
+                </Grid>
+            </TabViewItem>
+
+            <!-- Statistics Tab -->
+            <TabViewItem Header="Statistics">
+                <Grid Margin="10">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <CheckBox Grid.Row="0" x:Name="EnableStatsEditingCheckBox" 
+                              Content="I understand that modifying stats can cause issues"
+                              Margin="0,0,0,10"/>
+
+                    <ListView Grid.Row="1" x:Name="StatisticsListView"/>
+                </Grid>
+            </TabViewItem>
+        </TabView>
+
+        <!-- Status Bar -->
+        <Grid Grid.Row="2" Background="{ThemeResource SystemControlBackgroundAltHighBrush}" Height="32">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            
+            <TextBlock Grid.Column="0" x:Name="StatusLabel" Text="Ready" VerticalAlignment="Center" Margin="10,0"/>
+            <TextBlock Grid.Column="1" x:Name="TimerStatusLabel" Text="*" VerticalAlignment="Center" Margin="10,0" FontFamily="Consolas"/>
+            <TextBlock Grid.Column="2" x:Name="CurrentTimeLabel" Text="" VerticalAlignment="Center" Margin="10,0" FontFamily="Consolas"/>
+            <ProgressRing Grid.Column="3" x:Name="LoadingRing" IsActive="False" Width="20" Height="20" Margin="10,0"/>
+        </Grid>
+    </Grid>
+</Window>
