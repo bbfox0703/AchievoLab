@@ -130,13 +130,8 @@ namespace AnSAM.Services
             using var reader = XmlReader.Create(ms, settings);
 
             var parsed = new List<GameInfo>();
-            while (reader.Read())
+            while (reader.ReadToFollowing("game"))
             {
-                if (reader.NodeType != XmlNodeType.Element || reader.Name != "game")
-                {
-                    continue;
-                }
-
                 var raw = reader.ReadElementContentAsString()?.Trim();
                 if (string.IsNullOrEmpty(raw))
                 {
