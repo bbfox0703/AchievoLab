@@ -474,21 +474,47 @@ namespace AnSAM.RunGame.Steam
 
         public void RunCallbacks()
         {
-            while (Steam_BGetCallback(_pipe, out var msg, out _))
+            try
             {
-                DebugLogger.LogDebug($"Steam callback received - ID: {msg.Id}, GameId: {_gameId}");
-                
-                if (msg.Id == 1101) // UserStatsReceived callback
+                while (Steam_BGetCallback(_pipe, out var msg, out _))
                 {
-                    var userStatsReceived = Marshal.PtrToStructure<UserStatsReceived>(msg.ParamPointer);
-                    DebugLogger.LogDebug($"UserStatsReceived - GameId: {userStatsReceived.GameId}, Result: {userStatsReceived.Result}, UserId: {userStatsReceived.UserId}");
-                    
-                    foreach (var callback in _userStatsCallbacks)
+                    // Only log important callbacks to reduce noise
+                    if (msg.Id == 1101 || msg.Id == 1040015 || msg.Id == 1040044)
                     {
-                        callback(userStatsReceived);
+                        DebugLogger.LogDebug($"Steam callback received - ID: {msg.Id}, GameId: {_gameId}");
                     }
+                    
+                    if (msg.Id == 1101) // UserStatsReceived callback
+                    {
+                        try
+                        {
+                            var userStatsReceived = Marshal.PtrToStructure<UserStatsReceived>(msg.ParamPointer);
+                            DebugLogger.LogDebug($"UserStatsReceived - GameId: {userStatsReceived.GameId}, Result: {userStatsReceived.Result}, UserId: {userStatsReceived.UserId}");
+                            
+                            foreach (var callback in _userStatsCallbacks)
+                            {
+                                try
+                                {
+                                    callback(userStatsReceived);
+                                }
+                                catch (Exception ex)
+                                {
+                                    DebugLogger.LogDebug($"Error in UserStatsReceived callback: {ex.Message}");
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            DebugLogger.LogDebug($"Error processing UserStatsReceived: {ex.Message}");
+                        }
+                    }
+                    
+                    Steam_FreeLastCallback(_pipe);
                 }
-                Steam_FreeLastCallback(_pipe);
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error in RunCallbacks: {ex.Message}");
             }
         }
 

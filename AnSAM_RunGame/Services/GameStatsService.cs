@@ -290,6 +290,8 @@ namespace AnSAM.RunGame.Services
                     string name = GetLocalizedString(bit["display"]["name"], currentLanguage, id);
                     string desc = GetLocalizedString(bit["display"]["desc"], currentLanguage, "");
 
+                    DebugLogger.LogDebug($"Achievement parsed - ID: {id}, Name: '{name}', Desc: '{desc}', Language: {currentLanguage}");
+
                     _achievementDefinitions.Add(new AchievementDefinition
                     {
                         Id = id,
@@ -336,6 +338,7 @@ namespace AnSAM.RunGame.Services
 
         public List<AchievementInfo> GetAchievements()
         {
+            DebugLogger.LogDebug($"GetAchievements called - {_achievementDefinitions.Count} definitions available");
             var achievements = new List<AchievementInfo>();
 
             foreach (var def in _achievementDefinitions)
@@ -344,7 +347,7 @@ namespace AnSAM.RunGame.Services
 
                 if (_steamClient.GetAchievementAndUnlockTime(def.Id, out bool isAchieved, out var unlockTime))
                 {
-                    achievements.Add(new AchievementInfo
+                    var achievement = new AchievementInfo
                     {
                         Id = def.Id,
                         Name = def.Name,
@@ -356,7 +359,14 @@ namespace AnSAM.RunGame.Services
                         IconNormal = def.IconNormal,
                         IconLocked = def.IconLocked,
                         Permission = def.Permission
-                    });
+                    };
+                    
+                    DebugLogger.LogDebug($"Achievement created - ID: {achievement.Id}, Name: '{achievement.Name}', IsAchieved: {achievement.IsAchieved}");
+                    achievements.Add(achievement);
+                }
+                else
+                {
+                    DebugLogger.LogDebug($"Failed to get achievement data for ID: {def.Id}");
                 }
             }
 
