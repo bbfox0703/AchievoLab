@@ -10,61 +10,27 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AnSAM_RunGame", "AnSAM_RunGame\AnSAM_RunGame.csproj", "{B12F8C5D-123A-4567-89AB-1234567890CD}"
 EndProject
 Global
-	GlobalSection(SolutionConfigurationPlatforms) = preSolution
-		Debug|ARM64 = Debug|ARM64
-		Debug|x64 = Debug|x64
-		Debug|x86 = Debug|x86
-		Release|ARM64 = Release|ARM64
-		Release|x64 = Release|x64
-		Release|x86 = Release|x86
-	EndGlobalSection
+        GlobalSection(SolutionConfigurationPlatforms) = preSolution
+                Debug|x64 = Debug|x64
+                Release|x64 = Release|x64
+        EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{86B12DC3-BB8A-44A7-8FAC-9C61A71E1C25}.Debug|ARM64.ActiveCfg = Debug|ARM64
-		{86B12DC3-BB8A-44A7-8FAC-9C61A71E1C25}.Debug|ARM64.Build.0 = Debug|ARM64
-		{86B12DC3-BB8A-44A7-8FAC-9C61A71E1C25}.Debug|ARM64.Deploy.0 = Debug|ARM64
 		{86B12DC3-BB8A-44A7-8FAC-9C61A71E1C25}.Debug|x64.ActiveCfg = Debug|x64
 		{86B12DC3-BB8A-44A7-8FAC-9C61A71E1C25}.Debug|x64.Build.0 = Debug|x64
 		{86B12DC3-BB8A-44A7-8FAC-9C61A71E1C25}.Debug|x64.Deploy.0 = Debug|x64
-		{86B12DC3-BB8A-44A7-8FAC-9C61A71E1C25}.Debug|x86.ActiveCfg = Debug|x86
-		{86B12DC3-BB8A-44A7-8FAC-9C61A71E1C25}.Debug|x86.Build.0 = Debug|x86
-		{86B12DC3-BB8A-44A7-8FAC-9C61A71E1C25}.Debug|x86.Deploy.0 = Debug|x86
-		{86B12DC3-BB8A-44A7-8FAC-9C61A71E1C25}.Release|ARM64.ActiveCfg = Release|ARM64
-		{86B12DC3-BB8A-44A7-8FAC-9C61A71E1C25}.Release|ARM64.Build.0 = Release|ARM64
-		{86B12DC3-BB8A-44A7-8FAC-9C61A71E1C25}.Release|ARM64.Deploy.0 = Release|ARM64
 		{86B12DC3-BB8A-44A7-8FAC-9C61A71E1C25}.Release|x64.ActiveCfg = Release|x64
 		{86B12DC3-BB8A-44A7-8FAC-9C61A71E1C25}.Release|x64.Build.0 = Release|x64
 		{86B12DC3-BB8A-44A7-8FAC-9C61A71E1C25}.Release|x64.Deploy.0 = Release|x64
-		{86B12DC3-BB8A-44A7-8FAC-9C61A71E1C25}.Release|x86.ActiveCfg = Release|x86
-		{A33AB550-B123-4888-B63C-00C5EC30BABF}.Debug|ARM64.ActiveCfg = Debug|Any CPU
-		{A33AB550-B123-4888-B63C-00C5EC30BABF}.Debug|ARM64.Build.0 = Debug|Any CPU
 		{A33AB550-B123-4888-B63C-00C5EC30BABF}.Debug|x64.ActiveCfg = Debug|Any CPU
 		{A33AB550-B123-4888-B63C-00C5EC30BABF}.Debug|x64.Build.0 = Debug|Any CPU
-		{A33AB550-B123-4888-B63C-00C5EC30BABF}.Debug|x86.ActiveCfg = Debug|Any CPU
-		{A33AB550-B123-4888-B63C-00C5EC30BABF}.Debug|x86.Build.0 = Debug|Any CPU
-		{A33AB550-B123-4888-B63C-00C5EC30BABF}.Release|ARM64.ActiveCfg = Release|Any CPU
-		{A33AB550-B123-4888-B63C-00C5EC30BABF}.Release|ARM64.Build.0 = Release|Any CPU
 		{A33AB550-B123-4888-B63C-00C5EC30BABF}.Release|x64.ActiveCfg = Release|Any CPU
 		{A33AB550-B123-4888-B63C-00C5EC30BABF}.Release|x64.Build.0 = Release|Any CPU
-		{A33AB550-B123-4888-B63C-00C5EC30BABF}.Release|x86.ActiveCfg = Release|Any CPU
-		{A33AB550-B123-4888-B63C-00C5EC30BABF}.Release|x86.Build.0 = Release|Any CPU
-		{B12F8C5D-123A-4567-89AB-1234567890CD}.Debug|ARM64.ActiveCfg = Debug|ARM64
-		{B12F8C5D-123A-4567-89AB-1234567890CD}.Debug|ARM64.Build.0 = Debug|ARM64
-		{B12F8C5D-123A-4567-89AB-1234567890CD}.Debug|ARM64.Deploy.0 = Debug|ARM64
 		{B12F8C5D-123A-4567-89AB-1234567890CD}.Debug|x64.ActiveCfg = Debug|x64
 		{B12F8C5D-123A-4567-89AB-1234567890CD}.Debug|x64.Build.0 = Debug|x64
 		{B12F8C5D-123A-4567-89AB-1234567890CD}.Debug|x64.Deploy.0 = Debug|x64
-		{B12F8C5D-123A-4567-89AB-1234567890CD}.Debug|x86.ActiveCfg = Debug|x86
-		{B12F8C5D-123A-4567-89AB-1234567890CD}.Debug|x86.Build.0 = Debug|x86
-		{B12F8C5D-123A-4567-89AB-1234567890CD}.Debug|x86.Deploy.0 = Debug|x86
-		{B12F8C5D-123A-4567-89AB-1234567890CD}.Release|ARM64.ActiveCfg = Release|ARM64
-		{B12F8C5D-123A-4567-89AB-1234567890CD}.Release|ARM64.Build.0 = Release|ARM64
-		{B12F8C5D-123A-4567-89AB-1234567890CD}.Release|ARM64.Deploy.0 = Release|ARM64
 		{B12F8C5D-123A-4567-89AB-1234567890CD}.Release|x64.ActiveCfg = Release|x64
 		{B12F8C5D-123A-4567-89AB-1234567890CD}.Release|x64.Build.0 = Release|x64
 		{B12F8C5D-123A-4567-89AB-1234567890CD}.Release|x64.Deploy.0 = Release|x64
-		{B12F8C5D-123A-4567-89AB-1234567890CD}.Release|x86.ActiveCfg = Release|x86
-		{B12F8C5D-123A-4567-89AB-1234567890CD}.Release|x86.Build.0 = Release|x86
-		{B12F8C5D-123A-4567-89AB-1234567890CD}.Release|x86.Deploy.0 = Release|x86
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -73,3 +39,4 @@ Global
 		SolutionGuid = {0427E820-7FC9-424F-AC94-0086FAC88308}
 	EndGlobalSection
 EndGlobal
+
