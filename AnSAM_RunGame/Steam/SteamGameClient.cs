@@ -1,7 +1,6 @@
 using System;
 using System.Buffers;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -147,7 +146,7 @@ namespace AnSAM.RunGame.Steam
             catch (Exception ex)
             {
                 Initialized = false;
-                Debug.WriteLine($"Steam API init threw: {ex}");
+                DebugLogger.LogDebug($"Steam API init threw: {ex}");
             }
         }
 
