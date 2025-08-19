@@ -197,7 +197,14 @@ namespace AnSAM
         {
             if (sender is FrameworkElement element && element.DataContext is GameItem game)
             {
-                StartSamGame(game);
+                if (game.IsSamGameAvailable)
+                {
+                    StartSamGame(game);
+                }
+                else
+                {
+                    StatusText.Text = "SAM.Game.exe not found";
+                }
             }
         }
 
@@ -205,7 +212,14 @@ namespace AnSAM
         {
             if (sender is FrameworkElement element && element.DataContext is GameItem game)
             {
-                StartSamGame(game);
+                if (game.IsSamGameAvailable)
+                {
+                    StartSamGame(game);
+                }
+                else
+                {
+                    StatusText.Text = "SAM.Game.exe not found";
+                }
             }
         }
 
@@ -517,6 +531,7 @@ namespace AnSAM
         public string? ExePath { get; set; }
         public string? Arguments { get; set; }
         public string? UriScheme { get; set; }
+        public bool IsSamGameAvailable => GameLauncher.IsSamGameAvailable;
 
         public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
 
