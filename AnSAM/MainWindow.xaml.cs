@@ -117,7 +117,11 @@ namespace AnSAM
             var accentDark2 = _uiSettings.GetColorValue(UIColorType.AccentDark2);
             var accentLight1 = _uiSettings.GetColorValue(UIColorType.AccentLight1);
             var foreground = _uiSettings.GetColorValue(UIColorType.Foreground);
-            var grayText = _uiSettings.GetColorValue(UIColorType.GrayText);
+            var inactiveForeground = Color.FromArgb(
+                foreground.A,
+                (byte)(foreground.R / 2),
+                (byte)(foreground.G / 2),
+                (byte)(foreground.B / 2));
 
             if (theme == ElementTheme.Dark)
             {
@@ -132,9 +136,9 @@ namespace AnSAM
                 titleBar.ButtonPressedForegroundColor = foreground;
 
                 titleBar.InactiveBackgroundColor = accentDark2;
-                titleBar.InactiveForegroundColor = grayText;
+                titleBar.InactiveForegroundColor = inactiveForeground;
                 titleBar.ButtonInactiveBackgroundColor = accentDark2;
-                titleBar.ButtonInactiveForegroundColor = grayText;
+                titleBar.ButtonInactiveForegroundColor = inactiveForeground;
             }
             else
             {
@@ -149,9 +153,9 @@ namespace AnSAM
                 titleBar.ButtonPressedForegroundColor = foreground;
 
                 titleBar.InactiveBackgroundColor = accentLight1;
-                titleBar.InactiveForegroundColor = grayText;
+                titleBar.InactiveForegroundColor = inactiveForeground;
                 titleBar.ButtonInactiveBackgroundColor = accentLight1;
-                titleBar.ButtonInactiveForegroundColor = grayText;
+                titleBar.ButtonInactiveForegroundColor = inactiveForeground;
             }
         }
 
