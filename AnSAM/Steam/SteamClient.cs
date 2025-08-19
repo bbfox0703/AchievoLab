@@ -1,12 +1,12 @@
 using System;
 using System.Buffers;
-using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using Microsoft.Win32;
+using AnSAM.Services;
 
 namespace AnSAM.Steam
 {
@@ -58,7 +58,7 @@ namespace AnSAM.Steam
             {
                 _client = Steam_CreateInterface("SteamClient018", IntPtr.Zero);
 #if DEBUG
-                Debug.WriteLine($"CreateInterface('SteamClient018') returned: 0x{_client.ToString("X")}");
+                DebugLogger.LogDebug($"CreateInterface('SteamClient018') returned: 0x{_client.ToString("X")}");
 #endif
                 if (_client != IntPtr.Zero)
                 {
@@ -76,21 +76,21 @@ namespace AnSAM.Steam
                     {
                         _pipe = _createSteamPipe(_client);
 #if DEBUG
-                        Debug.WriteLine($"CreateSteamPipe returned: {_pipe}");
+                        DebugLogger.LogDebug($"CreateSteamPipe returned: {_pipe}");
 #endif
                         if (_pipe != 0)
                         {
                             _user = _connectToGlobalUser(_client, _pipe);
 #if DEBUG
-                            Debug.WriteLine($"ConnectToGlobalUser returned: {_user}");
+                            DebugLogger.LogDebug($"ConnectToGlobalUser returned: {_user}");
 #endif
                             if (_user != 0)
                             {
                                 _apps008 = _getISteamApps(_client, _user, _pipe, "STEAMAPPS_INTERFACE_VERSION008");
                                 _apps001 = _getISteamApps(_client, _user, _pipe, "STEAMAPPS_INTERFACE_VERSION001");
 #if DEBUG
-                                Debug.WriteLine($"GetISteamApps(008) returned: 0x{_apps008.ToString("X")}");
-                                Debug.WriteLine($"GetISteamApps(001) returned: 0x{_apps001.ToString("X")}");
+                                DebugLogger.LogDebug($"GetISteamApps(008) returned: 0x{_apps008.ToString("X")}");
+                                DebugLogger.LogDebug($"GetISteamApps(001) returned: 0x{_apps001.ToString("X")}");
 #endif
                                 if (_apps008 != IntPtr.Zero)
                                 {
@@ -117,14 +117,14 @@ namespace AnSAM.Steam
             {
                 Initialized = false;
 #if DEBUG
-                Debug.WriteLine($"Steam API init threw: {ex}");
+                DebugLogger.LogDebug($"Steam API init threw: {ex}");
 #endif
             }
 
 #if DEBUG
             if (!Initialized)
             {
-                Debug.WriteLine("Steam API not initialized");
+                DebugLogger.LogDebug("Steam API not initialized");
             }
 #endif
         }
@@ -137,7 +137,7 @@ namespace AnSAM.Steam
             if (!Initialized)
             {
 #if DEBUG
-                Debug.WriteLine($"IsSubscribedApp({id}) called before Steam initialization");
+                DebugLogger.LogDebug($"IsSubscribedApp({id}) called before Steam initialization");
 #endif
                 return false;
             }
@@ -145,7 +145,7 @@ namespace AnSAM.Steam
             if (_isSubscribedApp == null)
             {
 #if DEBUG
-                Debug.WriteLine("IsSubscribedApp delegate missing");
+                DebugLogger.LogDebug("IsSubscribedApp delegate missing");
 #endif
                 return false;
             }
@@ -153,7 +153,7 @@ namespace AnSAM.Steam
 #if DEBUG
             if (_loggedSubscriptions < 20)
             {
-                Debug.WriteLine($"IsSubscribedApp({id}) => {result}");
+                DebugLogger.LogDebug($"IsSubscribedApp({id}) => {result}");
                 _loggedSubscriptions++;
             }
 #endif
@@ -169,7 +169,7 @@ namespace AnSAM.Steam
             if (!Initialized)
             {
 #if DEBUG
-                Debug.WriteLine($"GetAppData({id}, '{key}') called before Steam initialization");
+                DebugLogger.LogDebug($"GetAppData({id}, '{key}') called before Steam initialization");
 #endif
                 return null;
             }
@@ -177,7 +177,7 @@ namespace AnSAM.Steam
             if (_getAppData == null || _apps001 == IntPtr.Zero)
             {
 #if DEBUG
-                Debug.WriteLine("GetAppData delegate missing");
+                DebugLogger.LogDebug("GetAppData delegate missing");
 #endif
                 return null;
             }
@@ -203,7 +203,7 @@ namespace AnSAM.Steam
 #if DEBUG
                     if (_loggedAppData < 20)
                     {
-                        Debug.WriteLine($"GetAppData({id}, '{key}') => {result}");
+                        DebugLogger.LogDebug($"GetAppData({id}, '{key}') => {result}");
                         _loggedAppData++;
                     }
 #endif
@@ -225,7 +225,7 @@ namespace AnSAM.Steam
             if (!Initialized)
             {
 #if DEBUG
-                Debug.WriteLine($"CreateLocalUser({type}) called before Steam initialization");
+                DebugLogger.LogDebug($"CreateLocalUser({type}) called before Steam initialization");
 #endif
                 return 0;
             }
@@ -233,7 +233,7 @@ namespace AnSAM.Steam
             if (_createLocalUser == null)
             {
 #if DEBUG
-                Debug.WriteLine("CreateLocalUser delegate missing");
+                DebugLogger.LogDebug("CreateLocalUser delegate missing");
 #endif
                 return 0;
             }
@@ -246,7 +246,7 @@ namespace AnSAM.Steam
             if (!Initialized)
             {
 #if DEBUG
-                Debug.WriteLine($"SetLocalIPBinding({host}, {port}) called before Steam initialization");
+                DebugLogger.LogDebug($"SetLocalIPBinding({host}, {port}) called before Steam initialization");
 #endif
                 return;
             }
@@ -254,7 +254,7 @@ namespace AnSAM.Steam
             if (_setLocalIPBinding == null)
             {
 #if DEBUG
-                Debug.WriteLine("SetLocalIPBinding delegate missing");
+                DebugLogger.LogDebug("SetLocalIPBinding delegate missing");
 #endif
                 return;
             }
@@ -295,7 +295,7 @@ namespace AnSAM.Steam
 
             string? installPath = GetSteamPath();
 #if DEBUG
-            Debug.WriteLine($"Steam install path: {installPath ?? "<null>"}");
+            DebugLogger.LogDebug($"Steam install path: {installPath ?? "<null>"}");
 #endif
             if (string.IsNullOrEmpty(installPath))
                 return IntPtr.Zero;
@@ -306,7 +306,7 @@ namespace AnSAM.Steam
                 libraryPath = Path.Combine(installPath, "bin", "steamclient64.dll");
             }
 #if DEBUG
-            Debug.WriteLine($"Resolved steamclient64 path: {libraryPath}");
+            DebugLogger.LogDebug($"Resolved steamclient64 path: {libraryPath}");
 #endif
             if (!File.Exists(libraryPath))
                 return IntPtr.Zero;
