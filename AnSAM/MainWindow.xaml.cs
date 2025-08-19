@@ -108,19 +108,20 @@ namespace AnSAM
             var titleBar = _appWindow.TitleBar;
             if (theme == ElementTheme.Dark)
             {
-                titleBar.BackgroundColor = Colors.Black;
+                var darkBackground = Color.FromArgb(255, 32, 32, 32);
+                titleBar.BackgroundColor = darkBackground;
                 titleBar.ForegroundColor = Colors.White;
 
-                titleBar.ButtonBackgroundColor = Colors.Black;
+                titleBar.ButtonBackgroundColor = darkBackground;
                 titleBar.ButtonForegroundColor = Colors.White;
-                titleBar.ButtonHoverBackgroundColor = Colors.DimGray;
+                titleBar.ButtonHoverBackgroundColor = Color.FromArgb(255, 48, 48, 48);
                 titleBar.ButtonHoverForegroundColor = Colors.White;
-                titleBar.ButtonPressedBackgroundColor = Colors.Gray;
+                titleBar.ButtonPressedBackgroundColor = Color.FromArgb(255, 64, 64, 64);
                 titleBar.ButtonPressedForegroundColor = Colors.White;
 
-                titleBar.InactiveBackgroundColor = Colors.Black;
+                titleBar.InactiveBackgroundColor = darkBackground;
                 titleBar.InactiveForegroundColor = Colors.Gray;
-                titleBar.ButtonInactiveBackgroundColor = Colors.Black;
+                titleBar.ButtonInactiveBackgroundColor = darkBackground;
                 titleBar.ButtonInactiveForegroundColor = Colors.Gray;
             }
             else
