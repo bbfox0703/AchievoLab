@@ -323,39 +323,57 @@ namespace AnSAM.Steam
 
         private static string? GetSteamPath()
         {
-#if DEBUG
-            DebugLogger.LogDebug("Searching registry for Steam install path");
-#endif
             const string subKey = @"Software\\Valve\\Steam";
+#if DEBUG
+            DebugLogger.LogDebug("Attempting to locate Steam install path from registry");
+#endif
 
             // Check HKLM 64-bit and 32-bit (WOW6432Node) views
             foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
             {
+#if DEBUG
+                DebugLogger.LogDebug($"Checking HKLM {view} for Steam InstallPath");
+#endif
                 using var key = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, view).OpenSubKey(subKey);
+                if (key == null)
+                {
+#if DEBUG
+                    DebugLogger.LogDebug($"HKLM {view} key not found");
+#endif
+                    continue;
+                }
                 var path = key?.GetValue("InstallPath") as string;
                 if (string.IsNullOrEmpty(path) == false)
                 {
 #if DEBUG
-                    DebugLogger.LogDebug($"Steam install path found: {path}");
+                    DebugLogger.LogDebug($"Found Steam path in HKLM {view}: {path}");
 #endif
                     return path;
                 }
+#if DEBUG
+                DebugLogger.LogDebug($"HKLM {view} InstallPath empty");
+#endif
             }
 
             // Fall back to HKCU
-            foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
+#if DEBUG
+            DebugLogger.LogDebug("Checking HKCU for Steam InstallPath");
+#endif
+            using var userKey = RegistryKey.OpenBaseKey(RegistryHive.CurrentUser, RegistryView.Default).OpenSubKey(subKey);
+            if (userKey != null)
             {
-                using var key = RegistryKey.OpenBaseKey(RegistryHive.CurrentUser, view).OpenSubKey(subKey);
-                var path = key?.GetValue("InstallPath") as string;
+                var path = userKey.GetValue("InstallPath") as string;
                 if (string.IsNullOrEmpty(path) == false)
                 {
 #if DEBUG
-                    DebugLogger.LogDebug($"Steam install path found: {path}");
+                    DebugLogger.LogDebug($"Found Steam path in HKCU: {path}");
 #endif
                     return path;
                 }
+#if DEBUG
+                DebugLogger.LogDebug("HKCU InstallPath empty");
+#endif
             }
-
 #if DEBUG
             DebugLogger.LogDebug("Steam install path not found in registry");
 #endif
