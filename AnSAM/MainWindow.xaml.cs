@@ -12,7 +12,6 @@ using Microsoft.UI.Xaml.Media.Imaging;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -302,7 +301,7 @@ namespace AnSAM
                 StatusExtra.Text = string.Empty;
                 StatusText.Text = "Refresh failed";
 
-                Debug.WriteLine(ex);
+                DebugLogger.LogDebug(ex.ToString());
 
                 var dialog = new ContentDialog
                 {
@@ -393,7 +392,7 @@ namespace AnSAM
             catch (Exception ex)
             {
 #if DEBUG
-                Debug.WriteLine($"Failed to clear cache: {ex.Message}");
+                DebugLogger.LogDebug($"Failed to clear cache: {ex.Message}");
 #endif
                 StatusText.Text = "Failed to clear cache";
             }
@@ -491,7 +490,7 @@ namespace AnSAM
             StatusProgress.Value = 0;
             StatusExtra.Text = $"{Games.Count}/{_allGames.Count}";
 #if DEBUG
-            Debug.WriteLine($"FilterGames('{kw}') -> {Games.Count} items");
+            DebugLogger.LogDebug($"FilterGames('{kw}') -> {Games.Count} items");
 #endif
         }
 
@@ -591,7 +590,7 @@ namespace AnSAM
         public static GameItem FromSteamApp(SteamAppData app)
         {
 #if DEBUG
-            Debug.WriteLine($"Creating GameItem for {app.AppId} - {app.Title}");
+            DebugLogger.LogDebug($"Creating GameItem for {app.AppId} - {app.Title}");
 #endif
             var item = new GameItem(app.Title,
                                     app.AppId,
@@ -603,7 +602,7 @@ namespace AnSAM
             if (app.CoverUrl != null)
             {
 #if DEBUG
-                Debug.WriteLine($"Queueing icon download for {app.AppId} from {app.CoverUrl}");
+                DebugLogger.LogDebug($"Queueing icon download for {app.AppId} from {app.CoverUrl}");
 #endif
                 var dispatcher = DispatcherQueue.GetForCurrentThread();
                 _ = LoadIconAsync();
@@ -619,7 +618,7 @@ namespace AnSAM
 #if DEBUG
                             if (result.Downloaded)
                             {
-                                Debug.WriteLine($"Icon for {app.AppId} stored at {result.Path}");
+                                DebugLogger.LogDebug($"Icon for {app.AppId} stored at {result.Path}");
                             }
 #endif
                             if (Uri.TryCreate(result.Path, UriKind.Absolute, out var localUri))
@@ -631,7 +630,7 @@ namespace AnSAM
                     catch (Exception ex)
                     {
 #if DEBUG
-                        Debug.WriteLine($"Icon download failed for {app.AppId}: {ex.GetBaseException().Message}");
+                        DebugLogger.LogDebug($"Icon download failed for {app.AppId}: {ex.GetBaseException().Message}");
 #endif
                     }
 
@@ -649,7 +648,7 @@ namespace AnSAM
             else
             {
 #if DEBUG
-                Debug.WriteLine($"No icon URL for {app.AppId}");
+                DebugLogger.LogDebug($"No icon URL for {app.AppId}");
 #endif
                 item.CoverPath = new Uri("ms-appx:///no_icon.png");
             }
