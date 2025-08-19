@@ -14,7 +14,7 @@ namespace AnSAM.Steam
     /// Minimal Steamworks client wrapper that loads steamclient64.dll directly
     /// and exposes helpers for app ownership and metadata queries.
     /// </summary>
-    public sealed class SteamClient : IDisposable
+    public sealed class SteamClient : IDisposable, ISteamClient
     {
         private readonly Timer? _callbackTimer;
         private readonly IntPtr _client;

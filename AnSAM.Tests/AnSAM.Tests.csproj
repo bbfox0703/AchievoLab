@@ -6,6 +6,10 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../AnSAM/Services/IconCache.cs" Link="IconCache.cs" />
+    <Compile Include="../AnSAM/Services/GameCacheService.cs" Link="GameCacheService.cs" />
+    <Compile Include="../AnSAM/Services/GameListService.cs" Link="GameListService.cs" />
+    <Compile Include="../AnSAM/SteamAppData.cs" Link="SteamAppData.cs" />
+    <Compile Include="../AnSAM/Steam/ISteamClient.cs" Link="ISteamClient.cs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.9.0" />
