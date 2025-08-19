@@ -2,7 +2,7 @@
 
   # 在同個目錄下執行
   cd D:\Github\SteamAchievementManagerX2
-  claude-code --resume
+  claud --resume
 
   重要提醒
 
