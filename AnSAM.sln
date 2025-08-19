@@ -3,11 +3,11 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.14.36408.4
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AnSAM", "AnSAM.csproj", "{86B12DC3-BB8A-44A7-8FAC-9C61A71E1C25}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AnSAM", "AnSAM\AnSAM.csproj", "{86B12DC3-BB8A-44A7-8FAC-9C61A71E1C25}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AnSAM.Tests", "..\AnSAM.Tests\AnSAM.Tests.csproj", "{A33AB550-B123-4888-B63C-00C5EC30BABF}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AnSAM.Tests", "AnSAM.Tests\AnSAM.Tests.csproj", "{A33AB550-B123-4888-B63C-00C5EC30BABF}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AnSAM_RunGame", "..\AnSAM_RunGame\AnSAM_RunGame.csproj", "{B12F8C5D-123A-4567-89AB-1234567890CD}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AnSAM_RunGame", "AnSAM_RunGame\AnSAM_RunGame.csproj", "{B12F8C5D-123A-4567-89AB-1234567890CD}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

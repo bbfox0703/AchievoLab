@@ -48,6 +48,15 @@
     <RepositoryUrl>https://github.com/bbfox0703/SteamAchievementManagerX2</RepositoryUrl>
   </PropertyGroup>
   
+  <!-- Output Directory Configuration -->
+  <PropertyGroup Condition="'$(Configuration)'=='Debug'">
+    <OutputPath>..\output\Debug\$(Platform)\</OutputPath>
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_BREAK_ON_UNHANDLED_EXCEPTION</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)'=='Release'">
+    <OutputPath>..\output\Release\$(Platform)\</OutputPath>
+  </PropertyGroup>
+  
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x86'">
     <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_BREAK_ON_UNHANDLED_EXCEPTION</DefineConstants>
   </PropertyGroup>

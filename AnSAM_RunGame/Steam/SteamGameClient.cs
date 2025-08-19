@@ -8,6 +8,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using Microsoft.Win32;
+using AnSAM.RunGame.Services;
 
 namespace AnSAM.RunGame.Steam
 {
@@ -170,9 +171,17 @@ namespace AnSAM.RunGame.Steam
 
         public bool SetAchievement(string id, bool achieved)
         {
+            DebugLogger.LogAchievementSet(id, achieved, DebugLogger.IsDebugMode);
+            
             if (!Initialized || _setAchievement == null) return false;
             
+#if DEBUG
+            // Debug 模式下不實際寫入，只記錄
+            return true;
+#else
+            // Release 模式下實際寫入
             return _setAchievement(_userStats, id, achieved);
+#endif
         }
 
         public bool GetStatValue(string name, out int value)
@@ -193,30 +202,62 @@ namespace AnSAM.RunGame.Steam
 
         public bool SetStatValue(string name, int value)
         {
+            DebugLogger.LogStatSet(name, value, DebugLogger.IsDebugMode);
+            
             if (!Initialized || _setStatInt == null) return false;
             
+#if DEBUG
+            // Debug 模式下不實際寫入，只記錄
+            return true;
+#else
+            // Release 模式下實際寫入
             return _setStatInt(_userStats, name, value);
+#endif
         }
 
         public bool SetStatValue(string name, float value)
         {
+            DebugLogger.LogStatSet(name, value, DebugLogger.IsDebugMode);
+            
             if (!Initialized || _setStatFloat == null) return false;
             
+#if DEBUG
+            // Debug 模式下不實際寫入，只記錄
+            return true;
+#else
+            // Release 模式下實際寫入
             return _setStatFloat(_userStats, name, value);
+#endif
         }
 
         public bool StoreStats()
         {
+            DebugLogger.LogStoreStats(DebugLogger.IsDebugMode);
+            
             if (!Initialized || _storeStats == null) return false;
             
+#if DEBUG
+            // Debug 模式下不實際寫入，只記錄
+            return true;
+#else
+            // Release 模式下實際寫入
             return _storeStats(_userStats);
+#endif
         }
 
         public bool ResetAllStats(bool achievementsToo)
         {
+            DebugLogger.LogResetAllStats(achievementsToo, DebugLogger.IsDebugMode);
+            
             if (!Initialized || _resetAllStats == null) return false;
             
+#if DEBUG
+            // Debug 模式下不實際寫入，只記錄
+            return true;
+#else
+            // Release 模式下實際寫入
             return _resetAllStats(_userStats, achievementsToo);
+#endif
         }
 
         public void RunCallbacks()

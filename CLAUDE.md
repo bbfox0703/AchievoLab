@@ -14,13 +14,16 @@ SteamAchievementManagerX2 is a modern WinUI 3 application that provides a better
 ### Building the Application
 ```bash
 # Restore dependencies
-dotnet restore AnSAM/AnSAM.sln
+dotnet restore AnSAM.sln
 
 # Build the WinUI application (requires Windows with targeting enabled)
-dotnet build AnSAM/AnSAM.sln -p:EnableWindowsTargeting=true
+dotnet build AnSAM.sln -p:EnableWindowsTargeting=true
 
-# Run the application
+# Run the AnSAM application
 dotnet run --project AnSAM/AnSAM.csproj -p:EnableWindowsTargeting=true
+
+# Run the AnSAM_RunGame application (requires game ID parameter)
+dotnet run --project AnSAM_RunGame/AnSAM_RunGame.csproj -p:EnableWindowsTargeting=true -- <GameID>
 ```
 
 ### Testing
@@ -34,6 +37,11 @@ The project supports multiple Windows architectures:
 - x86: `AnSAM/Properties/PublishProfiles/win-x86.pubxml`
 - x64: `AnSAM/Properties/PublishProfiles/win-x64.pubxml`
 - ARM64: `AnSAM/Properties/PublishProfiles/win-arm64.pubxml`
+
+### Output Directory
+Both Debug and Release builds output to:
+- Debug: `./output/Debug/$(Platform)/`
+- Release: `./output/Release/$(Platform)/`
 
 ## Architecture
 
