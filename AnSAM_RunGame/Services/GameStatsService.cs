@@ -243,6 +243,7 @@ namespace AnSAM.RunGame.Services
 
         public bool SetAchievement(string id, bool achieved)
         {
+            DebugLogger.LogDebug($"GameStatsService.SetAchievement called: {id} = {achieved}");
             return _steamClient.SetAchievement(id, achieved);
         }
 
@@ -250,10 +251,12 @@ namespace AnSAM.RunGame.Services
         {
             if (stat is IntStatInfo intStat)
             {
+                DebugLogger.LogDebug($"GameStatsService.SetStatistic called: {intStat.Id} = {intStat.IntValue}");
                 return _steamClient.SetStatValue(intStat.Id, intStat.IntValue);
             }
             else if (stat is FloatStatInfo floatStat)
             {
+                DebugLogger.LogDebug($"GameStatsService.SetStatistic called: {floatStat.Id} = {floatStat.FloatValue}");
                 return _steamClient.SetStatValue(floatStat.Id, floatStat.FloatValue);
             }
             return false;
@@ -261,11 +264,13 @@ namespace AnSAM.RunGame.Services
 
         public bool StoreStats()
         {
+            DebugLogger.LogDebug("GameStatsService.StoreStats called");
             return _steamClient.StoreStats();
         }
 
         public bool ResetAllStats(bool achievementsToo)
         {
+            DebugLogger.LogDebug($"GameStatsService.ResetAllStats called: achievements={achievementsToo}");
             return _steamClient.ResetAllStats(achievementsToo);
         }
 

@@ -67,7 +67,8 @@ namespace AnSAM.RunGame
             
             // Set window title
             string gameName = _steamClient.GetAppData((uint)gameId, "name") ?? gameId.ToString();
-            this.Title = $"AnSAM RunGame | {gameName}";
+            string debugMode = DebugLogger.IsDebugMode ? " [DEBUG MODE]" : "";
+            this.Title = $"AnSAM RunGame | {gameName}{debugMode}";
             
             // Initialize language options
             InitializeLanguageComboBox();
@@ -75,6 +76,20 @@ namespace AnSAM.RunGame
             // Set up list views - simplified approach
             AchievementListView.ItemsSource = _achievements;
             StatisticsListView.ItemsSource = _statistics;
+            
+            // 設置 Debug 模式標籤
+            if (DebugLogger.IsDebugMode)
+            {
+                DebugModeLabel.Text = "DEBUG MODE";
+                ClearLogButton.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                ClearLogButton.Visibility = Visibility.Collapsed;
+            }
+            
+            // 初始化日誌
+            DebugLogger.LogDebug($"AnSAM_RunGame started for game {gameId} in {(DebugLogger.IsDebugMode ? "DEBUG" : "RELEASE")} mode");
             
             // Start loading stats
             _ = LoadStatsAsync();
@@ -205,6 +220,8 @@ namespace AnSAM.RunGame
         {
             try
             {
+                DebugLogger.LogDebug($"PerformStore called (silent: {silent})");
+                
                 int achievementCount = StoreAchievements(silent);
                 if (achievementCount < 0) return;
 
@@ -220,9 +237,10 @@ namespace AnSAM.RunGame
                     return;
                 }
 
+                string debugInfo = DebugLogger.IsDebugMode ? " [DEBUG - Not actually stored]" : "";
                 if (!silent)
                 {
-                    StatusLabel.Text = $"Stored {achievementCount} achievements and {statCount} statistics";
+                    StatusLabel.Text = $"Stored {achievementCount} achievements and {statCount} statistics{debugInfo}";
                 }
                 else
                 {
@@ -231,6 +249,7 @@ namespace AnSAM.RunGame
             }
             catch (Exception ex)
             {
+                DebugLogger.LogDebug($"Error in PerformStore: {ex.Message}");
                 if (!silent)
                 {
                     ShowErrorDialog($"Error storing stats: {ex.Message}");
@@ -286,6 +305,7 @@ namespace AnSAM.RunGame
 
         private void OnLockAll(object sender, RoutedEventArgs e)
         {
+            DebugLogger.LogDebug("Lock All button clicked");
             foreach (var achievement in _achievements)
             {
                 if (!achievement.IsProtected)
@@ -297,6 +317,7 @@ namespace AnSAM.RunGame
 
         private void OnUnlockAll(object sender, RoutedEventArgs e)
         {
+            DebugLogger.LogDebug("Unlock All button clicked");
             foreach (var achievement in _achievements)
             {
                 if (!achievement.IsProtected)
@@ -308,6 +329,7 @@ namespace AnSAM.RunGame
 
         private void OnInvertAll(object sender, RoutedEventArgs e)
         {
+            DebugLogger.LogDebug("Invert All button clicked");
             foreach (var achievement in _achievements)
             {
                 if (!achievement.IsProtected)
@@ -521,6 +543,13 @@ namespace AnSAM.RunGame
                 2 => "Generic error - you may not own this game",
                 _ => $"Error code: {errorCode}"
             };
+        }
+
+        private void OnClearLog(object sender, RoutedEventArgs e)
+        {
+            DebugLogger.ClearLog();
+            DebugLogger.LogDebug("Debug log cleared by user");
+            StatusLabel.Text = "Debug log cleared";
         }
     }
 

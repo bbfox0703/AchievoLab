@@ -72,12 +72,17 @@
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
             
             <TextBlock Grid.Column="0" x:Name="StatusLabel" Text="Ready" VerticalAlignment="Center" Margin="10,0"/>
-            <TextBlock Grid.Column="1" x:Name="TimerStatusLabel" Text="*" VerticalAlignment="Center" Margin="10,0" FontFamily="Consolas"/>
-            <TextBlock Grid.Column="2" x:Name="CurrentTimeLabel" Text="" VerticalAlignment="Center" Margin="10,0" FontFamily="Consolas"/>
-            <ProgressRing Grid.Column="3" x:Name="LoadingRing" IsActive="False" Width="20" Height="20" Margin="10,0"/>
+            <TextBlock Grid.Column="1" x:Name="DebugModeLabel" Text="" VerticalAlignment="Center" Margin="10,0" 
+                       FontWeight="Bold" Foreground="Orange"/>
+            <TextBlock Grid.Column="2" x:Name="TimerStatusLabel" Text="*" VerticalAlignment="Center" Margin="10,0" FontFamily="Consolas"/>
+            <TextBlock Grid.Column="3" x:Name="CurrentTimeLabel" Text="" VerticalAlignment="Center" Margin="10,0" FontFamily="Consolas"/>
+            <Button Grid.Column="4" x:Name="ClearLogButton" Content="Clear Log" Height="24" Margin="5,0" Click="OnClearLog"/>
+            <ProgressRing Grid.Column="5" x:Name="LoadingRing" IsActive="False" Width="20" Height="20" Margin="10,0"/>
         </Grid>
     </Grid>
 </Window>
