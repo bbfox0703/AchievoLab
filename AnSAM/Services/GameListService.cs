@@ -100,6 +100,34 @@ namespace AnSAM.Services
             return data;
         }
 
+        /// <summary>
+        /// Attempts to load and parse the cached game list if it is still fresh.
+        /// </summary>
+        /// <param name="baseDir">Directory containing the cached file.</param>
+        /// <returns>True if a recent cache was loaded and parsed.</returns>
+        public static bool TryLoadCache(string baseDir)
+        {
+            var cachePath = Path.Combine(baseDir, CacheFileName);
+            try
+            {
+                if (!TryGetValidCache(cachePath, out var data))
+                {
+                    Games = Array.Empty<GameInfo>();
+                    return false;
+                }
+
+                ValidateAndParse(data);
+                ReportStatus("Using cached game list...");
+                ReportProgress(100);
+                return true;
+            }
+            catch
+            {
+                Games = Array.Empty<GameInfo>();
+                return false;
+            }
+        }
+
         private static bool TryGetValidCache(string cachePath, out byte[] data)
         {
             data = Array.Empty<byte>();
