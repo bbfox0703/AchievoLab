@@ -293,6 +293,10 @@ namespace AnSAM.Steam
             if (!libraryName.Equals("steamclient64", StringComparison.OrdinalIgnoreCase))
                 return IntPtr.Zero;
 
+            
+#if DEBUG
+            DebugLogger.LogDebug("Attempting to determine Steam install path");
+#endif
             string? installPath = GetSteamPath();
 #if DEBUG
             DebugLogger.LogDebug($"Steam install path: {installPath ?? "<null>"}");
@@ -319,16 +323,42 @@ namespace AnSAM.Steam
 
         private static string? GetSteamPath()
         {
+#if DEBUG
+            DebugLogger.LogDebug("Searching registry for Steam install path");
+#endif
             const string subKey = @"Software\\Valve\\Steam";
+
+            // Check HKLM 64-bit and 32-bit (WOW6432Node) views
             foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
             {
                 using var key = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, view).OpenSubKey(subKey);
-                if (key == null)
-                    continue;
-                var path = key.GetValue("InstallPath") as string;
+                var path = key?.GetValue("InstallPath") as string;
                 if (string.IsNullOrEmpty(path) == false)
+                {
+#if DEBUG
+                    DebugLogger.LogDebug($"Steam install path found: {path}");
+#endif
                     return path;
+                }
             }
+
+            // Fall back to HKCU
+            foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
+            {
+                using var key = RegistryKey.OpenBaseKey(RegistryHive.CurrentUser, view).OpenSubKey(subKey);
+                var path = key?.GetValue("InstallPath") as string;
+                if (string.IsNullOrEmpty(path) == false)
+                {
+#if DEBUG
+                    DebugLogger.LogDebug($"Steam install path found: {path}");
+#endif
+                    return path;
+                }
+            }
+
+#if DEBUG
+            DebugLogger.LogDebug("Steam install path not found in registry");
+#endif
             return null;
         }
 
