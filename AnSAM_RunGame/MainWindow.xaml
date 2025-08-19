@@ -16,7 +16,7 @@
             <AppBarButton x:Name="StoreButton" Icon="Save" Label="Store" Click="OnStore"/>
             <AppBarSeparator/>
             <AppBarButton x:Name="LockAllButton" Icon="DisableUpdates" Label="Lock All" Click="OnLockAll"/>
-            <AppBarButton x:Name="UnlockAllButton" Icon="CheckMark" Label="Unlock All" Click="OnUnlockAll"/>
+            <AppBarButton x:Name="UnlockAllButton" Icon="Pin" Label="Unlock All" Click="OnUnlockAll"/>
             <AppBarButton x:Name="InvertAllButton" Icon="Switch" Label="Invert All" Click="OnInvertAll"/>
             <AppBarButton x:Name="ResetStatsButton" Icon="Delete" Label="Reset Stats" Click="OnResetAllStats"/>
             <AppBarButton x:Name="AutoMouseMoveButton" Icon="Target" Label="Auto Mouse" Click="OnAutoMouseMove"/>
