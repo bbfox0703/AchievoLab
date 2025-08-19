@@ -26,6 +26,8 @@ namespace AnSAM.Steam
         // Delegates retrieved from the ISteamClient018 vtable.
         private readonly CreateSteamPipeDelegate? _createSteamPipe;
         private readonly ConnectToGlobalUserDelegate? _connectToGlobalUser;
+        private CreateLocalUserDelegate? _createLocalUser;
+        private SetLocalIPBindingDelegate? _setLocalIPBinding;
         private readonly GetISteamAppsDelegate? _getISteamApps;
         private readonly ReleaseUserDelegate? _releaseUser;
         private readonly ReleaseSteamPipeDelegate? _releaseSteamPipe;
@@ -65,7 +67,9 @@ namespace AnSAM.Steam
                     _createSteamPipe = Marshal.GetDelegateForFunctionPointer<CreateSteamPipeDelegate>(Marshal.ReadIntPtr(vtable + IntPtr.Size * 0));
                     _releaseSteamPipe = Marshal.GetDelegateForFunctionPointer<ReleaseSteamPipeDelegate>(Marshal.ReadIntPtr(vtable + IntPtr.Size * 1));
                     _connectToGlobalUser = Marshal.GetDelegateForFunctionPointer<ConnectToGlobalUserDelegate>(Marshal.ReadIntPtr(vtable + IntPtr.Size * 2));
+                    _createLocalUser = Marshal.GetDelegateForFunctionPointer<CreateLocalUserDelegate>(Marshal.ReadIntPtr(vtable + IntPtr.Size * 3));
                     _releaseUser = Marshal.GetDelegateForFunctionPointer<ReleaseUserDelegate>(Marshal.ReadIntPtr(vtable + IntPtr.Size * 4));
+                    _setLocalIPBinding = Marshal.GetDelegateForFunctionPointer<SetLocalIPBindingDelegate>(Marshal.ReadIntPtr(vtable + IntPtr.Size * 7));
                     _getISteamApps = Marshal.GetDelegateForFunctionPointer<GetISteamAppsDelegate>(Marshal.ReadIntPtr(vtable + IntPtr.Size * 15));
 
                     if (_createSteamPipe != null && _connectToGlobalUser != null && _getISteamApps != null)
@@ -216,6 +220,48 @@ namespace AnSAM.Steam
             }
         }
 
+        public int CreateLocalUser(ref int pipe, AccountType type)
+        {
+            if (!Initialized)
+            {
+#if DEBUG
+                Debug.WriteLine($"CreateLocalUser({type}) called before Steam initialization");
+#endif
+                return 0;
+            }
+
+            if (_createLocalUser == null)
+            {
+#if DEBUG
+                Debug.WriteLine("CreateLocalUser delegate missing");
+#endif
+                return 0;
+            }
+
+            return _createLocalUser(_client, ref pipe, type);
+        }
+
+        public void SetLocalIPBinding(uint host, ushort port)
+        {
+            if (!Initialized)
+            {
+#if DEBUG
+                Debug.WriteLine($"SetLocalIPBinding({host}, {port}) called before Steam initialization");
+#endif
+                return;
+            }
+
+            if (_setLocalIPBinding == null)
+            {
+#if DEBUG
+                Debug.WriteLine("SetLocalIPBinding delegate missing");
+#endif
+                return;
+            }
+
+            _setLocalIPBinding(_client, host, port);
+        }
+
         private void PumpCallbacks()
         {
             while (Steam_BGetCallback(_pipe, out var msg, out _))
@@ -234,6 +280,11 @@ namespace AnSAM.Steam
             {
                 _releaseUser?.Invoke(_client, _pipe, _user);
                 _releaseSteamPipe?.Invoke(_client, _pipe);
+            }
+            else
+            {
+                _createLocalUser = null;
+                _setLocalIPBinding = null;
             }
         }
 
@@ -312,6 +363,12 @@ namespace AnSAM.Steam
         [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
         private delegate int ConnectToGlobalUserDelegate(IntPtr self, int pipe);
 
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
+        private delegate int CreateLocalUserDelegate(IntPtr self, ref int pipe, AccountType type);
+
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
+        private delegate void SetLocalIPBindingDelegate(IntPtr self, uint host, ushort port);
+
         [UnmanagedFunctionPointer(CallingConvention.ThisCall, CharSet = CharSet.Ansi)]
         private delegate IntPtr GetISteamAppsDelegate(IntPtr self, int user, int pipe, string version);
 
@@ -339,6 +396,20 @@ namespace AnSAM.Steam
                                                 [MarshalAs(UnmanagedType.LPStr)] string key,
                                                 IntPtr value,
                                                 int valueBufferSize);
+    }
+
+    public enum AccountType : int
+    {
+        Invalid = 0,
+        Individual = 1,
+        Multiset = 2,
+        GameServer = 3,
+        AnonGameServer = 4,
+        Pending = 5,
+        ContentServer = 6,
+        Clan = 7,
+        Chat = 8,
+        P2PSuperSeeder = 9,
     }
 }
 
