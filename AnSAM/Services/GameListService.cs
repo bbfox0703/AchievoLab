@@ -91,10 +91,35 @@ namespace AnSAM.Services
             var data = ms.ToArray();
             ValidateAndParse(data);
 
-            await File.WriteAllBytesAsync(cachePath, data).ConfigureAwait(false);
+            var tempPath = cachePath + ".tmp";
+            try
+            {
+                await File.WriteAllBytesAsync(tempPath, data).ConfigureAwait(false);
+                if (File.Exists(cachePath))
+                {
+                    File.Replace(tempPath, cachePath, null);
+                }
+                else
+                {
+                    File.Move(tempPath, cachePath);
+                }
 #if DEBUG
-            Debug.WriteLine($"Game list saved to {cachePath}");
+                Debug.WriteLine($"Game list saved to {cachePath}");
 #endif
+            }
+            catch
+            {
+                try
+                {
+                    if (File.Exists(tempPath))
+                    {
+                        File.Delete(tempPath);
+                    }
+                }
+                catch { }
+
+                throw;
+            }
             ReportStatus("Game list downloaded.");
             ReportProgress(100);
             return data;
