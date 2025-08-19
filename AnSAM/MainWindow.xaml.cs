@@ -115,8 +115,10 @@ namespace AnSAM
             var accent = _uiSettings.GetColorValue(UIColorType.Accent);
             var accentDark1 = _uiSettings.GetColorValue(UIColorType.AccentDark1);
             var accentDark2 = _uiSettings.GetColorValue(UIColorType.AccentDark2);
+            var accentDark3 = _uiSettings.GetColorValue(UIColorType.AccentDark3);
             var accentLight1 = _uiSettings.GetColorValue(UIColorType.AccentLight1);
             var foreground = _uiSettings.GetColorValue(UIColorType.Foreground);
+            var background = _uiSettings.GetColorValue(UIColorType.Background);
             var inactiveForeground = Color.FromArgb(
                 foreground.A,
                 (byte)(foreground.R / 2),
@@ -132,7 +134,7 @@ namespace AnSAM
                 titleBar.ButtonForegroundColor = foreground;
                 titleBar.ButtonHoverBackgroundColor = accent;
                 titleBar.ButtonHoverForegroundColor = foreground;
-                titleBar.ButtonPressedBackgroundColor = accentDark1;
+                titleBar.ButtonPressedBackgroundColor = accentDark2;
                 titleBar.ButtonPressedForegroundColor = foreground;
 
                 titleBar.InactiveBackgroundColor = accentDark2;
