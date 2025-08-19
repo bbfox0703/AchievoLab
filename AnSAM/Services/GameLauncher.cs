@@ -10,6 +10,10 @@ namespace AnSAM.Services
     /// </summary>
     public static class GameLauncher
     {
+        private static readonly string SamGamePath = Path.Combine(AppContext.BaseDirectory, "SAM", "SAM.Game.exe");
+
+        public static bool IsSamGameAvailable => File.Exists(SamGamePath);
+
         /// <summary>
         /// Launches the given <see cref="GameItem"/> by trying, in order:
         /// 1. The game's custom URI scheme.
@@ -55,8 +59,12 @@ namespace AnSAM.Services
                 return;
             }
 
-            var samGame = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "SAM\\SAM.Game.exe");
-            TryStart(samGame, item.ID.ToString(CultureInfo.InvariantCulture));
+            if (!IsSamGameAvailable)
+            {
+                return;
+            }
+
+            TryStart(SamGamePath, item.ID.ToString(CultureInfo.InvariantCulture));
         }
 
         private static bool TryStart(string fileName, string? arguments = null)
