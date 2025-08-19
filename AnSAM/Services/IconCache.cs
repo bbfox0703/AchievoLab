@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Diagnostics;
+using AnSAM.Services;
 using System.IO;
 using System.Net.Http;
 using System.Threading;
@@ -78,7 +78,7 @@ namespace AnSAM.Services
                     if (IsCacheValid(path))
                     {
 #if DEBUG
-                        Debug.WriteLine($"Using cached icon for {id} at {path}");
+                        DebugLogger.LogDebug($"Using cached icon for {id} at {path}");
 #endif
                         return Task.FromResult(new IconPathResult(path, false));
                     }
@@ -114,7 +114,7 @@ namespace AnSAM.Services
                     catch (HttpRequestException ex)
                     {
 #if DEBUG
-                        Debug.WriteLine($"Icon download failed for {id}: {ex.Message}");
+                        DebugLogger.LogDebug($"Icon download failed for {id}: {ex.Message}");
 #endif
                     }
                 }
@@ -140,7 +140,7 @@ namespace AnSAM.Services
 
                 var path = basePath + ext;
 #if DEBUG
-                Debug.WriteLine($"Downloading icon {uri} -> {path}");
+                DebugLogger.LogDebug($"Downloading icon {uri} -> {path}");
 #endif
                 await using (var fs = File.Create(path))
                 {
@@ -158,7 +158,7 @@ namespace AnSAM.Services
             catch (Exception ex)
             {
 #if DEBUG
-                Debug.WriteLine($"Icon download failed: {ex.Message}");
+                DebugLogger.LogDebug($"Icon download failed: {ex.Message}");
 #endif
                 throw;
             }
