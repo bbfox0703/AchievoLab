@@ -342,6 +342,7 @@ namespace AnSAM.RunGame.Steam
             if (!libraryName.Equals("steamclient64", StringComparison.OrdinalIgnoreCase))
                 return IntPtr.Zero;
 
+            DebugLogger.LogDebug("Attempting to determine Steam install path");
             string? installPath = GetSteamPath();
             if (string.IsNullOrEmpty(installPath)) return IntPtr.Zero;
 
@@ -361,6 +362,7 @@ namespace AnSAM.RunGame.Steam
 
         private static string? GetSteamPath()
         {
+            DebugLogger.LogDebug("Searching registry for Steam install path");
             const string subKey = @"Software\\Valve\\Steam";
 
             // Check HKLM 64-bit and 32-bit (WOW6432Node) views
@@ -369,7 +371,10 @@ namespace AnSAM.RunGame.Steam
                 using var key = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, view).OpenSubKey(subKey);
                 var path = key?.GetValue("InstallPath") as string;
                 if (!string.IsNullOrEmpty(path))
+                {
+                    DebugLogger.LogDebug($"Steam install path found: {path}");
                     return path;
+                }
             }
 
             // Fall back to HKCU
@@ -378,7 +383,10 @@ namespace AnSAM.RunGame.Steam
                 using var key = RegistryKey.OpenBaseKey(RegistryHive.CurrentUser, view).OpenSubKey(subKey);
                 var path = key?.GetValue("InstallPath") as string;
                 if (!string.IsNullOrEmpty(path))
+                {
+                    DebugLogger.LogDebug($"Steam install path found: {path}");
                     return path;
+                }
             }
 
             DebugLogger.LogDebug("Steam install path not found in registry");
