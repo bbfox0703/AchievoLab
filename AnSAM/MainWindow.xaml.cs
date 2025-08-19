@@ -244,133 +244,25 @@ namespace AnSAM
             IconCache.ResetProgress();
 
             var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AnSAM");
-            Directory.CreateDirectory(baseDir);
-            var cacheDir = Path.Combine(baseDir, "cache");
-            var userGamesPath = Path.Combine(cacheDir, "usergames.xml");
 
             Games.Clear();
             _allGames.Clear();
-
-            GameListService.TryLoadCache(cacheDir);
-
-            if (File.Exists(userGamesPath))
-            {
-                try
-                {
-                    var doc = XDocument.Load(userGamesPath);
-                    var gamesById = GameListService.Games.ToDictionary(g => g.Id);
-                    foreach (var node in doc.Root?.Elements("game") ?? Enumerable.Empty<XElement>())
-                    {
-                        if (!int.TryParse(node.Attribute("id")?.Value, out var id))
-                        {
-                            continue;
-                        }
-
-                        gamesById.TryGetValue(id, out var game);
-                        var title = string.IsNullOrEmpty(game.Name)
-                            ? id.ToString(CultureInfo.InvariantCulture)
-                            : game.Name;
-                        _allGames.Add(GameItem.FromSteamApp(new SteamAppData(id, title, null)));
-                    }
-
-                    if (_allGames.Count > 0)
-                    {
-                        SortAllGames();
-                        FilterGames(null);
-                        StatusText.Text = $"Loaded {_allGames.Count} games from cache";
-                        await Task.Yield();
-                    }
-                }
-                catch (Exception ex)
-                {
-#if DEBUG
-                    Debug.WriteLine($"Failed to load user games cache: {ex.GetBaseException().Message}");
-#endif
-                }
-            }
-
-            StatusProgress.Value = 0;
-            StatusExtra.Text = "0%";
 
             using var http = new HttpClient();
-            await GameListService.LoadAsync(cacheDir, http);
+            var apps = await GameCacheService.RefreshAsync(baseDir, _steamClient, http);
 
-            Games.Clear();
-            _allGames.Clear();
-
-            bool steamReady = _steamClient.Initialized;
-#if DEBUG
-            Debug.WriteLine($"Steam API initialized: {steamReady}");
-            Debug.WriteLine($"Game list loaded with {GameListService.Games.Count} entries");
-            if (GameListService.Games.Count > 0)
+            foreach (var app in apps)
             {
-                var sampleIds = string.Join(", ", GameListService.Games.Take(20).Select(g => g.Id));
-                Debug.WriteLine($"Sample parsed IDs: {sampleIds}{(GameListService.Games.Count > 20 ? ", ..." : string.Empty)}");
+                var withCover = _steamClient.Initialized
+                    ? app with { CoverUrl = GameImageUrlResolver.GetGameImageUrl(_steamClient, (uint)app.AppId, "english") }
+                    : app;
+                _allGames.Add(GameItem.FromSteamApp(withCover));
             }
-#endif
-            int total = 0, owned = 0;
-            foreach (var game in GameListService.Games)
-            {
-                total++;
-                uint appId = (uint)game.Id;
-                string title = game.Name;
-                string? coverUrl = null;
-                if (steamReady)
-                {
-                    if (!_steamClient.IsSubscribedApp(appId))
-                    {
-                        continue;
-                    }
-                    owned++;
-                    title = _steamClient.GetAppData(appId, "name") ?? title;
-                    coverUrl = GameImageUrlResolver.GetGameImageUrl(_steamClient, appId, "english");
-                }
-                var data = new SteamAppData(game.Id, title, coverUrl);
-                _allGames.Add(GameItem.FromSteamApp(data));
-            }
-#if DEBUG
-            Debug.WriteLine($"Processed {total} games; owned {owned}; added {_allGames.Count}");
-#endif
 
             SortAllGames();
             FilterGames(null);
 
-            if (steamReady)
-            {
-                try
-                {
-                    Directory.CreateDirectory(cacheDir);
-                    var tempPath = userGamesPath + ".tmp";
-                    using (var writer = XmlWriter.Create(tempPath, new XmlWriterSettings { Indent = true, Encoding = Encoding.UTF8 }))
-                    {
-                        writer.WriteStartElement("games");
-                        foreach (var id in _allGames.Select(g => g.ID).Distinct().OrderBy(i => i))
-                        {
-                            writer.WriteStartElement("game");
-                            writer.WriteAttributeString("id", id.ToString(CultureInfo.InvariantCulture));
-                            writer.WriteEndElement();
-                        }
-                        writer.WriteEndElement();
-                    }
-
-                    if (File.Exists(userGamesPath))
-                    {
-                        File.Replace(tempPath, userGamesPath, null);
-                    }
-                    else
-                    {
-                        File.Move(tempPath, userGamesPath);
-                    }
-                }
-                catch (Exception ex)
-                {
-#if DEBUG
-                    Debug.WriteLine($"Failed to save user games cache: {ex.GetBaseException().Message}");
-#endif
-                }
-            }
-
-            StatusText.Text = steamReady
+            StatusText.Text = _steamClient.Initialized
                 ? $"Loaded {_allGames.Count} games"
                 : $"Steam unavailable - showing {_allGames.Count} games";
         }
