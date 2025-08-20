@@ -15,6 +15,7 @@ using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml.Media.Imaging;
 using System.ComponentModel;
 using Windows.UI.ViewManagement;
+using Windows.Storage;
 
 namespace RunGame
 {
@@ -77,7 +78,15 @@ namespace RunGame
             if (Content is FrameworkElement root)
             {
                 ThemeService.Initialize(this, root);
-                ThemeService.ApplyTheme(ThemeService.GetCurrentTheme());
+                var settings = ApplicationData.Current.LocalSettings;
+                if (settings.Values.TryGetValue("AppTheme", out var t) && Enum.TryParse<ElementTheme>(t?.ToString(), out var savedTheme))
+                {
+                    ThemeService.ApplyTheme(savedTheme);
+                }
+                else
+                {
+                    ThemeService.ApplyTheme(ThemeService.GetCurrentTheme());
+                }
                 root.ActualThemeChanged += (_, _) => ThemeService.UpdateTitleBar(root.ActualTheme);
             }
             _uiSettings.ColorValuesChanged += UiSettings_ColorValuesChanged;
@@ -164,6 +173,19 @@ namespace RunGame
                     ThemeService.UpdateTitleBar(root.ActualTheme);
                 }
             });
+        }
+
+        private void Theme_Default_Click(object sender, RoutedEventArgs e) => SetTheme(ElementTheme.Default);
+
+        private void Theme_Light_Click(object sender, RoutedEventArgs e) => SetTheme(ElementTheme.Light);
+
+        private void Theme_Dark_Click(object sender, RoutedEventArgs e) => SetTheme(ElementTheme.Dark);
+
+        private void SetTheme(ElementTheme theme)
+        {
+            ThemeService.ApplyTheme(theme);
+            var settings = ApplicationData.Current.LocalSettings;
+            settings.Values["AppTheme"] = theme.ToString();
         }
 
         private void InitializeLanguageComboBox()
