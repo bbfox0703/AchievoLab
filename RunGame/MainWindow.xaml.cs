@@ -14,6 +14,7 @@ using Microsoft.UI.Dispatching;
 using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml.Media.Imaging;
 using System.ComponentModel;
+using Windows.UI.ViewManagement;
 
 namespace RunGame
 {
@@ -33,7 +34,10 @@ namespace RunGame
         
         private bool _isLoadingStats = false;
         private bool _lastMouseMoveRight = true;
-        
+
+        // Theme
+        private readonly UISettings _uiSettings = new();
+
         // New services
         private AchievementTimerService? _achievementTimerService;
         private MouseMoverService? _mouseMoverService;
@@ -69,12 +73,14 @@ namespace RunGame
 
             // Set up event handlers
             _gameStatsService.UserStatsReceived += OnUserStatsReceived;
-            
-            // Apply current theme
-            if (this.Content is FrameworkElement content)
+
+            if (Content is FrameworkElement root)
             {
-                ThemeService.ApplyTheme(content);
+                ThemeService.Initialize(this, root);
+                ThemeService.ApplyTheme(ThemeService.GetCurrentTheme());
+                root.ActualThemeChanged += (_, _) => ThemeService.UpdateTitleBar(root.ActualTheme);
             }
+            _uiSettings.ColorValuesChanged += UiSettings_ColorValuesChanged;
             
             // Set window title
             string gameName = _steamClient.GetAppData((uint)gameId, "name") ?? gameId.ToString();
@@ -146,6 +152,18 @@ namespace RunGame
             {
                 DebugLogger.LogDebug($"Error during cleanup: {ex.Message}");
             }
+        }
+
+        private void UiSettings_ColorValuesChanged(UISettings sender, object args)
+        {
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                ThemeService.ApplyAccentBrush();
+                if (Content is FrameworkElement root)
+                {
+                    ThemeService.UpdateTitleBar(root.ActualTheme);
+                }
+            });
         }
 
         private void InitializeLanguageComboBox()
