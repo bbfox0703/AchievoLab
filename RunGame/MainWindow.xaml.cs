@@ -829,8 +829,10 @@ namespace RunGame
                 foreach (var achievement in _achievements)
                 {
                     // Get the appropriate icon filename based on achievement state
-                    string iconFileName = achievement.IsAchieved ? achievement.IconNormal : achievement.IconLocked;
-                    
+                    string iconFileName = achievement.IsAchieved || string.IsNullOrEmpty(achievement.IconLocked)
+                        ? achievement.IconNormal
+                        : achievement.IconLocked;
+
                     if (!string.IsNullOrEmpty(iconFileName))
                     {
                         var iconPath = await _achievementIconService.GetAchievementIconAsync(
@@ -867,7 +869,9 @@ namespace RunGame
             if (e.PropertyName != nameof(AchievementInfo.IsAchieved)) return;
             if (sender is not AchievementInfo achievement) return;
 
-            string iconFileName = achievement.IsAchieved ? achievement.IconNormal : achievement.IconLocked;
+            string iconFileName = achievement.IsAchieved || string.IsNullOrEmpty(achievement.IconLocked)
+                ? achievement.IconNormal
+                : achievement.IconLocked;
             if (string.IsNullOrEmpty(iconFileName)) return;
 
             try
