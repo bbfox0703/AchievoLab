@@ -79,14 +79,23 @@ namespace RunGame
             {
                 ThemeService.Initialize(this, root);
                 var settings = TryGetLocalSettings();
-                if (settings != null && settings.Values.TryGetValue("AppTheme", out var t) && Enum.TryParse<ElementTheme>(t?.ToString(), out var savedTheme))
+                ElementTheme themeToApply = ThemeService.GetCurrentTheme();
+                if (settings != null)
                 {
-                    ThemeService.ApplyTheme(savedTheme);
+                    try
+                    {
+                        if (settings.Values.TryGetValue("AppTheme", out var t) &&
+                            Enum.TryParse<ElementTheme>(t?.ToString(), out var savedTheme))
+                        {
+                            themeToApply = savedTheme;
+                        }
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        // Ignore inability to read settings
+                    }
                 }
-                else
-                {
-                    ThemeService.ApplyTheme(ThemeService.GetCurrentTheme());
-                }
+                ThemeService.ApplyTheme(themeToApply);
                 root.ActualThemeChanged += (_, _) => ThemeService.UpdateTitleBar(root.ActualTheme);
             }
             _uiSettings.ColorValuesChanged += UiSettings_ColorValuesChanged;
@@ -187,7 +196,14 @@ namespace RunGame
             var settings = TryGetLocalSettings();
             if (settings != null)
             {
-                settings.Values["AppTheme"] = theme.ToString();
+                try
+                {
+                    settings.Values["AppTheme"] = theme.ToString();
+                }
+                catch (InvalidOperationException)
+                {
+                    // Ignore inability to persist settings
+                }
             }
         }
 
