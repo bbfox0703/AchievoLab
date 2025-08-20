@@ -12,6 +12,7 @@ using RunGame.Steam;
 using System.Globalization;
 using Microsoft.UI.Dispatching;
 using System.Runtime.InteropServices;
+using Microsoft.UI.Xaml.Media.Imaging;
 
 namespace RunGame
 {
@@ -211,7 +212,7 @@ namespace RunGame
         {
             DebugLogger.LogDebug($"MainWindow.OnUserStatsReceived - GameId: {e.GameId}, Result: {e.Result}, UserId: {e.UserId}");
             
-            this.DispatcherQueue.TryEnqueue(() =>
+            this.DispatcherQueue.TryEnqueue(async () =>
             {
                 DebugLogger.LogDebug($"MainWindow.OnUserStatsReceived dispatched to UI thread");
                 
@@ -238,8 +239,8 @@ namespace RunGame
                 DebugLogger.LogDebug($"UI updated - {_achievements.Count} achievements, {_statistics.Count} statistics");
                 StatusLabel.Text = $"Retrieved {_achievements.Count} achievements and {_statistics.Count} statistics";
                 
-                // Start loading achievement icons asynchronously
-                _ = Task.Run(async () => await LoadAchievementIconsAsync());
+                // Start loading achievement icons on the UI thread
+                await LoadAchievementIconsAsync();
             });
         }
 
@@ -828,15 +829,21 @@ namespace RunGame
                     
                     if (!string.IsNullOrEmpty(iconFileName))
                     {
-                        var iconImage = await _achievementIconService.GetAchievementIconAsync(
+                        var iconPath = await _achievementIconService.GetAchievementIconAsync(
                             achievement.Id, iconFileName, achievement.IsAchieved);
 
-                        if (iconImage != null)
+                        if (!string.IsNullOrEmpty(iconPath))
                         {
-                            // Update on UI thread
                             this.DispatcherQueue.TryEnqueue(() =>
                             {
-                                achievement.IconImage = iconImage;
+                                try
+                                {
+                                    achievement.IconImage = new BitmapImage(new Uri(iconPath));
+                                }
+                                catch (Exception ex)
+                                {
+                                    DebugLogger.LogDebug($"Error creating BitmapImage for {achievement.Id}: {ex.Message}");
+                                }
                             });
                         }
                     }
