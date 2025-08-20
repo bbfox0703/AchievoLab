@@ -242,6 +242,9 @@ namespace AnSAM.RunGame.Services
         {
             var id = stat["name"].AsString("");
             string name = GetLocalizedString(stat["display"]["name"], currentLanguage, id);
+            bool incrementOnly = stat["incrementonly"].AsBoolean(false);
+
+            DebugLogger.LogDebug($"Integer Stat parsed - ID: {id}, Name: '{name}', IncrementOnly: {incrementOnly}, Language: {currentLanguage}");
 
             _statDefinitions.Add(new IntegerStatDefinition
             {
@@ -250,7 +253,7 @@ namespace AnSAM.RunGame.Services
                 MinValue = stat["min"].AsInteger(int.MinValue),
                 MaxValue = stat["max"].AsInteger(int.MaxValue),
                 MaxChange = stat["maxchange"].AsInteger(0),
-                IncrementOnly = stat["incrementonly"].AsBoolean(false),
+                IncrementOnly = incrementOnly,
                 SetByTrustedGameServer = stat["bSetByTrustedGS"].AsBoolean(false),
                 DefaultValue = stat["default"].AsInteger(0),
                 Permission = stat["permission"].AsInteger(0)
@@ -375,6 +378,7 @@ namespace AnSAM.RunGame.Services
 
         public List<StatInfo> GetStatistics()
         {
+            DebugLogger.LogDebug($"GetStatistics called - {_statDefinitions.Count} definitions available");
             var statistics = new List<StatInfo>();
 
             foreach (var stat in _statDefinitions)
@@ -385,7 +389,7 @@ namespace AnSAM.RunGame.Services
                 {
                     if (_steamClient.GetStatValue(intStat.Id, out int value))
                     {
-                        statistics.Add(new IntStatInfo
+                        var statInfo = new IntStatInfo
                         {
                             Id = intStat.Id,
                             DisplayName = intStat.DisplayName,
@@ -393,7 +397,14 @@ namespace AnSAM.RunGame.Services
                             OriginalValue = value,
                             IsIncrementOnly = intStat.IncrementOnly,
                             Permission = intStat.Permission
-                        });
+                        };
+                        
+                        DebugLogger.LogDebug($"Integer Stat created - ID: {statInfo.Id}, Name: '{statInfo.DisplayName}', Value: {statInfo.IntValue}, IncrementOnly: {statInfo.IsIncrementOnly}");
+                        statistics.Add(statInfo);
+                    }
+                    else
+                    {
+                        DebugLogger.LogDebug($"Failed to get stat value for ID: {intStat.Id}");
                     }
                 }
                 else if (stat is FloatStatDefinition floatStat)
@@ -419,7 +430,57 @@ namespace AnSAM.RunGame.Services
         public bool SetAchievement(string id, bool achieved)
         {
             DebugLogger.LogDebug($"GameStatsService.SetAchievement called: {id} = {achieved}");
+            
+            // If setting achievement to true, check for related statistics and adjust them
+            if (achieved)
+            {
+                AdjustRelatedStatistics(id);
+            }
+            
             return _steamClient.SetAchievement(id, achieved);
+        }
+        
+        private void AdjustRelatedStatistics(string achievementId)
+        {
+            // Define achievement-statistic relationships with required values
+            var achievementStatMap = new Dictionary<string, (string statId, int requiredValue)>
+            {
+                { "DestroyXUnits", ("DestroyXUnits_Stat", 5000) },
+                { "037_DestroyXUnitsLow", ("DestroyXUnits_Stat", 2500) },
+                { "WinXSkirmishGames", ("WinXSkirmishGames_Stat", 10) },
+                { "PillageXLocations", ("PillageXLocations_Stat", 100) },
+                { "RebuildXLocations", ("RebuildXLocations_Stat", 100) },
+                { "GetXLocationsToMaxProsperity", ("GetXLocationsToMaxProsperity_Stat", 500) },
+                { "BuildXBuildings", ("BuildXBuildings_Stat", 500) },
+                { "RecruitXUnits", ("RecruitXUnits_Stat", 2000) },
+                { "PlayXCombatCards", ("PlayXCombatCards_Stat", 6000) },
+                { "FindWanderingEruditeOnAllMaps", ("FindWanderingEruditeOnAllMaps_Stat", 8) }, // Assuming 8 maps
+                { "FinishCampaignOnHardDifficulty", ("FinishCampaignOnHardDifficulty_Stat", 1) },
+                { "UnlockXLexicanumEntries", ("UnlockXLexicanumEntries_Stat", 999) } // Assuming all entries
+            };
+            
+            if (achievementStatMap.TryGetValue(achievementId, out var statInfo))
+            {
+                var (statId, requiredValue) = statInfo;
+                
+                // Get current stat value
+                if (_steamClient.GetStatValue(statId, out int currentValue))
+                {
+                    if (currentValue < requiredValue)
+                    {
+                        DebugLogger.LogDebug($"Adjusting stat {statId} from {currentValue} to {requiredValue} for achievement {achievementId}");
+                        _steamClient.SetStatValue(statId, requiredValue);
+                    }
+                    else
+                    {
+                        DebugLogger.LogDebug($"Stat {statId} already meets requirement ({currentValue} >= {requiredValue}) for achievement {achievementId}");
+                    }
+                }
+                else
+                {
+                    DebugLogger.LogDebug($"Failed to get current value for stat {statId}");
+                }
+            }
         }
 
         public bool SetStatistic(StatInfo stat)

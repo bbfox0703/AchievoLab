@@ -12,7 +12,10 @@
       "Bash(start:*)",
       "Bash(timeout:*)",
       "Bash(cat:*)",
-      "Bash(echo $LOCALAPPDATA)"
+      "Bash(echo $LOCALAPPDATA)",
+      "Bash(powershell:*)",
+      "Bash(dotnet run:*)",
+      "Bash(dotnet clean:*)"
     ],
     "deny": [],
     "ask": []

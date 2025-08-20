@@ -45,6 +45,23 @@ namespace AnSAM.RunGame.Models
                 }
             } 
         }
+        
+        // Timer properties for real-time achievement unlocking
+        private DateTime? _scheduledUnlockTime;
+        public DateTime? ScheduledUnlockTime 
+        { 
+            get => _scheduledUnlockTime; 
+            set 
+            { 
+                if (_scheduledUnlockTime != value)
+                {
+                    _scheduledUnlockTime = value;
+                    OnPropertyChanged(nameof(ScheduledUnlockTime));
+                    OnPropertyChanged(nameof(IsTimerActive));
+                }
+            } 
+        }
+        public bool IsTimerActive => ScheduledUnlockTime.HasValue && ScheduledUnlockTime > DateTime.Now && !IsAchieved;
 
         public event PropertyChangedEventHandler? PropertyChanged;
         

@@ -58,6 +58,7 @@
                                         <ColumnDefinition Width="250"/>
                                         <ColumnDefinition Width="300"/>
                                         <ColumnDefinition Width="150"/>
+                                        <ColumnDefinition Width="150"/>
                                         <ColumnDefinition Width="80"/>
                                     </Grid.ColumnDefinitions>
 
@@ -66,13 +67,22 @@
                                               IsChecked="{Binding IsAchieved, Mode=TwoWay}" 
                                               Content="✓"
                                               Margin="0,0,10,0"/>
+                                    
+                                    <!-- Protection Indicator -->
+                                    <TextBlock Grid.Column="0" 
+                                               Text="🔒" 
+                                               FontSize="12"
+                                               HorizontalAlignment="Right"
+                                               VerticalAlignment="Top"
+                                               Margin="0,-5,-5,0"/>
 
-                                    <!-- Icon Placeholder -->
+                                    <!-- Achievement Icon -->
                                     <Border Grid.Column="1" 
                                             Width="48" Height="48" 
                                             CornerRadius="4"
                                             Background="{ThemeResource SystemControlBackgroundBaseLowBrush}"
                                             Margin="0,0,10,0">
+                                        <!-- Fallback emoji (temporary until icon loading is fixed) -->
                                         <TextBlock Text="🏆" 
                                                    FontSize="24" 
                                                    HorizontalAlignment="Center" 
@@ -111,8 +121,17 @@
                                                VerticalAlignment="Center"
                                                Margin="0,0,10,0"/>
 
-                                    <!-- Permission -->
+                                    <!-- Scheduled Time -->
                                     <TextBlock Grid.Column="6" 
+                                               Text="{Binding ScheduledUnlockTime}" 
+                                               FontFamily="Consolas" 
+                                               FontSize="12"
+                                               VerticalAlignment="Center"
+                                               Foreground="Orange"
+                                               Margin="0,0,10,0"/>
+
+                                    <!-- Permission -->
+                                    <TextBlock Grid.Column="7" 
                                                Text="{Binding Permission}" 
                                                FontFamily="Consolas" 
                                                FontSize="12"
@@ -129,6 +148,7 @@
                                     <ColumnDefinition Width="250"/>
                                     <ColumnDefinition Width="300"/>
                                     <ColumnDefinition Width="150"/>
+                                    <ColumnDefinition Width="150"/>
                                     <ColumnDefinition Width="80"/>
                                 </Grid.ColumnDefinitions>
 
@@ -138,7 +158,8 @@
                                 <TextBlock Grid.Column="3" Text="Name" FontWeight="Bold" Margin="0,0,10,0"/>
                                 <TextBlock Grid.Column="4" Text="Description" FontWeight="Bold" Margin="0,0,10,0"/>
                                 <TextBlock Grid.Column="5" Text="Unlock Time" FontWeight="Bold" Margin="0,0,10,0"/>
-                                <TextBlock Grid.Column="6" Text="Permission" FontWeight="Bold"/>
+                                <TextBlock Grid.Column="6" Text="Scheduled Time" FontWeight="Bold" Margin="0,0,10,0"/>
+                                <TextBlock Grid.Column="7" Text="Permission" FontWeight="Bold"/>
                             </Grid>
                         </ListView.Header>
                     </ListView>

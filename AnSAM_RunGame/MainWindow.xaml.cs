@@ -30,8 +30,12 @@ namespace AnSAM.RunGame
         private readonly Dictionary<string, int> _achievementCounters = new();
         
         private bool _isLoadingStats = false;
-        private bool _mouseTimerEnabled = false;
         private bool _lastMouseMoveRight = true;
+        
+        // New services
+        private AchievementTimerService? _achievementTimerService;
+        private MouseMoverService? _mouseMoverService;
+        private AchievementIconService? _achievementIconService;
 
         public MainWindow(long gameId)
         {
@@ -96,11 +100,47 @@ namespace AnSAM.RunGame
             // 初始化日誌
             DebugLogger.LogDebug($"AnSAM_RunGame started for game {gameId} in {(DebugLogger.IsDebugMode ? "DEBUG" : "RELEASE")} mode");
             
+            // Initialize new services
+            _achievementTimerService = new AchievementTimerService(_gameStatsService);
+            
+            // Get window handle for mouse service
+            var windowHandle = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            _mouseMoverService = new MouseMoverService(windowHandle);
+            
+            // Initialize icon service
+            _achievementIconService = new AchievementIconService(gameId);
+            
             // Test game ownership before loading stats
             TestGameOwnership();
             
             // Start loading stats
             _ = LoadStatsAsync();
+            
+            // Subscribe to window closing event for cleanup
+            this.Closed += OnWindowClosed;
+        }
+        
+        private void OnWindowClosed(object sender, WindowEventArgs args)
+        {
+            try
+            {
+                // Dispose services
+                _achievementTimerService?.Dispose();
+                _mouseMoverService?.Dispose();
+                _achievementIconService?.Dispose();
+                
+                // Stop timers
+                _callbackTimer?.Stop();
+                _timeTimer?.Stop();
+                _achievementTimer?.Stop();
+                _mouseTimer?.Stop();
+                
+                DebugLogger.LogDebug("MainWindow closed and resources cleaned up");
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error during cleanup: {ex.Message}");
+            }
         }
 
         private void InitializeLanguageComboBox()
@@ -443,11 +483,8 @@ namespace AnSAM.RunGame
             // Enable/disable statistics editing
         }
 
-        private void OnSetTimer(object sender, RoutedEventArgs e)
+        private async void OnSetTimer(object sender, RoutedEventArgs e)
         {
-            if (double.IsNaN(TimerValueBox.Value)) return;
-            
-            int timerValue = (int)TimerValueBox.Value;
             var selectedItems = AchievementListView.SelectedItems.Cast<AchievementInfo>().ToList();
             
             if (selectedItems.Count == 0)
@@ -456,25 +493,136 @@ namespace AnSAM.RunGame
                 return;
             }
 
-            foreach (var achievement in selectedItems)
+            try
             {
-                achievement.Counter = timerValue;
-                _achievementCounters[achievement.Id] = timerValue;
+                // Create the dialog content
+                var dialogContent = CreateTimerDialogContent();
+                
+                // Show a content dialog to set the unlock time
+                var dialog = new ContentDialog
+                {
+                    Title = "Set Achievement Unlock Time",
+                    Content = dialogContent,
+                    PrimaryButtonText = "Set Timer",
+                    CloseButtonText = "Cancel",
+                    XamlRoot = this.Content.XamlRoot
+                };
+
+                var result = await dialog.ShowAsync();
+                
+                if (result == ContentDialogResult.Primary)
+                {
+                    // Extract the controls from our dialog content
+                    var datePicker = (DatePicker)dialogContent.Children[1];
+                    var timePicker = (TimePicker)dialogContent.Children[3];
+                    var secondsBox = (NumberBox)dialogContent.Children[5];
+
+                    var selectedDate = datePicker.Date.Date;
+                    var selectedTime = timePicker.Time;
+                    
+                    // Add seconds from NumberBox
+                    int seconds = (int)(secondsBox.Value);
+                    var unlockTime = selectedDate.Add(selectedTime).AddSeconds(seconds);
+
+                    if (unlockTime <= DateTime.Now)
+                    {
+                        ShowErrorDialog("Unlock time must be in the future");
+                        return;
+                    }
+
+                    foreach (var achievement in selectedItems)
+                    {
+                        achievement.ScheduledUnlockTime = unlockTime;
+                        _achievementTimerService?.ScheduleAchievement(achievement.Id, unlockTime);
+                        DebugLogger.LogDebug($"Scheduled achievement {achievement.Id} to unlock at {unlockTime}");
+                    }
+
+                    StatusLabel.Text = $"Scheduled {selectedItems.Count} achievement(s) to unlock at {unlockTime:yyyy-MM-dd HH:mm:ss}";
+                }
+                else
+                {
+                    DebugLogger.LogDebug("Set Timer dialog was cancelled by user");
+                }
             }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error in OnSetTimer: {ex.Message}");
+                ShowErrorDialog($"Error setting timer: {ex.Message}");
+            }
+        }
+
+        private Grid CreateTimerDialogContent()
+        {
+            var grid = new Grid();
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+            var instructions = new TextBlock
+            {
+                Text = "Select the date and time when the achievement should be unlocked:",
+                Margin = new Thickness(0, 0, 0, 10),
+                TextWrapping = TextWrapping.Wrap
+            };
+            Grid.SetRow(instructions, 0);
+
+            var datePicker = new DatePicker
+            {
+                Date = DateTime.Now.Date.AddDays(1),
+                Margin = new Thickness(0, 0, 0, 10)
+            };
+            Grid.SetRow(datePicker, 1);
+
+            var timeLabel = new TextBlock
+            {
+                Text = "Time:",
+                Margin = new Thickness(0, 0, 0, 5)
+            };
+            Grid.SetRow(timeLabel, 2);
+
+            var timePicker = new TimePicker
+            {
+                Time = DateTime.Now.TimeOfDay.Add(TimeSpan.FromMinutes(5)),
+                Margin = new Thickness(0, 0, 0, 10)
+            };
+            Grid.SetRow(timePicker, 3);
+
+            var secondsLabel = new TextBlock
+            {
+                Text = "Seconds (0-59):",
+                Margin = new Thickness(0, 0, 0, 5)
+            };
+            Grid.SetRow(secondsLabel, 4);
+
+            var secondsBox = new NumberBox
+            {
+                Value = 0,
+                Minimum = 0,
+                Maximum = 59,
+                SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline
+            };
+            Grid.SetRow(secondsBox, 5);
+
+            grid.Children.Add(instructions);
+            grid.Children.Add(datePicker);
+            grid.Children.Add(timeLabel);
+            grid.Children.Add(timePicker);
+            grid.Children.Add(secondsLabel);
+            grid.Children.Add(secondsBox);
+
+            return grid;
         }
 
         private void OnAutoMouseMove(object sender, RoutedEventArgs e)
         {
-            _mouseTimerEnabled = !_mouseTimerEnabled;
-            if (_mouseTimerEnabled)
+            if (_mouseMoverService != null)
             {
-                _mouseTimer.Start();
-                AutoMouseMoveButton.Label = "Stop Auto Mouse Move";
-            }
-            else
-            {
-                _mouseTimer.Stop();
-                AutoMouseMoveButton.Label = "Auto Mouse Move";
+                _mouseMoverService.IsEnabled = !_mouseMoverService.IsEnabled;
+                AutoMouseMoveButton.Label = _mouseMoverService.IsEnabled ? "Stop Auto Mouse" : "Auto Mouse";
+                DebugLogger.LogDebug($"Auto mouse movement {(_mouseMoverService.IsEnabled ? "enabled" : "disabled")}");
             }
         }
 
