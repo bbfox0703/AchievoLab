@@ -64,6 +64,47 @@
                     </StackPanel>
                 </AppBarElementContainer>
 
+                <!-- Language Selection -->
+                <AppBarElementContainer>
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <TextBlock Text="Language" VerticalAlignment="Center"/>
+                        <ComboBox x:Name="LanguageComboBox"
+                                  Width="120"
+                                  SelectedIndex="1">
+                            <ComboBoxItem Content="english"/>
+                            <ComboBoxItem Content="tchinese"/>
+                            <ComboBoxItem Content="japanese"/>
+                            <ComboBoxItem Content="arabic"/>
+                            <ComboBoxItem Content="brazilian"/>
+                            <ComboBoxItem Content="bulgarian"/>
+                            <ComboBoxItem Content="czech"/>
+                            <ComboBoxItem Content="danish"/>
+                            <ComboBoxItem Content="dutch"/>
+                            <ComboBoxItem Content="finnish"/>
+                            <ComboBoxItem Content="french"/>
+                            <ComboBoxItem Content="german"/>
+                            <ComboBoxItem Content="greek"/>
+                            <ComboBoxItem Content="hungarian"/>
+                            <ComboBoxItem Content="indonesian"/>
+                            <ComboBoxItem Content="italian"/>
+                            <ComboBoxItem Content="koreana"/>
+                            <ComboBoxItem Content="latam"/>
+                            <ComboBoxItem Content="norwegian"/>
+                            <ComboBoxItem Content="polish"/>
+                            <ComboBoxItem Content="portuguese"/>
+                            <ComboBoxItem Content="romanian"/>
+                            <ComboBoxItem Content="russian"/>
+                            <ComboBoxItem Content="schinese"/>
+                            <ComboBoxItem Content="spanish"/>
+                            <ComboBoxItem Content="swedish"/>
+                            <ComboBoxItem Content="thai"/>
+                            <ComboBoxItem Content="turkish"/>
+                            <ComboBoxItem Content="ukrainian"/>
+                            <ComboBoxItem Content="vietnamese"/>
+                        </ComboBox>
+                    </StackPanel>
+                </AppBarElementContainer>
+
                 <!-- Get Game list -->
                 <AppBarButton x:Name="GetGamesButton"
                                    Icon="Download"

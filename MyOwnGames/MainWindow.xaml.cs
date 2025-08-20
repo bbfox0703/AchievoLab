@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Navigation;
 using System;
 using System.Collections.Generic;
@@ -17,6 +18,7 @@ using System.Linq;
 using System.Runtime.InteropServices.WindowsRuntime;
 using Windows.Foundation;
 using Windows.Foundation.Collections;
+using MyOwnGames.Services;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -29,6 +31,8 @@ namespace MyOwnGames
     public sealed partial class MainWindow : Window, INotifyPropertyChanged
     {
         public ObservableCollection<GameEntry> GameItems { get; } = new();
+        private readonly GameImageService _imageService = new();
+        private readonly GameDataService _dataService = new();
 
         private string _statusText = "Ready.";
         public string StatusText
@@ -81,33 +85,73 @@ namespace MyOwnGames
         public MainWindow()
         {
             InitializeComponent();
-            this.ExtendsContentIntoTitleBar = true; // �i��G�����D�C�Y�D�D
-            this.AppWindow.Title = "Steam Games (WinUI 3)";
+            this.ExtendsContentIntoTitleBar = true;
+            this.AppWindow.Title = "My Own Steam Games";
 
-            // �j�w DataContext
             // Set DataContext for binding
             RootGrid.DataContext = this;
 
-            // Demo �w�]��ơ]�i�����^
-            SeedDemoRows();
+            // Load saved games on startup
+            _ = LoadSavedGamesAsync();
         }
-        private void SeedDemoRows()
+        private async Task LoadSavedGamesAsync()
         {
-            GameItems.Add(new GameEntry
+            try
             {
-                AppId = 570,
-                IconUri = "ms-appx:///Assets/steam_placeholder.png", // �Ч�ϩ�b�M�� Assets
-                NameEn = "Dota 2",
-                NameLocalized = "Dota 2" // Demo�G�ȮɦP�^��
-            });
+                StatusText = "Loading saved games...";
+                var savedGames = await _dataService.LoadGamesFromXmlAsync();
+                
+                GameItems.Clear();
+                foreach (var game in savedGames.Take(10)) // Limit to first 10 for demo
+                {
+                    var entry = new GameEntry
+                    {
+                        AppId = game.AppId,
+                        NameEn = game.NameEn,
+                        NameLocalized = game.NameLocalized,
+                        IconUri = "ms-appx:///Assets/steam_placeholder.png" // Will be updated async
+                    };
+                    
+                    GameItems.Add(entry);
+                    
+                    // Load image asynchronously in a thread-safe way
+                    _ = LoadGameImageAsync(entry, game.AppId);
+                }
+                
+                var exportInfo = await _dataService.GetExportInfoAsync();
+                if (exportInfo != null)
+                {
+                    StatusText = $"Loaded {savedGames.Count} saved games (exported: {exportInfo.ExportDate:yyyy-MM-dd}, language: {exportInfo.Language})";
+                }
+                else
+                {
+                    StatusText = "Ready. Enter Steam API Key and SteamID to fetch your games.";
+                }
+            }
+            catch (Exception ex)
+            {
+                StatusText = $"Error loading saved games: {ex.Message}";
+            }
+        }
 
-            GameItems.Add(new GameEntry
+        private async Task LoadGameImageAsync(GameEntry entry, int appId)
+        {
+            try
             {
-                AppId = 730,
-                IconUri = "ms-appx:///Assets/steam_placeholder.png",
-                NameEn = "Counter-Strike 2",
-                NameLocalized = "Counter-Strike 2"
-            });
+                var imagePath = await _imageService.GetGameImageAsync(appId);
+                if (!string.IsNullOrEmpty(imagePath) && File.Exists(imagePath))
+                {
+                    // Thread-safe UI update using DispatcherQueue
+                    this.DispatcherQueue.TryEnqueue(() =>
+                    {
+                        entry.IconUri = imagePath;
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error loading image for {appId}: {ex.Message}");
+            }
         }
 
         private async void GetGamesButton_Click(object sender, RoutedEventArgs e)
@@ -136,23 +180,39 @@ namespace MyOwnGames
                     ProgressValue = value;
                 });
 
-                // Use real Steam API service
-                steamService = new SteamApiService(apiKey);
-                var steamGames = await steamService.GetOwnedGamesAsync(steamId64, progress);
-
-                // Convert to GameEntry format
-                foreach (var game in steamGames)
+                // Get selected language from ComboBox
+                var selectedLanguage = "tchinese"; // Default
+                if (LanguageComboBox.SelectedItem is ComboBoxItem selectedItem)
                 {
-                    GameItems.Add(new GameEntry
-                    {
-                        AppId = game.AppId,
-                        IconUri = game.IconUrl,
-                        NameEn = game.NameEn,
-                        NameLocalized = game.NameLocalized
-                    });
+                    selectedLanguage = selectedItem.Content?.ToString() ?? "tchinese";
                 }
 
-                StatusText = $"Successfully loaded {GameItems.Count} games";
+                // Use real Steam API service with selected language
+                steamService = new SteamApiService(apiKey);
+                var steamGames = await steamService.GetOwnedGamesAsync(steamId64, selectedLanguage, progress);
+
+                // Convert to GameEntry format and load images asynchronously
+                foreach (var game in steamGames)
+                {
+                    var entry = new GameEntry
+                    {
+                        AppId = game.AppId,
+                        NameEn = game.NameEn,
+                        NameLocalized = game.NameLocalized,
+                        IconUri = "ms-appx:///Assets/steam_placeholder.png" // Will be updated async
+                    };
+                    
+                    GameItems.Add(entry);
+                    
+                    // Load image asynchronously in a thread-safe way
+                    _ = LoadGameImageAsync(entry, game.AppId);
+                }
+
+                // Save to XML for AnSAM usage
+                await _dataService.SaveGamesToXmlAsync(steamGames, steamId64, apiKey, selectedLanguage);
+                var xmlPath = _dataService.GetXmlFilePath();
+
+                StatusText = $"Successfully loaded {GameItems.Count} games ({selectedLanguage}) and saved to {xmlPath}";
             }
             catch (Exception ex)
             {
@@ -182,16 +242,40 @@ namespace MyOwnGames
 
         private void KeywordBox_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
         {
-            // �i��G���ѫ�ĳ�M��]AutoSuggest�^�F���B�ٲ�
+            // Real-time search functionality could be implemented here
+        }
+
+        // Clean up resources when window is closing
+        ~MainWindow()
+        {
+            _imageService?.Dispose();
         }
     }
 
-    public class GameEntry
+    public class GameEntry : INotifyPropertyChanged
     {
         public int AppId { get; set; }
-        public string IconUri { get; set; } = "";
+        
+        private string _iconUri = "";
+        public string IconUri 
+        { 
+            get => _iconUri; 
+            set 
+            { 
+                if (_iconUri != value) 
+                { 
+                    _iconUri = value; 
+                    OnPropertyChanged(); 
+                } 
+            } 
+        }
+        
         public string NameEn { get; set; } = "";
         public string NameLocalized { get; set; } = "";
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+        private void OnPropertyChanged([CallerMemberName] string? name = null)
+            => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     }
 }
 

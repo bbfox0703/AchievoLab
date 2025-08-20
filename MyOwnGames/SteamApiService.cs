@@ -4,6 +4,7 @@ using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
 using System.Globalization;
+using System.Threading;
 
 namespace MyOwnGames
 {
@@ -11,22 +12,44 @@ namespace MyOwnGames
     {
         private readonly HttpClient _httpClient;
         private readonly string _apiKey;
+        private DateTime _lastApiCall = DateTime.MinValue;
+        private readonly object _apiCallLock = new object();
 
         public SteamApiService(string apiKey)
         {
             _apiKey = apiKey;
             _httpClient = new HttpClient();
             _httpClient.Timeout = TimeSpan.FromSeconds(30);
+            _httpClient.DefaultRequestHeaders.Add("User-Agent", "MyOwnGames/1.0");
         }
 
-        public async Task<List<SteamGame>> GetOwnedGamesAsync(string steamId64, IProgress<double>? progress = null)
+        private Task ThrottleApiCallAsync()
+        {
+            return Task.Run(() =>
+            {
+                lock (_apiCallLock)
+                {
+                    var elapsed = DateTime.Now - _lastApiCall;
+                    var minDelay = TimeSpan.FromSeconds(1.2); // 1.2 seconds minimum between API calls
+                    if (elapsed < minDelay)
+                    {
+                        var waitTime = minDelay - elapsed;
+                        Thread.Sleep(waitTime);
+                    }
+                    _lastApiCall = DateTime.Now;
+                }
+            });
+        }
+
+        public async Task<List<SteamGame>> GetOwnedGamesAsync(string steamId64, string targetLanguage = "tchinese", IProgress<double>? progress = null)
         {
             var games = new List<SteamGame>();
 
             try
             {
-                // Step 1: Get owned games
+                // Step 1: Get owned games with throttling
                 progress?.Report(10);
+                await ThrottleApiCallAsync();
                 var ownedGamesUrl = $"https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key={_apiKey}&steamid={steamId64}&format=json&include_appinfo=true";
                 var ownedGamesResponse = await _httpClient.GetStringAsync(ownedGamesUrl);
                 var ownedGamesData = JsonSerializer.Deserialize<OwnedGamesResponse>(ownedGamesResponse);
@@ -38,48 +61,34 @@ namespace MyOwnGames
 
                 progress?.Report(30);
 
-                // Step 2: Get app list for localized names
-                var appListUrl = "https://api.steampowered.com/ISteamApps/GetAppList/v2/";
-                var appListResponse = await _httpClient.GetStringAsync(appListUrl);
-                var appListData = JsonSerializer.Deserialize<AppListResponse>(appListResponse);
-
-                progress?.Report(60);
-
-                // Create dictionary for faster lookup
-                var appDict = new Dictionary<int, string>();
-                if (appListData?.applist?.apps != null)
-                {
-                    foreach (var app in appListData.applist.apps)
-                    {
-                        if (!appDict.ContainsKey(app.appid))
-                        {
-                            appDict[app.appid] = app.name;
-                        }
-                    }
-                }
-
-                progress?.Report(80);
-
-                // Step 3: Build game list
-                var currentCulture = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName;
                 var total = ownedGamesData.response.games.Length;
-                
+                progress?.Report(40);
+
+                // Step 2: Process games with localized names (with throttling)
                 for (int i = 0; i < total; i++)
                 {
                     var game = ownedGamesData.response.games[i];
+                    
+                    // Get localized name if not English
+                    string localizedName = game.name; // Default to English name from owned games API
+                    if (targetLanguage != "english")
+                    {
+                        localizedName = await GetLocalizedGameNameAsync(game.appid, game.name, targetLanguage);
+                    }
+                    
                     var steamGame = new SteamGame
                     {
                         AppId = game.appid,
                         NameEn = game.name,
-                        NameLocalized = GetLocalizedName(game.name, currentCulture),
-                        IconUrl = $"https://media.steampowered.com/steamcommunity/public/images/apps/{game.appid}/{game.img_icon_url}.jpg",
+                        NameLocalized = localizedName,
+                        IconUrl = GetGameImageUrl(game.appid),
                         PlaytimeForever = game.playtime_forever
                     };
                     
                     games.Add(steamGame);
                     
-                    // Update progress
-                    var gameProgress = 80 + (20.0 * (i + 1) / total);
+                    // Update progress more smoothly
+                    var gameProgress = 40 + (60.0 * (i + 1) / total);
                     progress?.Report(gameProgress);
                 }
             }
@@ -91,27 +100,39 @@ namespace MyOwnGames
             return games;
         }
 
-        private string GetLocalizedName(string englishName, string culture)
+
+        private async Task<string> GetLocalizedGameNameAsync(int appId, string englishName, string targetLanguage)
         {
-            // Simple localization mapping for demo purposes
-            // In a real implementation, you might use Steam's localization API or a translation service
-            if (culture == "zh")
+            if (targetLanguage == "english")
+                return englishName;
+
+            try
             {
-                var translations = new Dictionary<string, string>
-                {
-                    { "Cyberpunk 2077", "賽博龐克 2077" },
-                    { "Red Dead Redemption 2", "荒野大鏢客 2" },
-                    { "Counter-Strike 2", "絕對武力 2" },
-                    { "Dota 2", "刀塔 2" }
-                };
+                await ThrottleApiCallAsync();
+                var url = $"https://store.steampowered.com/api/appdetails?appids={appId}&l={targetLanguage}";
+                var response = await _httpClient.GetStringAsync(url);
+                var data = JsonSerializer.Deserialize<Dictionary<string, AppDetailsResponse>>(response);
                 
-                if (translations.TryGetValue(englishName, out var translated))
+                if (data != null && data.TryGetValue(appId.ToString(), out var appDetails) && 
+                    appDetails.success && !string.IsNullOrEmpty(appDetails.data?.name))
                 {
-                    return translated;
+                    return appDetails.data.name;
                 }
             }
-            
+            catch (Exception ex)
+            {
+                // Log error and fall back to English name
+                System.Diagnostics.Debug.WriteLine($"Error getting localized name for {appId}: {ex.Message}");
+            }
+
             return englishName; // Return English name as fallback
+        }
+
+        private string GetGameImageUrl(int appId)
+        {
+            // Use the same pattern as AnSAM GameImageUrlResolver
+            // Priority: small_capsule -> logo -> library_600x900 -> header_image
+            return $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg";
         }
 
         public void Dispose()
@@ -164,5 +185,18 @@ namespace MyOwnGames
     {
         public int appid { get; set; }
         public string name { get; set; } = "";
+    }
+
+    // For Steam Store API response
+    public class AppDetailsResponse
+    {
+        public bool success { get; set; }
+        public AppData? data { get; set; }
+    }
+
+    public class AppData
+    {
+        public string name { get; set; } = "";
+        public string header_image { get; set; } = "";
     }
 }
