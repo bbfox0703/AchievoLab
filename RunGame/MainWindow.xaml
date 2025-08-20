@@ -12,15 +12,15 @@
 
         <!-- Top CommandBar -->
         <CommandBar Grid.Row="0">
-            <AppBarButton x:Name="RefreshButton" Icon="Refresh" Label="Refresh" Click="OnRefresh"/>
-            <AppBarButton x:Name="StoreButton" Icon="Save" Label="Store" Click="OnStore"/>
+            <AppBarButton x:Name="RefreshButton" Icon="Refresh" Label="Refresh" Click="OnRefresh" ToolTipService.ToolTip="Refresh"/>
+            <AppBarButton x:Name="StoreButton" Icon="Save" Label="Store" Click="OnStore" ToolTipService.ToolTip="Store"/>
             <AppBarSeparator/>
-            <AppBarButton x:Name="LockAllButton" Icon="DisableUpdates" Label="Lock All" Click="OnLockAll"/>
-            <AppBarButton x:Name="UnlockAllButton" Icon="Pin" Label="Unlock All" Click="OnUnlockAll"/>
-            <AppBarButton x:Name="InvertAllButton" Icon="Switch" Label="Invert All" Click="OnInvertAll"/>
-            <AppBarButton x:Name="ResetStatsButton" Icon="Delete" Label="Reset Stats" Click="OnResetAllStats"/>
-            <AppBarButton x:Name="AutoMouseMoveButton" Icon="Target" Label="Auto Mouse" Click="OnAutoMouseMove"/>
-            <AppBarToggleButton x:Name="TimerToggleButton" Icon="Clock" Label="Timer" Click="OnTimerToggle"/>
+            <AppBarButton x:Name="LockAllButton" Icon="DisableUpdates" Label="Lock All" Click="OnLockAll" ToolTipService.ToolTip="Lock All"/>
+            <AppBarButton x:Name="UnlockAllButton" Icon="Pin" Label="Unlock All" Click="OnUnlockAll" ToolTipService.ToolTip="Unlock All"/>
+            <AppBarButton x:Name="InvertAllButton" Icon="Switch" Label="Invert All" Click="OnInvertAll" ToolTipService.ToolTip="Invert All"/>
+            <AppBarButton x:Name="ResetStatsButton" Icon="Delete" Label="Reset Stats" Click="OnResetAllStats" ToolTipService.ToolTip="Reset Stats"/>
+            <AppBarButton x:Name="AutoMouseMoveButton" Icon="Target" Label="Auto Mouse" Click="OnAutoMouseMove" ToolTipService.ToolTip="Auto Mouse"/>
+            <AppBarToggleButton x:Name="TimerToggleButton" Icon="Clock" Label="Timer" Click="OnTimerToggle" ToolTipService.ToolTip="Timer"/>
         </CommandBar>
 
         <!-- Main Content -->
