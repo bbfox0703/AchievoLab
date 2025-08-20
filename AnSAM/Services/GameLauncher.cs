@@ -10,9 +10,10 @@ namespace AnSAM.Services
     /// </summary>
     public static class GameLauncher
     {
-        private static readonly string RunGamePath = Path.Combine(AppContext.BaseDirectory, "RunGame.exe");
+        private static readonly string RunGamePath = Path.Combine(AppContext.BaseDirectory, "..", "RunGame.exe");
+        private static readonly string SamGamePath = Path.Combine(AppContext.BaseDirectory, "SAM", "SAM.Game.exe");
 
-        public static bool IsSamGameAvailable => File.Exists(RunGamePath);
+        public static bool IsSamGameAvailable => File.Exists(RunGamePath) || File.Exists(SamGamePath);
 
         /// <summary>
         /// Launches the given <see cref="GameItem"/> by trying, in order:
@@ -49,7 +50,8 @@ namespace AnSAM.Services
         }
 
         /// <summary>
-        /// Launches RunGame.exe for the given <see cref="GameItem"/>.
+        /// Launches the achievement manager for the given <see cref="GameItem"/>.
+        /// Tries RunGame.exe first, then falls back to SAM.Game.exe if available.
         /// </summary>
         /// <param name="item">Game item containing launch information.</param>
         public static void LaunchSamGame(GameItem item)
@@ -64,7 +66,16 @@ namespace AnSAM.Services
                 return;
             }
 
-            TryStart(RunGamePath, item.ID.ToString(CultureInfo.InvariantCulture));
+            // Try RunGame.exe first (modern implementation)
+            if (File.Exists(RunGamePath))
+            {
+                TryStart(RunGamePath, item.ID.ToString(CultureInfo.InvariantCulture));
+            }
+            // Fall back to SAM.Game.exe (legacy implementation)
+            else if (File.Exists(SamGamePath))
+            {
+                TryStart(SamGamePath, item.ID.ToString(CultureInfo.InvariantCulture));
+            }
         }
 
         private static bool TryStart(string fileName, string? arguments = null)

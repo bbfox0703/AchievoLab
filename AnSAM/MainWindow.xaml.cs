@@ -240,7 +240,7 @@ namespace AnSAM
                 }
                 else
                 {
-                    StatusText.Text = "RunGame.exe not found";
+                    StatusText.Text = "Achievement manager not found";
                 }
             }
         }
@@ -255,7 +255,7 @@ namespace AnSAM
                 }
                 else
                 {
-                    StatusText.Text = "RunGame.exe not found";
+                    StatusText.Text = "Achievement manager not found";
                 }
             }
         }
@@ -270,7 +270,7 @@ namespace AnSAM
 
         private void StartSamGame(GameItem game)
         {
-            StatusText.Text = $"Launching RunGame for {game.Title}...";
+            StatusText.Text = $"Launching achievement manager for {game.Title}...";
             StatusProgress.IsIndeterminate = true;
             StatusExtra.Text = string.Empty;
             GameLauncher.LaunchSamGame(game);

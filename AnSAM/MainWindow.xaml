@@ -64,7 +64,7 @@
                         <StackPanel Width="231" DoubleTapped="GameCard_DoubleTapped">
                             <StackPanel.ContextFlyout>
                                 <MenuFlyout>
-                                    <MenuFlyoutItem Text="Launch RunGame.exe" Click="OnLaunchSamGameClicked" IsEnabled="{x:Bind IsSamGameAvailable}"/>
+                                    <MenuFlyoutItem Text="Launch Achievement Manager" Click="OnLaunchSamGameClicked" IsEnabled="{x:Bind IsSamGameAvailable}"/>
                                     <MenuFlyoutItem Text="Launch Game" Click="OnLaunchGameClicked"/>
                                 </MenuFlyout>
                             </StackPanel.ContextFlyout>
