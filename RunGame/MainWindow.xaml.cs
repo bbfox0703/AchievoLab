@@ -15,6 +15,7 @@ using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml.Media.Imaging;
 using System.ComponentModel;
 using Windows.UI.ViewManagement;
+using Windows.Storage;
 
 namespace RunGame
 {
@@ -77,7 +78,24 @@ namespace RunGame
             if (Content is FrameworkElement root)
             {
                 ThemeService.Initialize(this, root);
-                ThemeService.ApplyTheme(ThemeService.GetCurrentTheme());
+                var settings = TryGetLocalSettings();
+                ElementTheme themeToApply = ThemeService.GetCurrentTheme();
+                if (settings != null)
+                {
+                    try
+                    {
+                        if (settings.Values.TryGetValue("AppTheme", out var t) &&
+                            Enum.TryParse<ElementTheme>(t?.ToString(), out var savedTheme))
+                        {
+                            themeToApply = savedTheme;
+                        }
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        // Ignore inability to read settings
+                    }
+                }
+                ThemeService.ApplyTheme(themeToApply);
                 root.ActualThemeChanged += (_, _) => ThemeService.UpdateTitleBar(root.ActualTheme);
             }
             _uiSettings.ColorValuesChanged += UiSettings_ColorValuesChanged;
@@ -164,6 +182,41 @@ namespace RunGame
                     ThemeService.UpdateTitleBar(root.ActualTheme);
                 }
             });
+        }
+
+        private void Theme_Default_Click(object sender, RoutedEventArgs e) => SetTheme(ElementTheme.Default);
+
+        private void Theme_Light_Click(object sender, RoutedEventArgs e) => SetTheme(ElementTheme.Light);
+
+        private void Theme_Dark_Click(object sender, RoutedEventArgs e) => SetTheme(ElementTheme.Dark);
+
+        private void SetTheme(ElementTheme theme)
+        {
+            ThemeService.ApplyTheme(theme);
+            var settings = TryGetLocalSettings();
+            if (settings != null)
+            {
+                try
+                {
+                    settings.Values["AppTheme"] = theme.ToString();
+                }
+                catch (InvalidOperationException)
+                {
+                    // Ignore inability to persist settings
+                }
+            }
+        }
+
+        private static ApplicationDataContainer? TryGetLocalSettings()
+        {
+            try
+            {
+                return ApplicationData.Current.LocalSettings;
+            }
+            catch (InvalidOperationException)
+            {
+                return null;
+            }
         }
 
         private void InitializeLanguageComboBox()
