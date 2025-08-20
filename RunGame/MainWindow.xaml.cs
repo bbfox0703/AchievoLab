@@ -1,19 +1,24 @@
+using Microsoft.UI;
+using Microsoft.UI.Dispatching;
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Data;
-using System;
-using System.Collections.Generic;
-using System.Collections.ObjectModel;
-using System.Linq;
-using System.Threading.Tasks;
+using Microsoft.UI.Xaml.Media.Imaging;
 using RunGame.Models;
 using RunGame.Services;
 using RunGame.Steam;
-using System.Globalization;
-using Microsoft.UI.Dispatching;
-using System.Runtime.InteropServices;
-using Microsoft.UI.Xaml.Media.Imaging;
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Globalization;
+using System.Linq;
+using System.Runtime.InteropServices;
+using System.Threading.Tasks;
+using Windows.Storage;
+using Windows.UI.ViewManagement;
+using WinRT.Interop;
 
 namespace RunGame
 {
@@ -33,7 +38,10 @@ namespace RunGame
         
         private bool _isLoadingStats = false;
         private bool _lastMouseMoveRight = true;
-        
+
+        // Theme
+        private readonly UISettings _uiSettings = new();
+
         // New services
         private AchievementTimerService? _achievementTimerService;
         private MouseMoverService? _mouseMoverService;
@@ -44,7 +52,7 @@ namespace RunGame
             this.InitializeComponent();
             
             _gameId = gameId;
-            
+
             // Set Steam AppID environment variable - some games require this
             Environment.SetEnvironmentVariable("SteamAppId", gameId.ToString());
             DebugLogger.LogDebug($"Set SteamAppId environment variable to {gameId}");
@@ -69,12 +77,31 @@ namespace RunGame
 
             // Set up event handlers
             _gameStatsService.UserStatsReceived += OnUserStatsReceived;
-            
-            // Apply current theme
-            if (this.Content is FrameworkElement content)
+
+            if (Content is FrameworkElement root)
             {
-                ThemeService.ApplyTheme(content);
+                ThemeService.Initialize(this, root);
+                var settings = TryGetLocalSettings();
+                ElementTheme themeToApply = ThemeService.GetCurrentTheme();
+                if (settings != null)
+                {
+                    try
+                    {
+                        if (settings.Values.TryGetValue("AppTheme", out var t) &&
+                            Enum.TryParse<ElementTheme>(t?.ToString(), out var savedTheme))
+                        {
+                            themeToApply = savedTheme;
+                        }
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        // Ignore inability to read settings
+                    }
+                }
+                ThemeService.ApplyTheme(themeToApply);
+                root.ActualThemeChanged += (_, _) => ThemeService.UpdateTitleBar(root.ActualTheme);
             }
+            _uiSettings.ColorValuesChanged += UiSettings_ColorValuesChanged;
             
             // Set window title
             string gameName = _steamClient.GetAppData((uint)gameId, "name") ?? gameId.ToString();
@@ -146,6 +173,49 @@ namespace RunGame
             {
                 DebugLogger.LogDebug($"Error during cleanup: {ex.Message}");
             }
+        }
+
+        private void UiSettings_ColorValuesChanged(UISettings sender, object args)
+        {
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                ThemeService.ApplyAccentBrush();
+                if (Content is FrameworkElement root)
+                {
+                    ThemeService.UpdateTitleBar(root.ActualTheme);
+                }
+            });
+        }
+
+        private void Theme_Default_Click(object sender, RoutedEventArgs e) => SetTheme(ElementTheme.Default);
+
+        private void Theme_Light_Click(object sender, RoutedEventArgs e) => SetTheme(ElementTheme.Light);
+
+        private void Theme_Dark_Click(object sender, RoutedEventArgs e) => SetTheme(ElementTheme.Dark);
+
+        private void SetTheme(ElementTheme theme)
+        {
+            DebugLogger.LogDebug("SetTheme() Start");
+            ThemeService.ApplyTheme(theme);
+
+            var settings = TryGetLocalSettings();
+            if (settings != null)
+            {
+                try
+                {
+                    settings.Values["AppTheme"] = theme.ToString();
+                }
+                catch (InvalidOperationException)
+                {
+                    // Ignore inability to persist settings
+                }
+            }
+        }
+
+        private static ApplicationDataContainer? TryGetLocalSettings()
+        {
+            DebugLogger.LogDebug("TryGetLocalSettings() Start");
+            return App.LocalSettings;
         }
 
         private void InitializeLanguageComboBox()

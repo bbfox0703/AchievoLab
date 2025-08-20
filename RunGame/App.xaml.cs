@@ -1,10 +1,13 @@
 using Microsoft.UI.Xaml;
 using System;
+using Windows.Storage;
 
 namespace RunGame
 {
     public partial class App : Application
     {
+        internal static ApplicationDataContainer? LocalSettings { get; private set; }
+
         public App()
         {
             this.InitializeComponent();
@@ -12,6 +15,15 @@ namespace RunGame
 
         protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
         {
+            try
+            {
+                LocalSettings = ApplicationData.Current.LocalSettings;
+            }
+            catch (InvalidOperationException)
+            {
+                LocalSettings = null;
+            }
+
             var cmdArgs = Environment.GetCommandLineArgs();
             
             if (cmdArgs.Length < 2)
