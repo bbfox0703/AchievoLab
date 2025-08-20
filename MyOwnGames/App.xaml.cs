@@ -15,6 +15,7 @@ using Windows.ApplicationModel;
 using Windows.ApplicationModel.Activation;
 using Windows.Foundation;
 using Windows.Foundation.Collections;
+using Microsoft.Windows.ApplicationModel.DynamicDependency;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -34,6 +35,16 @@ namespace MyOwnGames
         /// </summary>
         public App()
         {
+            try
+            {
+                // Ensure Windows App SDK runtime is registered when running unpackaged.
+                Bootstrap.Initialize();
+            }
+            catch (System.Exception)
+            {
+                // Ignore failures; a missing runtime will surface later with a clearer message.
+            }
+
             InitializeComponent();
         }
 
@@ -45,6 +56,11 @@ namespace MyOwnGames
         {
             _window = new MainWindow();
             _window.Activate();
+        }
+
+        ~App()
+        {
+            Bootstrap.Shutdown();
         }
     }
 }
