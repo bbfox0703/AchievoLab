@@ -377,7 +377,21 @@ namespace RunGame
             try
             {
                 DebugLogger.LogDebug($"PerformStore called (silent: {silent})");
-                
+
+#if DEBUG
+                // In debug builds, skip storing to Steam to avoid modifying real data
+                if (!silent)
+                {
+                    StatusLabel.Text = "Store skipped in debug mode";
+                }
+                else
+                {
+                    _ = LoadStatsAsync(); // Refresh to reflect any local changes
+                }
+                DebugLogger.LogDebug("Store operation skipped in debug mode");
+                return;
+#endif
+
                 int achievementCount = StoreAchievements(silent);
                 if (achievementCount < 0) return;
 
