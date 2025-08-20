@@ -81,24 +81,26 @@ namespace RunGame
             if (Content is FrameworkElement root)
             {
                 ThemeService.Initialize(this, root);
+                
+                // Clear any old theme settings to ensure we follow system theme
                 var settings = TryGetLocalSettings();
-                ElementTheme themeToApply = ThemeService.GetCurrentTheme();
                 if (settings != null)
                 {
                     try
                     {
-                        if (settings.Values.TryGetValue("AppTheme", out var t) &&
-                            Enum.TryParse<ElementTheme>(t?.ToString(), out var savedTheme))
-                        {
-                            themeToApply = savedTheme;
-                        }
+                        settings.Values.Remove("AppTheme");
+                        DebugLogger.LogDebug("Cleared old AppTheme setting");
                     }
                     catch (InvalidOperationException)
                     {
-                        // Ignore inability to read settings
+                        // Ignore inability to clear settings
                     }
                 }
+                
+                // Always use system theme (Default = follow system)
+                ElementTheme themeToApply = ElementTheme.Default;
                 ThemeService.ApplyTheme(themeToApply);
+                
                 root.ActualThemeChanged += (_, _) => 
                 {
                     ThemeService.ApplyAccentBrush();
@@ -191,29 +193,11 @@ namespace RunGame
             });
         }
 
-        private void Theme_Default_Click(object sender, RoutedEventArgs e) => SetTheme(ElementTheme.Default);
-
-        private void Theme_Light_Click(object sender, RoutedEventArgs e) => SetTheme(ElementTheme.Light);
-
-        private void Theme_Dark_Click(object sender, RoutedEventArgs e) => SetTheme(ElementTheme.Dark);
-
         private void SetTheme(ElementTheme theme)
         {
-            DebugLogger.LogDebug("SetTheme() Start");
+            DebugLogger.LogDebug($"SetTheme() called with {theme}");
             ThemeService.ApplyTheme(theme);
-
-            var settings = TryGetLocalSettings();
-            if (settings != null)
-            {
-                try
-                {
-                    settings.Values["AppTheme"] = theme.ToString();
-                }
-                catch (InvalidOperationException)
-                {
-                    // Ignore inability to persist settings
-                }
-            }
+            // Note: No longer saving theme settings - always follow system theme
         }
 
         private static ApplicationDataContainer? TryGetLocalSettings()
@@ -1015,37 +999,6 @@ namespace RunGame
             {
                 TimerStatusText.Text = "⚪ Timer Off";
                 TimerStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Gray);
-            }
-        }
-        
-        public void RefreshThemeElements()
-        {
-            try
-            {
-                // Force refresh CommandBar
-                if (MainCommandBar != null)
-                {
-                    MainCommandBar.UpdateLayout();
-                    DebugLogger.LogDebug("Refreshed MainCommandBar");
-                }
-                
-                // Force refresh TabView
-                if (MainTabView != null)
-                {
-                    MainTabView.UpdateLayout();
-                    DebugLogger.LogDebug("Refreshed MainTabView");
-                }
-                
-                // Force refresh the entire window content
-                if (Content is FrameworkElement content)
-                {
-                    content.UpdateLayout();
-                    DebugLogger.LogDebug("Refreshed window content");
-                }
-            }
-            catch (Exception ex)
-            {
-                DebugLogger.LogDebug($"Error in RefreshThemeElements: {ex.Message}");
             }
         }
     }

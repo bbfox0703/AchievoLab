@@ -22,15 +22,6 @@
             <AppBarButton x:Name="ResetStatsButton" Icon="Delete" Label="Reset Stats" Click="OnResetAllStats" ToolTipService.ToolTip="Reset Stats"/>
             <AppBarToggleButton x:Name="AutoMouseMoveButton" Icon="Target" Label="Auto Mouse" Checked="OnAutoMouseMove" Unchecked="OnAutoMouseMove" ToolTipService.ToolTip="Auto Mouse"/>
             <AppBarToggleButton x:Name="TimerToggleButton" Icon="Clock" Label="Timer" Click="OnTimerToggle" ToolTipService.ToolTip="Timer"/>
-            <AppBarButton Icon="Setting" Label="Theme">
-                <AppBarButton.Flyout>
-                    <MenuFlyout>
-                        <MenuFlyoutItem Text="Use system (Default)" Click="Theme_Default_Click"/>
-                        <MenuFlyoutItem Text="Light" Click="Theme_Light_Click"/>
-                        <MenuFlyoutItem Text="Dark" Click="Theme_Dark_Click"/>
-                    </MenuFlyout>
-                </AppBarButton.Flyout>
-            </AppBarButton>
         </CommandBar>
 
         <!-- Main Content -->
