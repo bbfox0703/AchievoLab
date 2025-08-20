@@ -215,14 +215,7 @@ namespace RunGame
         private static ApplicationDataContainer? TryGetLocalSettings()
         {
             DebugLogger.LogDebug("TryGetLocalSettings() Start");
-            try
-            {
-                return ApplicationData.Current.LocalSettings;
-            }
-            catch (InvalidOperationException)
-            {
-                return null;
-            }
+            return App.LocalSettings;
         }
 
         private void InitializeLanguageComboBox()
