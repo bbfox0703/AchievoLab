@@ -295,13 +295,18 @@ namespace AnSAM.RunGame.Services
 
                     DebugLogger.LogDebug($"Achievement parsed - ID: {id}, Name: '{name}', Desc: '{desc}', Language: {currentLanguage}");
 
+                    string iconNormal = bit["display"]["icon"].AsString("");
+                    string iconLocked = bit["display"]["icon_gray"].AsString("");
+                    
+                    DebugLogger.LogDebug($"Achievement {id} icons - Normal: '{iconNormal}', Locked: '{iconLocked}'");
+                    
                     _achievementDefinitions.Add(new AchievementDefinition
                     {
                         Id = id,
                         Name = name,
                         Description = desc,
-                        IconNormal = bit["display"]["icon"].AsString(""),
-                        IconLocked = bit["display"]["icon_gray"].AsString(""),
+                        IconNormal = iconNormal,
+                        IconLocked = iconLocked,
                         IsHidden = bit["display"]["hidden"].AsBoolean(false),
                         Permission = bit["permission"].AsInteger(0)
                     });

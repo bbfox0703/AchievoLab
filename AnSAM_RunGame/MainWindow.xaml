@@ -39,8 +39,9 @@
                         <ToggleButton x:Name="ShowLockedButton" Content="Show Locked Only" Click="OnShowLockedToggle"/>
                         <ToggleButton x:Name="ShowUnlockedButton" Content="Show Unlocked Only" Click="OnShowUnlockedToggle"/>
                         <ComboBox x:Name="LanguageComboBox" PlaceholderText="Language" Width="120" SelectionChanged="OnLanguageChanged"/>
-                        <NumberBox x:Name="TimerValueBox" PlaceholderText="Timer value" Width="100"/>
+                        <ComboBox x:Name="ColumnLayoutComboBox" PlaceholderText="Column Layout" Width="150" SelectionChanged="OnColumnLayoutChanged"/>
                         <Button x:Name="SetTimerButton" Content="Set Timer" Click="OnSetTimer"/>
+                        <TextBlock Text="⚪ Timer Off" x:Name="TimerStatusText" VerticalAlignment="Center" Margin="10,0,0,0" FontWeight="Bold"/>
                     </StackPanel>
 
                     <!-- Achievement List -->
@@ -82,11 +83,19 @@
                                             CornerRadius="4"
                                             Background="{ThemeResource SystemControlBackgroundBaseLowBrush}"
                                             Margin="0,0,10,0">
-                                        <!-- Fallback emoji (temporary until icon loading is fixed) -->
-                                        <TextBlock Text="🏆" 
-                                                   FontSize="24" 
+                                        <Grid>
+                                            <!-- Steam Icon (bound to IconImage property) -->
+                                            <Image Source="{Binding IconImage}" 
+                                                   Stretch="Uniform"
                                                    HorizontalAlignment="Center" 
                                                    VerticalAlignment="Center"/>
+                                            <!-- Fallback emoji (always visible, will be covered by icon when loaded) -->
+                                            <TextBlock Text="🏆" 
+                                                       FontSize="20" 
+                                                       HorizontalAlignment="Center" 
+                                                       VerticalAlignment="Center"
+                                                       Opacity="0.7"/>
+                                        </Grid>
                                     </Border>
 
                                     <!-- ID -->

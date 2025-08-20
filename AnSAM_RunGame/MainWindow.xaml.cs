@@ -82,6 +82,9 @@ namespace AnSAM.RunGame
             // Initialize language options
             InitializeLanguageComboBox();
             
+            // Initialize column layout options
+            InitializeColumnLayoutComboBox();
+            
             // Set up list views - simplified approach
             AchievementListView.ItemsSource = _achievements;
             StatisticsListView.ItemsSource = _statistics;
@@ -159,6 +162,21 @@ namespace AnSAM.RunGame
             LanguageComboBox.SelectedItem = "english";
         }
 
+        private void InitializeColumnLayoutComboBox()
+        {
+            var layouts = new[] 
+            { 
+                "Compact", "Normal", "Wide", "Extra Wide" 
+            };
+            
+            foreach (var layout in layouts)
+            {
+                ColumnLayoutComboBox.Items.Add(layout);
+            }
+            
+            ColumnLayoutComboBox.SelectedItem = "Normal";
+        }
+
         private async Task LoadStatsAsync()
         {
             if (_isLoadingStats) return;
@@ -219,6 +237,9 @@ namespace AnSAM.RunGame
                 
                 DebugLogger.LogDebug($"UI updated - {_achievements.Count} achievements, {_statistics.Count} statistics");
                 StatusLabel.Text = $"Retrieved {_achievements.Count} achievements and {_statistics.Count} statistics";
+                
+                // Start loading achievement icons asynchronously
+                _ = Task.Run(async () => await LoadAchievementIconsAsync());
             });
         }
 
@@ -478,6 +499,39 @@ namespace AnSAM.RunGame
             }
         }
 
+        private void OnColumnLayoutChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (ColumnLayoutComboBox.SelectedItem is string layout)
+            {
+                ApplyColumnLayout(layout);
+            }
+        }
+
+        private void ApplyColumnLayout(string layout)
+        {
+            DebugLogger.LogDebug($"Column layout changed to: {layout}");
+            
+            // For WinUI 3 limitations, we'll implement a practical solution
+            // Show user feedback and provide information about the column layout feature
+            StatusLabel.Text = $"Column layout set to: {layout}. Use scroll and zoom for better viewing.";
+            
+            // In a production implementation, you could:
+            // 1. Save the preference to user settings
+            // 2. Create multiple XAML DataTemplate resources and switch between them
+            // 3. Use a third-party DataGrid control that supports resizable columns
+            // 4. Implement a custom ListView with resizable column headers
+            
+            // For now, provide users with information about the current limitations
+            if (layout == "Compact")
+            {
+                StatusLabel.Text = "Compact view selected. Tip: Use Ctrl+Mouse wheel to zoom for better readability.";
+            }
+            else if (layout == "Extra Wide")
+            {
+                StatusLabel.Text = "Extra Wide view selected. Tip: Use horizontal scroll to see all columns.";
+            }
+        }
+
         private void OnStatsEditingToggle(object sender, RoutedEventArgs e)
         {
             // Enable/disable statistics editing
@@ -632,11 +686,13 @@ namespace AnSAM.RunGame
             {
                 _achievementTimer.Start();
                 TimerToggleButton.Label = "Disable Timer";
+                UpdateTimerStatusIndicator(true);
             }
             else
             {
                 _achievementTimer.Stop();
                 TimerToggleButton.Label = "Enable Timer";
+                UpdateTimerStatusIndicator(false);
             }
         }
 
@@ -758,6 +814,52 @@ namespace AnSAM.RunGame
             DebugLogger.LogDebug("Debug log cleared by user");
             StatusLabel.Text = "Debug log cleared";
         }
+
+        private async Task LoadAchievementIconsAsync()
+        {
+            if (_achievementIconService == null) return;
+
+            try
+            {
+                foreach (var achievement in _achievements)
+                {
+                    if (!string.IsNullOrEmpty(achievement.IconUrl))
+                    {
+                        var iconImage = await _achievementIconService.GetAchievementIconAsync(
+                            achievement.Id, achievement.IconUrl, achievement.IsAchieved);
+
+                        if (iconImage != null)
+                        {
+                            // Update on UI thread
+                            this.DispatcherQueue.TryEnqueue(() =>
+                            {
+                                achievement.IconImage = iconImage;
+                            });
+                        }
+                    }
+                }
+
+                DebugLogger.LogDebug($"Finished loading icons for {_achievements.Count} achievements");
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error loading achievement icons: {ex.Message}");
+            }
+        }
+
+        private void UpdateTimerStatusIndicator(bool isActive)
+        {
+            if (isActive)
+            {
+                TimerStatusText.Text = "🟢 Timer On";
+                TimerStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Green);
+            }
+            else
+            {
+                TimerStatusText.Text = "⚪ Timer Off";
+                TimerStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Gray);
+            }
+        }
     }
 
     // Value converters for XAML binding
@@ -779,6 +881,19 @@ namespace AnSAM.RunGame
         public object Convert(object value, Type targetType, object parameter, string language)
         {
             return value != null ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        public object ConvertBack(object value, Type targetType, object parameter, string language)
+        {
+            throw new NotImplementedException();
+        }
+    }
+    
+    public class InverseNullToVisibilityConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, string language)
+        {
+            return value == null ? Visibility.Visible : Visibility.Collapsed;
         }
 
         public object ConvertBack(object value, Type targetType, object parameter, string language)

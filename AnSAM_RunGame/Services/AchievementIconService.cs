@@ -5,6 +5,8 @@ using System.Net.Http;
 using System.Threading.Tasks;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Storage.Streams;
+using Windows.Storage;
+using System.Runtime.InteropServices.WindowsRuntime;
 
 namespace AnSAM.RunGame.Services
 {
@@ -34,15 +36,20 @@ namespace AnSAM.RunGame.Services
         public async Task<BitmapImage?> GetAchievementIconAsync(string achievementId, string iconUrl, bool isUnlocked)
         {
             if (string.IsNullOrEmpty(iconUrl))
+            {
+                DebugLogger.LogDebug($"Icon URL is empty for achievement {achievementId}");
                 return null;
+            }
 
             try
             {
                 string cacheKey = $"{achievementId}_{(isUnlocked ? "unlocked" : "locked")}";
+                DebugLogger.LogDebug($"Processing icon for {achievementId}, URL: {iconUrl}, isUnlocked: {isUnlocked}");
                 
                 // Check memory cache first
                 if (_memoryCache.TryGetValue(cacheKey, out var cachedImage))
                 {
+                    DebugLogger.LogDebug($"Found cached icon for {achievementId}");
                     return cachedImage;
                 }
 
@@ -56,19 +63,34 @@ namespace AnSAM.RunGame.Services
                     DebugLogger.LogDebug($"Downloading icon for {achievementId}: {iconUrl}");
                     await DownloadIconAsync(iconUrl, filePath);
                 }
+                else
+                {
+                    DebugLogger.LogDebug($"Found cached file for {achievementId}: {filePath}");
+                }
 
                 if (File.Exists(filePath))
                 {
-                    // Load from file
+                    // Load from file using StorageFile approach for WinUI 3
                     var bitmap = new BitmapImage();
-                    using (var stream = File.OpenRead(filePath))
+                    try
                     {
-                        await bitmap.SetSourceAsync(stream.AsRandomAccessStream());
+                        var storageFile = await Windows.Storage.StorageFile.GetFileFromPathAsync(filePath);
+                        using (var stream = await storageFile.OpenAsync(Windows.Storage.FileAccessMode.Read))
+                        {
+                            await bitmap.SetSourceAsync(stream);
+                        }
+                        
+                        // Cache in memory
+                        _memoryCache[cacheKey] = bitmap;
+                        DebugLogger.LogDebug($"Successfully loaded icon image for {achievementId}");
+                        return bitmap;
                     }
-                    
-                    // Cache in memory
-                    _memoryCache[cacheKey] = bitmap;
-                    return bitmap;
+                    catch (Exception ex)
+                    {
+                        DebugLogger.LogDebug($"Error loading icon image for {achievementId}: {ex.Message}");
+                        // Try alternative approach with file bytes
+                        return await LoadImageFromBytesAsync(filePath, cacheKey);
+                    }
                 }
             }
             catch (Exception ex)
@@ -116,8 +138,45 @@ namespace AnSAM.RunGame.Services
             if (iconHash.StartsWith("http"))
                 return iconHash;
 
-            // Otherwise, construct the Steam CDN URL
+            // Check if the hash already contains an extension
+            if (iconHash.Contains("."))
+            {
+                // If it already has an extension, use it as-is
+                return $"https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/{_gameId}/{iconHash}";
+            }
+
+            // Otherwise, construct the Steam CDN URL with .jpg extension
             return $"https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/{_gameId}/{iconHash}.jpg";
+        }
+
+        private async Task<BitmapImage?> LoadImageFromBytesAsync(string filePath, string cacheKey)
+        {
+            try
+            {
+                var bitmap = new BitmapImage();
+                var bytes = await File.ReadAllBytesAsync(filePath);
+                
+                using (var stream = new InMemoryRandomAccessStream())
+                {
+                    using (var writer = new DataWriter(stream.GetOutputStreamAt(0)))
+                    {
+                        writer.WriteBytes(bytes);
+                        await writer.StoreAsync();
+                    }
+                    
+                    stream.Seek(0);
+                    await bitmap.SetSourceAsync(stream);
+                }
+                
+                _memoryCache[cacheKey] = bitmap;
+                DebugLogger.LogDebug($"Successfully loaded icon image from bytes for cache key: {cacheKey}");
+                return bitmap;
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error loading icon from bytes: {ex.Message}");
+                return null;
+            }
         }
 
         public void ClearCache()
