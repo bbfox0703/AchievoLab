@@ -35,11 +35,11 @@ namespace RunGame.Services
         public MouseMoverService(IntPtr windowHandle)
         {
             _windowHandle = windowHandle;
-            
+
             // Move mouse every 30 seconds when enabled and window is in foreground
-            _timer = new System.Threading.Timer(MoveMouse, null, 
-                Timeout.Infinite, TimeSpan.FromSeconds(30).Milliseconds);
-            
+            _timer = new System.Threading.Timer(MoveMouse, null,
+                Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+
             DebugLogger.LogDebug("MouseMoverService initialized");
         }
 
@@ -58,15 +58,15 @@ namespace RunGame.Services
                         GetCursorPos(out _originalPosition);
                         
                         // Start the timer
-                        _timer.Change(TimeSpan.FromSeconds(30).Milliseconds, 
-                                     TimeSpan.FromSeconds(30).Milliseconds);
+                        _timer.Change(TimeSpan.FromSeconds(30),
+                                     TimeSpan.FromSeconds(30));
                         
                         DebugLogger.LogDebug("Mouse auto-movement enabled");
                     }
                     else
                     {
                         // Stop the timer
-                        _timer.Change(Timeout.Infinite, Timeout.Infinite);
+                        _timer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
                         DebugLogger.LogDebug("Mouse auto-movement disabled");
                     }
                 }
