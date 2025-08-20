@@ -35,7 +35,7 @@ namespace AnSAM
         protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
         {
             var theme = LoadThemePreference() ?? GetSystemTheme();
-            this.RequestedTheme = theme;
+            this.RequestedTheme = ToApplicationTheme(theme);
 
             _steamClient = new SteamClient();
             _window = new MainWindow(_steamClient, theme);
@@ -61,7 +61,7 @@ namespace AnSAM
             return null;
         }
 
-        private static ElementTheme GetSystemTheme()
+        internal static ElementTheme GetSystemTheme()
         {
             try
             {
@@ -77,6 +77,12 @@ namespace AnSAM
                 // Fall back to light theme if the registry is unavailable
             }
             return ElementTheme.Light;
+        }
+
+        internal static ApplicationTheme ToApplicationTheme(ElementTheme theme)
+        {
+            var resolved = theme == ElementTheme.Default ? GetSystemTheme() : theme;
+            return resolved == ElementTheme.Dark ? ApplicationTheme.Dark : ApplicationTheme.Light;
         }
     }
 }

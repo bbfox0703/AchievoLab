@@ -63,12 +63,11 @@ namespace AnSAM
 
             if (Content is FrameworkElement root)
             {
-                root.KeyDown += OnWindowKeyDown;
                 ApplyTheme(theme, save: false);
+                root.KeyDown += OnWindowKeyDown;
                 if (AppWindowTitleBar.IsCustomizationSupported())
                 {
                     root.ActualThemeChanged += (_, _) => UpdateTitleBar(root.ActualTheme);
-                    UpdateTitleBar(root.ActualTheme);
                 }
             }
 
@@ -88,6 +87,7 @@ namespace AnSAM
             {
                 root.RequestedTheme = theme;
                 ApplyAccentBrush(root);
+                UpdateTitleBar(theme);
             }
 
             StatusText.Text = theme switch
@@ -111,7 +111,7 @@ namespace AnSAM
                 }
             }
 
-            ((App)Application.Current).RequestedTheme = theme;
+            ((App)Application.Current).RequestedTheme = App.ToApplicationTheme(theme);
         }
         private void Theme_Default_Click(object sender, RoutedEventArgs e) => ApplyTheme(ElementTheme.Default);
         private void Theme_Light_Click(object sender, RoutedEventArgs e) => ApplyTheme(ElementTheme.Light);
