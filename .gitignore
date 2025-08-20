@@ -428,5 +428,5 @@ FodyWeavers.xsd
 *.msp
 
 # Claude Code
-./claude
+./claude/
 CLAUDE.md
