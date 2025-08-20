@@ -1,21 +1,24 @@
+using Microsoft.UI;
+using Microsoft.UI.Dispatching;
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Data;
-using System;
-using System.Collections.Generic;
-using System.Collections.ObjectModel;
-using System.Linq;
-using System.Threading.Tasks;
+using Microsoft.UI.Xaml.Media.Imaging;
 using RunGame.Models;
 using RunGame.Services;
 using RunGame.Steam;
-using System.Globalization;
-using Microsoft.UI.Dispatching;
-using System.Runtime.InteropServices;
-using Microsoft.UI.Xaml.Media.Imaging;
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
-using Windows.UI.ViewManagement;
+using System.Globalization;
+using System.Linq;
+using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using Windows.Storage;
+using Windows.UI.ViewManagement;
+using WinRT.Interop;
 
 namespace RunGame
 {
@@ -49,7 +52,7 @@ namespace RunGame
             this.InitializeComponent();
             
             _gameId = gameId;
-            
+
             // Set Steam AppID environment variable - some games require this
             Environment.SetEnvironmentVariable("SteamAppId", gameId.ToString());
             DebugLogger.LogDebug($"Set SteamAppId environment variable to {gameId}");
@@ -192,7 +195,9 @@ namespace RunGame
 
         private void SetTheme(ElementTheme theme)
         {
+            DebugLogger.LogDebug("SetTheme() Start");
             ThemeService.ApplyTheme(theme);
+
             var settings = TryGetLocalSettings();
             if (settings != null)
             {
@@ -209,6 +214,7 @@ namespace RunGame
 
         private static ApplicationDataContainer? TryGetLocalSettings()
         {
+            DebugLogger.LogDebug("TryGetLocalSettings() Start");
             try
             {
                 return ApplicationData.Current.LocalSettings;

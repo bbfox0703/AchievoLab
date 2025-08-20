@@ -26,6 +26,8 @@ namespace RunGame.Services
 
         public static ElementTheme GetCurrentTheme()
         {
+            DebugLogger.LogDebug("GetCurrentTheme() Start");
+
             try
             {
                 using var key = Registry.CurrentUser.OpenSubKey(@"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize");
@@ -39,7 +41,6 @@ namespace RunGame.Services
             {
                 // Fall back to light theme if we can't read the registry
             }
-
             return ElementTheme.Light;
         }
 
@@ -47,6 +48,7 @@ namespace RunGame.Services
         {
             if (_root is null)
                 return;
+            DebugLogger.LogDebug("ApplyTheme() Start");
 
             _root.RequestedTheme = theme;
             ApplyAccentBrush();
@@ -57,6 +59,7 @@ namespace RunGame.Services
         {
             if (_root is null)
                 return;
+            DebugLogger.LogDebug("ApplyAccentBrush() Start");
 
             var accent = _uiSettings.GetColorValue(UIColorType.Accent);
             var brush = new SolidColorBrush(accent);
@@ -67,6 +70,8 @@ namespace RunGame.Services
         {
             if (_appWindow is null || !AppWindowTitleBar.IsCustomizationSupported())
                 return;
+
+            DebugLogger.LogDebug("UpdateTitleBar() Start");
 
             var titleBar = _appWindow.TitleBar;
             var accent = _uiSettings.GetColorValue(UIColorType.Accent);
@@ -82,6 +87,7 @@ namespace RunGame.Services
 
             if (theme == ElementTheme.Dark)
             {
+                DebugLogger.LogDebug("UpdateTitleBar(): set dark theme");
                 titleBar.BackgroundColor = accentDark2;
                 titleBar.ForegroundColor = foreground;
 
@@ -99,6 +105,7 @@ namespace RunGame.Services
             }
             else
             {
+                DebugLogger.LogDebug("UpdateTitleBar(): set light theme");
                 titleBar.BackgroundColor = accentLight1;
                 titleBar.ForegroundColor = foreground;
 

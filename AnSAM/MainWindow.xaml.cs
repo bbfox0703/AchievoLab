@@ -87,7 +87,7 @@ namespace AnSAM
                 root.RequestedTheme = theme;
                 ApplyAccentBrush(root);
             }
-            // ]i^sAC
+
             StatusText.Text = theme switch
             {
                 ElementTheme.Default => "Theme: System default",
@@ -96,7 +96,6 @@ namespace AnSAM
                 _ => "Theme: ?"
             };
 
-            // ]i^[ƨϥΪ̿
             //var settings = Windows.Storage.ApplicationData.Current.LocalSettings;
             //settings.Values["AppTheme"] = theme.ToString();
         }
