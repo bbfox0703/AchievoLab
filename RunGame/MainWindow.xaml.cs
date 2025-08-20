@@ -78,8 +78,8 @@ namespace RunGame
             if (Content is FrameworkElement root)
             {
                 ThemeService.Initialize(this, root);
-                var settings = ApplicationData.Current.LocalSettings;
-                if (settings.Values.TryGetValue("AppTheme", out var t) && Enum.TryParse<ElementTheme>(t?.ToString(), out var savedTheme))
+                var settings = TryGetLocalSettings();
+                if (settings != null && settings.Values.TryGetValue("AppTheme", out var t) && Enum.TryParse<ElementTheme>(t?.ToString(), out var savedTheme))
                 {
                     ThemeService.ApplyTheme(savedTheme);
                 }
@@ -184,8 +184,23 @@ namespace RunGame
         private void SetTheme(ElementTheme theme)
         {
             ThemeService.ApplyTheme(theme);
-            var settings = ApplicationData.Current.LocalSettings;
-            settings.Values["AppTheme"] = theme.ToString();
+            var settings = TryGetLocalSettings();
+            if (settings != null)
+            {
+                settings.Values["AppTheme"] = theme.ToString();
+            }
+        }
+
+        private static ApplicationDataContainer? TryGetLocalSettings()
+        {
+            try
+            {
+                return ApplicationData.Current.LocalSettings;
+            }
+            catch (InvalidOperationException)
+            {
+                return null;
+            }
         }
 
         private void InitializeLanguageComboBox()
