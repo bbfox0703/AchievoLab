@@ -21,6 +21,7 @@ using System.Threading.Tasks;
 using System.Xml;
 using System.Xml.Linq;
 using WinRT.Interop;
+using Windows.Storage;
 using Windows.UI;
 using Windows.UI.ViewManagement;
 
@@ -43,9 +44,10 @@ namespace AnSAM
         private ScrollViewer? _gamesScrollViewer;
         private readonly UISettings _uiSettings = new();
 
-        public MainWindow(SteamClient steamClient)
+        public MainWindow(SteamClient steamClient, ElementTheme theme)
         {
             _steamClient = steamClient;
+            this.RequestedTheme = theme;
             InitializeComponent();
 
             _uiSettings.ColorValuesChanged += UiSettings_ColorValuesChanged;
@@ -62,11 +64,11 @@ namespace AnSAM
             if (Content is FrameworkElement root)
             {
                 root.KeyDown += OnWindowKeyDown;
+                ApplyTheme(theme, save: false);
                 if (AppWindowTitleBar.IsCustomizationSupported())
                 {
                     root.ActualThemeChanged += (_, _) => UpdateTitleBar(root.ActualTheme);
                     UpdateTitleBar(root.ActualTheme);
-                    ApplyAccentBrush(root);
                 }
             }
 
@@ -80,7 +82,7 @@ namespace AnSAM
             IconCache.ProgressChanged += OnIconProgressChanged;
             Activated += OnWindowActivated;
         }
-        private void ApplyTheme(ElementTheme theme)
+        private void ApplyTheme(ElementTheme theme, bool save = true)
         {
             if (Content is FrameworkElement root)
             {
@@ -93,13 +95,24 @@ namespace AnSAM
                 ElementTheme.Default => "Theme: System default",
                 ElementTheme.Light => "Theme: Light",
                 ElementTheme.Dark => "Theme: Dark",
-                _ => "Theme: ?"
+                _ => "Theme: ?",
             };
 
-            //var settings = Windows.Storage.ApplicationData.Current.LocalSettings;
-            //settings.Values["AppTheme"] = theme.ToString();
-        }
+            if (save)
+            {
+                try
+                {
+                    var settings = ApplicationData.Current.LocalSettings;
+                    settings.Values["AppTheme"] = theme.ToString();
+                }
+                catch (InvalidOperationException)
+                {
+                    // Ignore inability to persist settings
+                }
+            }
 
+            ((App)Application.Current).RequestedTheme = theme;
+        }
         private void Theme_Default_Click(object sender, RoutedEventArgs e) => ApplyTheme(ElementTheme.Default);
         private void Theme_Light_Click(object sender, RoutedEventArgs e) => ApplyTheme(ElementTheme.Light);
         private void Theme_Dark_Click(object sender, RoutedEventArgs e) => ApplyTheme(ElementTheme.Dark);
