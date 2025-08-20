@@ -7,7 +7,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AnSAM", "AnSAM\AnSAM.csproj
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AnSAM.Tests", "AnSAM.Tests\AnSAM.Tests.csproj", "{A33AB550-B123-4888-B63C-00C5EC30BABF}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AnSAM_RunGame", "AnSAM_RunGame\AnSAM_RunGame.csproj", "{B12F8C5D-123A-4567-89AB-1234567890CD}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RunGame", "RunGame\RunGame.csproj", "{B12F8C5D-123A-4567-89AB-1234567890CD}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

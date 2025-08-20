@@ -4,7 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 
-namespace AnSAM.RunGame.Utils
+namespace RunGame.Utils
 {
     public class KeyValue
     {

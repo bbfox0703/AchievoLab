@@ -6,14 +6,14 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
-using AnSAM.RunGame.Models;
-using AnSAM.RunGame.Services;
-using AnSAM.RunGame.Steam;
+using RunGame.Models;
+using RunGame.Services;
+using RunGame.Steam;
 using System.Globalization;
 using Microsoft.UI.Dispatching;
 using System.Runtime.InteropServices;
 
-namespace AnSAM.RunGame
+namespace RunGame
 {
     public sealed partial class MainWindow : Window
     {

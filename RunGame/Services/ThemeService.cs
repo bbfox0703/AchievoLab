@@ -2,7 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.Win32;
 using System;
 
-namespace AnSAM.RunGame.Services
+namespace RunGame.Services
 {
     public static class ThemeService
     {

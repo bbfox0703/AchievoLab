@@ -2,7 +2,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Threading;
 
-namespace AnSAM.RunGame.Services
+namespace RunGame.Services
 {
     public class MouseMoverService : IDisposable
     {

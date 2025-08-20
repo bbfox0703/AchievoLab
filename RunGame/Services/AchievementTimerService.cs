@@ -2,10 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using AnSAM.RunGame.Models;
-using AnSAM.RunGame.Services;
+using RunGame.Models;
+using RunGame.Services;
 
-namespace AnSAM.RunGame.Services
+namespace RunGame.Services
 {
     public class AchievementTimerService : IDisposable
     {

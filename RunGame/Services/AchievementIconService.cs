@@ -10,7 +10,7 @@ using System.Runtime.InteropServices.WindowsRuntime;
 using Windows.Graphics.Imaging;
 using Windows.ApplicationModel;
 
-namespace AnSAM.RunGame.Services
+namespace RunGame.Services
 {
     public class AchievementIconService : IDisposable
     {

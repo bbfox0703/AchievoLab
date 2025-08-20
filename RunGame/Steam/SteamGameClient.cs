@@ -8,9 +8,9 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using Microsoft.Win32;
-using AnSAM.RunGame.Services;
+using RunGame.Services;
 
-namespace AnSAM.RunGame.Steam
+namespace RunGame.Steam
 {
     public sealed class SteamGameClient : IDisposable, ISteamUserStats
     {

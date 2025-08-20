@@ -4,11 +4,11 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
-using AnSAM.RunGame.Models;
-using AnSAM.RunGame.Steam;
-using AnSAM.RunGame.Utils;
+using RunGame.Models;
+using RunGame.Steam;
+using RunGame.Utils;
 
-namespace AnSAM.RunGame.Services
+namespace RunGame.Services
 {
     public class GameStatsService
     {

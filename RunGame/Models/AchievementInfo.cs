@@ -4,7 +4,7 @@ using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 
-namespace AnSAM.RunGame.Models
+namespace RunGame.Models
 {
     public class AchievementInfo : INotifyPropertyChanged
     {

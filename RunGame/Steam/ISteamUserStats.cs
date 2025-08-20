@@ -1,4 +1,4 @@
-namespace AnSAM.RunGame.Steam
+namespace RunGame.Steam
 {
     public interface ISteamUserStats
     {
