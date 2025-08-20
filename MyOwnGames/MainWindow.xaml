@@ -13,7 +13,7 @@
         <MicaBackdrop />
     </Window.SystemBackdrop>
 
-    <Grid RowSpacing="8" Padding="12">
+    <Grid RowSpacing="8" Padding="12" x:Name="RootGrid">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <!-- Top CommandBar -->
