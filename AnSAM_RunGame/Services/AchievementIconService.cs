@@ -7,6 +7,8 @@ using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Storage.Streams;
 using Windows.Storage;
 using System.Runtime.InteropServices.WindowsRuntime;
+using Windows.Graphics.Imaging;
+using Windows.ApplicationModel;
 
 namespace AnSAM.RunGame.Services
 {
@@ -14,7 +16,7 @@ namespace AnSAM.RunGame.Services
     {
         private readonly HttpClient _httpClient;
         private readonly string _cacheDirectory;
-        private readonly Dictionary<string, BitmapImage> _memoryCache = new();
+        private readonly Dictionary<string, BitmapSource> _memoryCache = new();
         private readonly long _gameId;
         private bool _disposed = false;
 
@@ -33,18 +35,18 @@ namespace AnSAM.RunGame.Services
             DebugLogger.LogDebug($"AchievementIconService initialized with cache directory: {_cacheDirectory}");
         }
 
-        public async Task<BitmapImage?> GetAchievementIconAsync(string achievementId, string iconUrl, bool isUnlocked)
+        public async Task<BitmapSource?> GetAchievementIconAsync(string achievementId, string iconFileName, bool isAchieved)
         {
-            if (string.IsNullOrEmpty(iconUrl))
+            if (string.IsNullOrEmpty(iconFileName))
             {
-                DebugLogger.LogDebug($"Icon URL is empty for achievement {achievementId}");
+                DebugLogger.LogDebug($"Icon filename is empty for achievement {achievementId}");
                 return null;
             }
 
             try
             {
-                string cacheKey = $"{achievementId}_{(isUnlocked ? "unlocked" : "locked")}";
-                DebugLogger.LogDebug($"Processing icon for {achievementId}, URL: {iconUrl}, isUnlocked: {isUnlocked}");
+                string cacheKey = $"{achievementId}_{(isAchieved ? "achieved" : "locked")}";
+                DebugLogger.LogDebug($"Processing icon for {achievementId}, filename: {iconFileName}, isAchieved: {isAchieved}");
                 
                 // Check memory cache first
                 if (_memoryCache.TryGetValue(cacheKey, out var cachedImage))
@@ -53,15 +55,18 @@ namespace AnSAM.RunGame.Services
                     return cachedImage;
                 }
 
-                // Check disk cache
-                string fileName = $"{cacheKey}.jpg";
+                // Check disk cache - keep original extension (usually .jpg)
+                string fileExtension = Path.GetExtension(iconFileName);
+                if (string.IsNullOrEmpty(fileExtension))
+                    fileExtension = ".jpg"; // Default to jpg if no extension
+                string fileName = $"{cacheKey}{fileExtension}";
                 string filePath = Path.Combine(_cacheDirectory, fileName);
                 
                 if (!File.Exists(filePath))
                 {
                     // Download the icon
-                    DebugLogger.LogDebug($"Downloading icon for {achievementId}: {iconUrl}");
-                    await DownloadIconAsync(iconUrl, filePath);
+                    DebugLogger.LogDebug($"Downloading icon for {achievementId}: {iconFileName}");
+                    await DownloadIconAsync(iconFileName, filePath);
                 }
                 else
                 {
@@ -70,27 +75,8 @@ namespace AnSAM.RunGame.Services
 
                 if (File.Exists(filePath))
                 {
-                    // Load from file using StorageFile approach for WinUI 3
-                    var bitmap = new BitmapImage();
-                    try
-                    {
-                        var storageFile = await Windows.Storage.StorageFile.GetFileFromPathAsync(filePath);
-                        using (var stream = await storageFile.OpenAsync(Windows.Storage.FileAccessMode.Read))
-                        {
-                            await bitmap.SetSourceAsync(stream);
-                        }
-                        
-                        // Cache in memory
-                        _memoryCache[cacheKey] = bitmap;
-                        DebugLogger.LogDebug($"Successfully loaded icon image for {achievementId}");
-                        return bitmap;
-                    }
-                    catch (Exception ex)
-                    {
-                        DebugLogger.LogDebug($"Error loading icon image for {achievementId}: {ex.Message}");
-                        // Try alternative approach with file bytes
-                        return await LoadImageFromBytesAsync(filePath, cacheKey);
-                    }
+                    // Use the bytes approach which is more reliable in WinUI 3
+                    return await LoadImageFromBytesAsync(filePath, cacheKey, achievementId);
                 }
             }
             catch (Exception ex)
@@ -101,13 +87,15 @@ namespace AnSAM.RunGame.Services
             return null;
         }
 
-        private async Task DownloadIconAsync(string iconUrl, string filePath)
+        private async Task DownloadIconAsync(string iconFileName, string filePath)
         {
             try
             {
-                // Steam achievement icons are typically in the format:
-                // https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/{appid}/{hash}.jpg
-                string steamIconUrl = ConvertToSteamIconUrl(iconUrl);
+                // Use the same URL pattern as Legacy SAM.Game:
+                // https://cdn.steamstatic.com/steamcommunity/public/images/apps/{gameId}/{fileName}
+                string steamIconUrl = $"https://cdn.steamstatic.com/steamcommunity/public/images/apps/{_gameId}/{Uri.EscapeDataString(iconFileName)}";
+                
+                DebugLogger.LogDebug($"Downloading from: {steamIconUrl}");
                 
                 var response = await _httpClient.GetAsync(steamIconUrl);
                 if (response.IsSuccessStatusCode)
@@ -123,58 +111,62 @@ namespace AnSAM.RunGame.Services
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Error downloading icon from {iconUrl}: {ex.Message}");
+                DebugLogger.LogDebug($"Error downloading icon from {iconFileName}: {ex.Message}");
             }
         }
 
-        private string ConvertToSteamIconUrl(string iconHash)
-        {
-            // Steam achievement icons follow this pattern:
-            // https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/{appid}/{hash}.jpg
-            if (string.IsNullOrEmpty(iconHash))
-                return string.Empty;
 
-            // If it's already a full URL, return as-is
-            if (iconHash.StartsWith("http"))
-                return iconHash;
-
-            // Check if the hash already contains an extension
-            if (iconHash.Contains("."))
-            {
-                // If it already has an extension, use it as-is
-                return $"https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/{_gameId}/{iconHash}";
-            }
-
-            // Otherwise, construct the Steam CDN URL with .jpg extension
-            return $"https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/{_gameId}/{iconHash}.jpg";
-        }
-
-        private async Task<BitmapImage?> LoadImageFromBytesAsync(string filePath, string cacheKey)
+        private async Task<BitmapSource?> LoadImageFromBytesAsync(string filePath, string cacheKey, string achievementId)
         {
             try
             {
-                var bitmap = new BitmapImage();
-                var bytes = await File.ReadAllBytesAsync(filePath);
+                DebugLogger.LogDebug($"Attempting to load icon for {achievementId} from {filePath}");
                 
-                using (var stream = new InMemoryRandomAccessStream())
+                // Check if file exists and has content
+                if (!File.Exists(filePath))
                 {
-                    using (var writer = new DataWriter(stream.GetOutputStreamAt(0)))
-                    {
-                        writer.WriteBytes(bytes);
-                        await writer.StoreAsync();
-                    }
-                    
-                    stream.Seek(0);
-                    await bitmap.SetSourceAsync(stream);
+                    DebugLogger.LogDebug($"File does not exist: {filePath}");
+                    return null;
                 }
                 
-                _memoryCache[cacheKey] = bitmap;
-                DebugLogger.LogDebug($"Successfully loaded icon image from bytes for cache key: {cacheKey}");
-                return bitmap;
+                var fileInfo = new FileInfo(filePath);
+                if (fileInfo.Length == 0)
+                {
+                    DebugLogger.LogDebug($"File is empty: {filePath}");
+                    return null;
+                }
+                
+                DebugLogger.LogDebug($"File exists and has {fileInfo.Length} bytes");
+                
+                // Use URI approach like AnSAM does
+                Uri? fileUri = null;
+                try
+                {
+                    if (Uri.TryCreate(filePath, UriKind.Absolute, out fileUri))
+                    {
+                        var bitmap = new BitmapImage(fileUri);
+                        
+                        _memoryCache[cacheKey] = bitmap;
+                        DebugLogger.LogDebug($"Successfully loaded icon using URI for {achievementId}: {fileUri}");
+                        return bitmap;
+                    }
+                    else
+                    {
+                        DebugLogger.LogDebug($"Failed to create URI from path for {achievementId}: {filePath}");
+                        return null;
+                    }
+                }
+                catch (Exception uriEx)
+                {
+                    DebugLogger.LogDebug($"URI approach failed for {achievementId}: {uriEx.Message} ({uriEx.GetType().Name})");
+                    DebugLogger.LogDebug($"Attempted URI: {fileUri}");
+                    DebugLogger.LogDebug($"Stack trace: {uriEx.StackTrace}");
+                    return null;
+                }
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Error loading icon from bytes: {ex.Message}");
+                DebugLogger.LogDebug($"All approaches failed for {achievementId}: {ex.Message}");
                 return null;
             }
         }

@@ -1,6 +1,8 @@
 using System;
 using System.ComponentModel;
 using Microsoft.UI.Xaml.Media.Imaging;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Media;
 
 namespace AnSAM.RunGame.Models
 {
@@ -23,6 +25,7 @@ namespace AnSAM.RunGame.Models
                     _isAchieved = value;
                     OnPropertyChanged(nameof(IsAchieved));
                     OnPropertyChanged(nameof(IconUrl));
+                    OnPropertyChanged(nameof(LockVisibility));
                     // Clear cached icon so it will be reloaded with the correct state
                     IconImage = null;
                 }
@@ -35,10 +38,11 @@ namespace AnSAM.RunGame.Models
         public int Permission { get; set; }
         public string IconUrl => IsAchieved ? IconNormal : IconLocked;
         public bool IsProtected => (Permission & 3) != 0;
+        public Visibility LockVisibility => IsProtected && !IsAchieved ? Visibility.Visible : Visibility.Collapsed;
         
         // Cached icon image
-        private BitmapImage? _iconImage;
-        public BitmapImage? IconImage
+        private BitmapSource? _iconImage;
+        public BitmapSource? IconImage
         {
             get => _iconImage;
             set

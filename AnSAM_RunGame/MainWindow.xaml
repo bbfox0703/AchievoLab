@@ -69,13 +69,14 @@
                                               Content="✓"
                                               Margin="0,0,10,0"/>
                                     
-                                    <!-- Protection Indicator -->
+                                    <!-- Protection Indicator (only show for protected, unachieved) -->
                                     <TextBlock Grid.Column="0" 
                                                Text="🔒" 
                                                FontSize="12"
                                                HorizontalAlignment="Right"
                                                VerticalAlignment="Top"
-                                               Margin="0,-5,-5,0"/>
+                                               Margin="0,-5,-5,0"
+                                               Visibility="{Binding LockVisibility}"/>
 
                                     <!-- Achievement Icon -->
                                     <Border Grid.Column="1" 

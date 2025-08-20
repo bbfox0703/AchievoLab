@@ -823,10 +823,13 @@ namespace AnSAM.RunGame
             {
                 foreach (var achievement in _achievements)
                 {
-                    if (!string.IsNullOrEmpty(achievement.IconUrl))
+                    // Get the appropriate icon filename based on achievement state
+                    string iconFileName = achievement.IsAchieved ? achievement.IconNormal : achievement.IconLocked;
+                    
+                    if (!string.IsNullOrEmpty(iconFileName))
                     {
                         var iconImage = await _achievementIconService.GetAchievementIconAsync(
-                            achievement.Id, achievement.IconUrl, achievement.IsAchieved);
+                            achievement.Id, iconFileName, achievement.IsAchieved);
 
                         if (iconImage != null)
                         {
@@ -894,6 +897,24 @@ namespace AnSAM.RunGame
         public object Convert(object value, Type targetType, object parameter, string language)
         {
             return value == null ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        public object ConvertBack(object value, Type targetType, object parameter, string language)
+        {
+            throw new NotImplementedException();
+        }
+    }
+    
+    public class ProtectionLockConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, string language)
+        {
+            if (value is AchievementInfo achievement)
+            {
+                // Show lock only if achievement is protected AND not achieved
+                return achievement.IsProtected && !achievement.IsAchieved ? Visibility.Visible : Visibility.Collapsed;
+            }
+            return Visibility.Collapsed;
         }
 
         public object ConvertBack(object value, Type targetType, object parameter, string language)
