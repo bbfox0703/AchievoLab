@@ -1,7 +1,7 @@
 using Microsoft.UI.Xaml;
 using System;
 
-namespace AnSAM.RunGame
+namespace RunGame
 {
     public partial class App : Application
     {

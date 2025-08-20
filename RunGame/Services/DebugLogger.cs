@@ -2,7 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 
-namespace AnSAM.RunGame.Services
+namespace RunGame.Services
 {
     public static class DebugLogger
     {

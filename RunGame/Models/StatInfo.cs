@@ -1,7 +1,7 @@
 using System;
 using System.ComponentModel;
 
-namespace AnSAM.RunGame.Models
+namespace RunGame.Models
 {
     public abstract class StatInfo : INotifyPropertyChanged
     {

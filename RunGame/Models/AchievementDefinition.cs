@@ -1,4 +1,4 @@
-namespace AnSAM.RunGame.Models
+namespace RunGame.Models
 {
     public class AchievementDefinition
     {

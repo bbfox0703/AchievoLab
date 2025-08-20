@@ -6,14 +6,15 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
-using AnSAM.RunGame.Models;
-using AnSAM.RunGame.Services;
-using AnSAM.RunGame.Steam;
+using RunGame.Models;
+using RunGame.Services;
+using RunGame.Steam;
 using System.Globalization;
 using Microsoft.UI.Dispatching;
 using System.Runtime.InteropServices;
+using Microsoft.UI.Xaml.Media.Imaging;
 
-namespace AnSAM.RunGame
+namespace RunGame
 {
     public sealed partial class MainWindow : Window
     {
@@ -30,14 +31,23 @@ namespace AnSAM.RunGame
         private readonly Dictionary<string, int> _achievementCounters = new();
         
         private bool _isLoadingStats = false;
-        private bool _mouseTimerEnabled = false;
         private bool _lastMouseMoveRight = true;
+        
+        // New services
+        private AchievementTimerService? _achievementTimerService;
+        private MouseMoverService? _mouseMoverService;
+        private AchievementIconService? _achievementIconService;
 
         public MainWindow(long gameId)
         {
             this.InitializeComponent();
             
             _gameId = gameId;
+            
+            // Set Steam AppID environment variable - some games require this
+            Environment.SetEnvironmentVariable("SteamAppId", gameId.ToString());
+            DebugLogger.LogDebug($"Set SteamAppId environment variable to {gameId}");
+            
             _steamClient = new SteamGameClient(gameId);
             _gameStatsService = new GameStatsService(_steamClient, gameId);
             
@@ -73,6 +83,9 @@ namespace AnSAM.RunGame
             // Initialize language options
             InitializeLanguageComboBox();
             
+            // Initialize column layout options
+            InitializeColumnLayoutComboBox();
+            
             // Set up list views - simplified approach
             AchievementListView.ItemsSource = _achievements;
             StatisticsListView.ItemsSource = _statistics;
@@ -91,8 +104,47 @@ namespace AnSAM.RunGame
             // 初始化日誌
             DebugLogger.LogDebug($"AnSAM_RunGame started for game {gameId} in {(DebugLogger.IsDebugMode ? "DEBUG" : "RELEASE")} mode");
             
+            // Initialize new services
+            _achievementTimerService = new AchievementTimerService(_gameStatsService);
+            
+            // Get window handle for mouse service
+            var windowHandle = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            _mouseMoverService = new MouseMoverService(windowHandle);
+            
+            // Initialize icon service
+            _achievementIconService = new AchievementIconService(gameId);
+            
+            // Test game ownership before loading stats
+            TestGameOwnership();
+            
             // Start loading stats
             _ = LoadStatsAsync();
+            
+            // Subscribe to window closing event for cleanup
+            this.Closed += OnWindowClosed;
+        }
+        
+        private void OnWindowClosed(object sender, WindowEventArgs args)
+        {
+            try
+            {
+                // Dispose services
+                _achievementTimerService?.Dispose();
+                _mouseMoverService?.Dispose();
+                _achievementIconService?.Dispose();
+                
+                // Stop timers
+                _callbackTimer?.Stop();
+                _timeTimer?.Stop();
+                _achievementTimer?.Stop();
+                _mouseTimer?.Stop();
+                
+                DebugLogger.LogDebug("MainWindow closed and resources cleaned up");
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error during cleanup: {ex.Message}");
+            }
         }
 
         private void InitializeLanguageComboBox()
@@ -109,6 +161,21 @@ namespace AnSAM.RunGame
             }
             
             LanguageComboBox.SelectedItem = "english";
+        }
+
+        private void InitializeColumnLayoutComboBox()
+        {
+            var layouts = new[] 
+            { 
+                "Compact", "Normal", "Wide", "Extra Wide" 
+            };
+            
+            foreach (var layout in layouts)
+            {
+                ColumnLayoutComboBox.Items.Add(layout);
+            }
+            
+            ColumnLayoutComboBox.SelectedItem = "Normal";
         }
 
         private async Task LoadStatsAsync()
@@ -143,25 +210,37 @@ namespace AnSAM.RunGame
 
         private void OnUserStatsReceived(object? sender, UserStatsReceivedEventArgs e)
         {
-            this.DispatcherQueue.TryEnqueue(() =>
+            DebugLogger.LogDebug($"MainWindow.OnUserStatsReceived - GameId: {e.GameId}, Result: {e.Result}, UserId: {e.UserId}");
+            
+            this.DispatcherQueue.TryEnqueue(async () =>
             {
+                DebugLogger.LogDebug($"MainWindow.OnUserStatsReceived dispatched to UI thread");
+                
                 if (e.Result != 1)
                 {
+                    DebugLogger.LogDebug($"UserStatsReceived failed with result: {e.Result}");
                     StatusLabel.Text = $"Error retrieving stats: {GetErrorDescription(e.Result)}";
                     return;
                 }
 
                 string currentLanguage = LanguageComboBox.SelectedItem as string ?? "english";
+                DebugLogger.LogDebug($"Loading schema for language: {currentLanguage}");
+                
                 if (!_gameStatsService.LoadUserGameStatsSchema(currentLanguage))
                 {
                     StatusLabel.Text = "Failed to load game schema";
                     return;
                 }
 
+                DebugLogger.LogDebug("Loading achievements and statistics...");
                 LoadAchievements();
                 LoadStatistics();
                 
+                DebugLogger.LogDebug($"UI updated - {_achievements.Count} achievements, {_statistics.Count} statistics");
                 StatusLabel.Text = $"Retrieved {_achievements.Count} achievements and {_statistics.Count} statistics";
+                
+                // Start loading achievement icons on the UI thread
+                await LoadAchievementIconsAsync();
             });
         }
 
@@ -421,16 +500,46 @@ namespace AnSAM.RunGame
             }
         }
 
+        private void OnColumnLayoutChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (ColumnLayoutComboBox.SelectedItem is string layout)
+            {
+                ApplyColumnLayout(layout);
+            }
+        }
+
+        private void ApplyColumnLayout(string layout)
+        {
+            DebugLogger.LogDebug($"Column layout changed to: {layout}");
+            
+            // For WinUI 3 limitations, we'll implement a practical solution
+            // Show user feedback and provide information about the column layout feature
+            StatusLabel.Text = $"Column layout set to: {layout}. Use scroll and zoom for better viewing.";
+            
+            // In a production implementation, you could:
+            // 1. Save the preference to user settings
+            // 2. Create multiple XAML DataTemplate resources and switch between them
+            // 3. Use a third-party DataGrid control that supports resizable columns
+            // 4. Implement a custom ListView with resizable column headers
+            
+            // For now, provide users with information about the current limitations
+            if (layout == "Compact")
+            {
+                StatusLabel.Text = "Compact view selected. Tip: Use Ctrl+Mouse wheel to zoom for better readability.";
+            }
+            else if (layout == "Extra Wide")
+            {
+                StatusLabel.Text = "Extra Wide view selected. Tip: Use horizontal scroll to see all columns.";
+            }
+        }
+
         private void OnStatsEditingToggle(object sender, RoutedEventArgs e)
         {
             // Enable/disable statistics editing
         }
 
-        private void OnSetTimer(object sender, RoutedEventArgs e)
+        private async void OnSetTimer(object sender, RoutedEventArgs e)
         {
-            if (double.IsNaN(TimerValueBox.Value)) return;
-            
-            int timerValue = (int)TimerValueBox.Value;
             var selectedItems = AchievementListView.SelectedItems.Cast<AchievementInfo>().ToList();
             
             if (selectedItems.Count == 0)
@@ -439,25 +548,136 @@ namespace AnSAM.RunGame
                 return;
             }
 
-            foreach (var achievement in selectedItems)
+            try
             {
-                achievement.Counter = timerValue;
-                _achievementCounters[achievement.Id] = timerValue;
+                // Create the dialog content
+                var dialogContent = CreateTimerDialogContent();
+                
+                // Show a content dialog to set the unlock time
+                var dialog = new ContentDialog
+                {
+                    Title = "Set Achievement Unlock Time",
+                    Content = dialogContent,
+                    PrimaryButtonText = "Set Timer",
+                    CloseButtonText = "Cancel",
+                    XamlRoot = this.Content.XamlRoot
+                };
+
+                var result = await dialog.ShowAsync();
+                
+                if (result == ContentDialogResult.Primary)
+                {
+                    // Extract the controls from our dialog content
+                    var datePicker = (DatePicker)dialogContent.Children[1];
+                    var timePicker = (TimePicker)dialogContent.Children[3];
+                    var secondsBox = (NumberBox)dialogContent.Children[5];
+
+                    var selectedDate = datePicker.Date.Date;
+                    var selectedTime = timePicker.Time;
+                    
+                    // Add seconds from NumberBox
+                    int seconds = (int)(secondsBox.Value);
+                    var unlockTime = selectedDate.Add(selectedTime).AddSeconds(seconds);
+
+                    if (unlockTime <= DateTime.Now)
+                    {
+                        ShowErrorDialog("Unlock time must be in the future");
+                        return;
+                    }
+
+                    foreach (var achievement in selectedItems)
+                    {
+                        achievement.ScheduledUnlockTime = unlockTime;
+                        _achievementTimerService?.ScheduleAchievement(achievement.Id, unlockTime);
+                        DebugLogger.LogDebug($"Scheduled achievement {achievement.Id} to unlock at {unlockTime}");
+                    }
+
+                    StatusLabel.Text = $"Scheduled {selectedItems.Count} achievement(s) to unlock at {unlockTime:yyyy-MM-dd HH:mm:ss}";
+                }
+                else
+                {
+                    DebugLogger.LogDebug("Set Timer dialog was cancelled by user");
+                }
             }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error in OnSetTimer: {ex.Message}");
+                ShowErrorDialog($"Error setting timer: {ex.Message}");
+            }
+        }
+
+        private Grid CreateTimerDialogContent()
+        {
+            var grid = new Grid();
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+            var instructions = new TextBlock
+            {
+                Text = "Select the date and time when the achievement should be unlocked:",
+                Margin = new Thickness(0, 0, 0, 10),
+                TextWrapping = TextWrapping.Wrap
+            };
+            Grid.SetRow(instructions, 0);
+
+            var datePicker = new DatePicker
+            {
+                Date = DateTime.Now.Date.AddDays(1),
+                Margin = new Thickness(0, 0, 0, 10)
+            };
+            Grid.SetRow(datePicker, 1);
+
+            var timeLabel = new TextBlock
+            {
+                Text = "Time:",
+                Margin = new Thickness(0, 0, 0, 5)
+            };
+            Grid.SetRow(timeLabel, 2);
+
+            var timePicker = new TimePicker
+            {
+                Time = DateTime.Now.TimeOfDay.Add(TimeSpan.FromMinutes(5)),
+                Margin = new Thickness(0, 0, 0, 10)
+            };
+            Grid.SetRow(timePicker, 3);
+
+            var secondsLabel = new TextBlock
+            {
+                Text = "Seconds (0-59):",
+                Margin = new Thickness(0, 0, 0, 5)
+            };
+            Grid.SetRow(secondsLabel, 4);
+
+            var secondsBox = new NumberBox
+            {
+                Value = 0,
+                Minimum = 0,
+                Maximum = 59,
+                SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline
+            };
+            Grid.SetRow(secondsBox, 5);
+
+            grid.Children.Add(instructions);
+            grid.Children.Add(datePicker);
+            grid.Children.Add(timeLabel);
+            grid.Children.Add(timePicker);
+            grid.Children.Add(secondsLabel);
+            grid.Children.Add(secondsBox);
+
+            return grid;
         }
 
         private void OnAutoMouseMove(object sender, RoutedEventArgs e)
         {
-            _mouseTimerEnabled = !_mouseTimerEnabled;
-            if (_mouseTimerEnabled)
+            if (_mouseMoverService != null)
             {
-                _mouseTimer.Start();
-                AutoMouseMoveButton.Label = "Stop Auto Mouse Move";
-            }
-            else
-            {
-                _mouseTimer.Stop();
-                AutoMouseMoveButton.Label = "Auto Mouse Move";
+                _mouseMoverService.IsEnabled = !_mouseMoverService.IsEnabled;
+                AutoMouseMoveButton.Label = _mouseMoverService.IsEnabled ? "Stop Auto Mouse" : "Auto Mouse";
+                DebugLogger.LogDebug($"Auto mouse movement {(_mouseMoverService.IsEnabled ? "enabled" : "disabled")}");
             }
         }
 
@@ -467,11 +687,13 @@ namespace AnSAM.RunGame
             {
                 _achievementTimer.Start();
                 TimerToggleButton.Label = "Disable Timer";
+                UpdateTimerStatusIndicator(true);
             }
             else
             {
                 _achievementTimer.Stop();
                 TimerToggleButton.Label = "Enable Timer";
+                UpdateTimerStatusIndicator(false);
             }
         }
 
@@ -543,9 +765,48 @@ namespace AnSAM.RunGame
         {
             return errorCode switch
             {
-                2 => "Generic error - you may not own this game",
-                _ => $"Error code: {errorCode}"
+                1 => "Success",
+                2 => "Generic error - game may not be running, data not synchronized, or access denied",
+                3 => "No connection to Steam",
+                4 => "Invalid user",
+                5 => "Invalid app ID",
+                6 => "Invalid state",
+                7 => "Invalid parameter",
+                8 => "Not logged in",
+                9 => "Wrong user",
+                10 => "Invalid version",
+                _ => $"Unknown error code: {errorCode}"
             };
+        }
+
+        private void TestGameOwnership()
+        {
+            try
+            {
+                // Check if user owns the game
+                bool ownsGame = _steamClient.IsSubscribedApp((uint)_gameId);
+                DebugLogger.LogDebug($"Game ownership check for {_gameId}: {ownsGame}");
+                
+                // Check if we can get game name
+                string? gameName = _steamClient.GetAppData((uint)_gameId, "name");
+                DebugLogger.LogDebug($"Game name: {gameName ?? "Unknown"}");
+                
+                // Check if we can get other game data
+                string? gameType = _steamClient.GetAppData((uint)_gameId, "type");
+                DebugLogger.LogDebug($"Game type: {gameType ?? "Unknown"}");
+                
+                string? gameState = _steamClient.GetAppData((uint)_gameId, "state");
+                DebugLogger.LogDebug($"Game state: {gameState ?? "Unknown"}");
+                
+                if (!ownsGame)
+                {
+                    StatusLabel.Text = "Warning: Steam reports you don't own this game";
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error testing game ownership: {ex.Message}");
+            }
         }
 
         private void OnClearLog(object sender, RoutedEventArgs e)
@@ -553,6 +814,61 @@ namespace AnSAM.RunGame
             DebugLogger.ClearLog();
             DebugLogger.LogDebug("Debug log cleared by user");
             StatusLabel.Text = "Debug log cleared";
+        }
+
+        private async Task LoadAchievementIconsAsync()
+        {
+            if (_achievementIconService == null) return;
+
+            try
+            {
+                foreach (var achievement in _achievements)
+                {
+                    // Get the appropriate icon filename based on achievement state
+                    string iconFileName = achievement.IsAchieved ? achievement.IconNormal : achievement.IconLocked;
+                    
+                    if (!string.IsNullOrEmpty(iconFileName))
+                    {
+                        var iconPath = await _achievementIconService.GetAchievementIconAsync(
+                            achievement.Id, iconFileName, achievement.IsAchieved);
+
+                        if (!string.IsNullOrEmpty(iconPath))
+                        {
+                            this.DispatcherQueue.TryEnqueue(() =>
+                            {
+                                try
+                                {
+                                    achievement.IconImage = new BitmapImage(new Uri(iconPath));
+                                }
+                                catch (Exception ex)
+                                {
+                                    DebugLogger.LogDebug($"Error creating BitmapImage for {achievement.Id}: {ex.Message}");
+                                }
+                            });
+                        }
+                    }
+                }
+
+                DebugLogger.LogDebug($"Finished loading icons for {_achievements.Count} achievements");
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error loading achievement icons: {ex.Message}");
+            }
+        }
+
+        private void UpdateTimerStatusIndicator(bool isActive)
+        {
+            if (isActive)
+            {
+                TimerStatusText.Text = "🟢 Timer On";
+                TimerStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Green);
+            }
+            else
+            {
+                TimerStatusText.Text = "⚪ Timer Off";
+                TimerStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Gray);
+            }
         }
     }
 
@@ -575,6 +891,37 @@ namespace AnSAM.RunGame
         public object Convert(object value, Type targetType, object parameter, string language)
         {
             return value != null ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        public object ConvertBack(object value, Type targetType, object parameter, string language)
+        {
+            throw new NotImplementedException();
+        }
+    }
+    
+    public class InverseNullToVisibilityConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, string language)
+        {
+            return value == null ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        public object ConvertBack(object value, Type targetType, object parameter, string language)
+        {
+            throw new NotImplementedException();
+        }
+    }
+    
+    public class ProtectionLockConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, string language)
+        {
+            if (value is AchievementInfo achievement)
+            {
+                // Show lock only if achievement is protected AND not achieved
+                return achievement.IsProtected && !achievement.IsAchieved ? Visibility.Visible : Visibility.Collapsed;
+            }
+            return Visibility.Collapsed;
         }
 
         public object ConvertBack(object value, Type targetType, object parameter, string language)
