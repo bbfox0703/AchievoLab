@@ -13,6 +13,7 @@ using System.Globalization;
 using Microsoft.UI.Dispatching;
 using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml.Media.Imaging;
+using System.ComponentModel;
 
 namespace RunGame
 {
@@ -271,7 +272,10 @@ namespace RunGame
                     {
                         achievement.Counter = counter;
                     }
-                    
+
+                    // Listen for property changes to update icons dynamically
+                    achievement.PropertyChanged += OnAchievementPropertyChanged;
+
                     _achievements.Add(achievement);
                 }
             }
@@ -854,6 +858,41 @@ namespace RunGame
             catch (Exception ex)
             {
                 DebugLogger.LogDebug($"Error loading achievement icons: {ex.Message}");
+            }
+        }
+
+        private async void OnAchievementPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (_achievementIconService == null) return;
+            if (e.PropertyName != nameof(AchievementInfo.IsAchieved)) return;
+            if (sender is not AchievementInfo achievement) return;
+
+            string iconFileName = achievement.IsAchieved ? achievement.IconNormal : achievement.IconLocked;
+            if (string.IsNullOrEmpty(iconFileName)) return;
+
+            try
+            {
+                var iconPath = await _achievementIconService.GetAchievementIconAsync(
+                    achievement.Id, iconFileName, achievement.IsAchieved);
+
+                if (!string.IsNullOrEmpty(iconPath))
+                {
+                    this.DispatcherQueue.TryEnqueue(() =>
+                    {
+                        try
+                        {
+                            achievement.IconImage = new BitmapImage(new Uri(iconPath));
+                        }
+                        catch (Exception ex)
+                        {
+                            DebugLogger.LogDebug($"Error creating BitmapImage for {achievement.Id}: {ex.Message}");
+                        }
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error updating icon for {achievement.Id}: {ex.Message}");
             }
         }
 
