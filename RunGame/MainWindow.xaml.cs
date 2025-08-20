@@ -99,7 +99,11 @@ namespace RunGame
                     }
                 }
                 ThemeService.ApplyTheme(themeToApply);
-                root.ActualThemeChanged += (_, _) => ThemeService.UpdateTitleBar(root.ActualTheme);
+                root.ActualThemeChanged += (_, _) => 
+                {
+                    ThemeService.ApplyAccentBrush();
+                    ThemeService.UpdateTitleBar(root.ActualTheme);
+                };
             }
             _uiSettings.ColorValuesChanged += UiSettings_ColorValuesChanged;
             
@@ -367,9 +371,22 @@ namespace RunGame
             await LoadStatsAsync();
         }
 
-        private void OnStore(object sender, RoutedEventArgs e)
+        private async void OnStore(object sender, RoutedEventArgs e)
         {
-            PerformStore(false);
+            // Show loading indicator and disable Store button to prevent multiple clicks
+            LoadingRing.IsActive = true;
+            StoreButton.IsEnabled = false;
+            StatusLabel.Text = "Storing changes...";
+            
+            try
+            {
+                await Task.Run(() => PerformStore(false));
+            }
+            finally
+            {
+                LoadingRing.IsActive = false;
+                StoreButton.IsEnabled = true;
+            }
         }
 
         private void PerformStore(bool silent)
@@ -393,14 +410,28 @@ namespace RunGame
                     return;
                 }
 
-                string debugInfo = DebugLogger.IsDebugMode ? " [DEBUG - Not actually stored]" : "";
                 if (!silent)
                 {
-                    StatusLabel.Text = $"Stored {achievementCount} achievements and {statCount} statistics{debugInfo}";
+                    if (DebugLogger.IsDebugMode)
+                    {
+                        StatusLabel.Text = $"[DEBUG MODE] Fake stored {achievementCount} achievements and {statCount} statistics (not written to Steam)";
+                        // No need to reload in debug mode since data wasn't actually changed
+                    }
+                    else
+                    {
+                        StatusLabel.Text = $"Successfully stored {achievementCount} achievements and {statCount} statistics to Steam. Refreshing...";
+                        // Reload data from Steam after successful store (like Legacy SAM.Game)
+                        this.DispatcherQueue.TryEnqueue(async () =>
+                        {
+                            await Task.Delay(500); // Brief delay to allow Steam to update
+                            await LoadStatsAsync();
+                        });
+                    }
                 }
                 else
                 {
-                    _ = LoadStatsAsync(); // Refresh after silent store
+                    // Silent mode: always refresh after store (like Legacy SAM.Game)
+                    _ = LoadStatsAsync();
                 }
             }
             catch (Exception ex)
@@ -984,6 +1015,37 @@ namespace RunGame
             {
                 TimerStatusText.Text = "⚪ Timer Off";
                 TimerStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Gray);
+            }
+        }
+        
+        public void RefreshThemeElements()
+        {
+            try
+            {
+                // Force refresh CommandBar
+                if (MainCommandBar != null)
+                {
+                    MainCommandBar.UpdateLayout();
+                    DebugLogger.LogDebug("Refreshed MainCommandBar");
+                }
+                
+                // Force refresh TabView
+                if (MainTabView != null)
+                {
+                    MainTabView.UpdateLayout();
+                    DebugLogger.LogDebug("Refreshed MainTabView");
+                }
+                
+                // Force refresh the entire window content
+                if (Content is FrameworkElement content)
+                {
+                    content.UpdateLayout();
+                    DebugLogger.LogDebug("Refreshed window content");
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error in RefreshThemeElements: {ex.Message}");
             }
         }
     }

@@ -4,7 +4,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Name="Root">
 
-    <Grid RequestedTheme="{Binding ElementTheme, ElementName=Root}">
+    <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
@@ -12,7 +12,7 @@
         </Grid.RowDefinitions>
 
         <!-- Top CommandBar -->
-        <CommandBar Grid.Row="0" RequestedTheme="{Binding ElementTheme, ElementName=Root}">
+        <CommandBar Grid.Row="0" x:Name="MainCommandBar">
             <AppBarButton x:Name="RefreshButton" Icon="Refresh" Label="Refresh" Click="OnRefresh" ToolTipService.ToolTip="Refresh"/>
             <AppBarButton x:Name="StoreButton" Icon="Save" Label="Store" Click="OnStore" ToolTipService.ToolTip="Store"/>
             <AppBarSeparator/>
@@ -34,17 +34,17 @@
         </CommandBar>
 
         <!-- Main Content -->
-        <TabView Grid.Row="1" x:Name="MainTabView" RequestedTheme="{Binding ElementTheme, ElementName=Root}">
+        <TabView Grid.Row="1" x:Name="MainTabView">
             <!-- Achievements Tab -->
             <TabViewItem Header="Achievements">
-                <Grid RequestedTheme="{Binding ElementTheme, ElementName=Root}">
+                <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
                     <!-- Achievement Filters -->
-                    <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="10" Margin="10" RequestedTheme="{Binding ElementTheme, ElementName=Root}">
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="10" Margin="10">
                         <TextBox x:Name="SearchTextBox" PlaceholderText="Search achievements..." Width="200" TextChanged="OnSearchTextChanged"/>
                         <ToggleButton x:Name="ShowLockedButton" Content="Show Locked Only" Click="OnShowLockedToggle"/>
                         <ToggleButton x:Name="ShowUnlockedButton" Content="Show Unlocked Only" Click="OnShowUnlockedToggle"/>
@@ -57,8 +57,7 @@
                     <!-- Achievement List -->
                     <ListView Grid.Row="1" x:Name="AchievementListView"
                               SelectionMode="Multiple"
-                              Margin="10,0,10,10"
-                              RequestedTheme="{Binding ElementTheme, ElementName=Root}">
+                              Margin="10,0,10,10">
                         <ListView.ItemTemplate>
                             <DataTemplate>
                                 <Grid Margin="5" Padding="10" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" 
@@ -189,7 +188,7 @@
 
             <!-- Statistics Tab -->
             <TabViewItem Header="Statistics">
-                <Grid Margin="10" RequestedTheme="{Binding ElementTheme, ElementName=Root}">
+                <Grid Margin="10">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
@@ -199,7 +198,7 @@
                               Content="I understand that modifying stats can cause issues"
                               Margin="0,0,0,10"/>
 
-                    <ListView Grid.Row="1" x:Name="StatisticsListView" RequestedTheme="{Binding ElementTheme, ElementName=Root}">
+                    <ListView Grid.Row="1" x:Name="StatisticsListView" IsEnabled="{Binding IsChecked, ElementName=EnableStatsEditingCheckBox}">
                         <ListView.ItemTemplate>
                             <DataTemplate>
                                 <Grid Margin="5" Padding="10" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" 
@@ -247,7 +246,7 @@
         </TabView>
 
         <!-- Status Bar -->
-        <Grid Grid.Row="2" Background="{ThemeResource SystemControlBackgroundAltHighBrush}" Height="32" RequestedTheme="{Binding ElementTheme, ElementName=Root}">
+        <Grid Grid.Row="2" Background="{ThemeResource SystemControlBackgroundAltHighBrush}" Height="32">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>

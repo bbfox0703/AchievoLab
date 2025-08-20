@@ -1,6 +1,7 @@
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.Win32;
 using System;
@@ -16,13 +17,6 @@ namespace RunGame.Services
         private static AppWindow? _appWindow;
         private static readonly UISettings _uiSettings = new();
 
-        public static void Initialize(Window window, FrameworkElement root)
-        {
-            _root = root;
-            var hwnd = WindowNative.GetWindowHandle(window);
-            var winId = Win32Interop.GetWindowIdFromWindow(hwnd);
-            _appWindow = AppWindow.GetFromWindowId(winId);
-        }
 
         public static ElementTheme GetCurrentTheme()
         {
@@ -44,15 +38,47 @@ namespace RunGame.Services
             return ElementTheme.Light;
         }
 
+        private static MainWindow? _mainWindow;
+        
+        public static void Initialize(Window window, FrameworkElement root)
+        {
+            _root = root;
+            _mainWindow = window as MainWindow;
+            var hwnd = WindowNative.GetWindowHandle(window);
+            var winId = Win32Interop.GetWindowIdFromWindow(hwnd);
+            _appWindow = AppWindow.GetFromWindowId(winId);
+        }
+
         public static void ApplyTheme(ElementTheme theme)
         {
             if (_root is null)
                 return;
-            DebugLogger.LogDebug("ApplyTheme() Start");
+            DebugLogger.LogDebug($"ApplyTheme() Start - Setting theme to {theme}");
 
             _root.RequestedTheme = theme;
+            
             ApplyAccentBrush();
             UpdateTitleBar(theme);
+            
+            // Force refresh specific problematic UI elements
+            RefreshUIElements();
+            
+            DebugLogger.LogDebug($"ApplyTheme() Complete - Theme set to {theme}, ActualTheme is {_root.ActualTheme}");
+        }
+        
+        private static void RefreshUIElements()
+        {
+            if (_mainWindow == null) return;
+            
+            try
+            {
+                _mainWindow.RefreshThemeElements();
+                _root?.UpdateLayout();
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error refreshing UI elements: {ex.Message}");
+            }
         }
 
         public static void ApplyAccentBrush()
@@ -73,6 +99,13 @@ namespace RunGame.Services
 
             DebugLogger.LogDebug("UpdateTitleBar() Start");
 
+            // Resolve actual theme if Default
+            var actualTheme = theme;
+            if (theme == ElementTheme.Default)
+            {
+                actualTheme = GetCurrentTheme();
+            }
+
             var titleBar = _appWindow.TitleBar;
             var accent = _uiSettings.GetColorValue(UIColorType.Accent);
             var accentDark1 = _uiSettings.GetColorValue(UIColorType.AccentDark1);
@@ -85,7 +118,7 @@ namespace RunGame.Services
                 (byte)(foreground.G / 2),
                 (byte)(foreground.B / 2));
 
-            if (theme == ElementTheme.Dark)
+            if (actualTheme == ElementTheme.Dark)
             {
                 DebugLogger.LogDebug("UpdateTitleBar(): set dark theme");
                 titleBar.BackgroundColor = accentDark2;

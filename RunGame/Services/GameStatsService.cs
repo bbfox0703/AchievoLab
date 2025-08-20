@@ -434,6 +434,12 @@ namespace RunGame.Services
 
         public bool SetAchievement(string id, bool achieved)
         {
+            if (DebugLogger.IsDebugMode)
+            {
+                DebugLogger.LogDebug($"[DEBUG FAKE WRITE] SetAchievement: {id} = {achieved} (not actually written to Steam)");
+                return true; // Always return success in debug mode
+            }
+            
             DebugLogger.LogDebug($"GameStatsService.SetAchievement called: {id} = {achieved}");
             
             // If setting achievement to true, check for related statistics and adjust them
@@ -442,7 +448,9 @@ namespace RunGame.Services
                 AdjustRelatedStatistics(id);
             }
             
-            return _steamClient.SetAchievement(id, achieved);
+            bool success = _steamClient.SetAchievement(id, achieved);
+            DebugLogger.LogDebug($"SetAchievement result: {success} for {id} = {achieved}");
+            return success;
         }
         
         private void AdjustRelatedStatistics(string achievementId)
@@ -490,23 +498,48 @@ namespace RunGame.Services
 
         public bool SetStatistic(StatInfo stat)
         {
-            if (stat is IntStatInfo intStat)
+            if (DebugLogger.IsDebugMode)
             {
-                DebugLogger.LogDebug($"GameStatsService.SetStatistic called: {intStat.Id} = {intStat.IntValue}");
-                return _steamClient.SetStatValue(intStat.Id, intStat.IntValue);
+                if (stat is IntStatInfo intStat)
+                {
+                    DebugLogger.LogDebug($"[DEBUG FAKE WRITE] SetStatistic: {intStat.Id} = {intStat.IntValue} (not actually written to Steam)");
+                }
+                else if (stat is FloatStatInfo floatStat)
+                {
+                    DebugLogger.LogDebug($"[DEBUG FAKE WRITE] SetStatistic: {floatStat.Id} = {floatStat.FloatValue} (not actually written to Steam)");
+                }
+                return true; // Always return success in debug mode
             }
-            else if (stat is FloatStatInfo floatStat)
+            
+            if (stat is IntStatInfo intStatRelease)
             {
-                DebugLogger.LogDebug($"GameStatsService.SetStatistic called: {floatStat.Id} = {floatStat.FloatValue}");
-                return _steamClient.SetStatValue(floatStat.Id, floatStat.FloatValue);
+                DebugLogger.LogDebug($"GameStatsService.SetStatistic called: {intStatRelease.Id} = {intStatRelease.IntValue}");
+                bool success = _steamClient.SetStatValue(intStatRelease.Id, intStatRelease.IntValue);
+                DebugLogger.LogDebug($"SetStatistic result: {success} for {intStatRelease.Id} = {intStatRelease.IntValue}");
+                return success;
+            }
+            else if (stat is FloatStatInfo floatStatRelease)
+            {
+                DebugLogger.LogDebug($"GameStatsService.SetStatistic called: {floatStatRelease.Id} = {floatStatRelease.FloatValue}");
+                bool success = _steamClient.SetStatValue(floatStatRelease.Id, floatStatRelease.FloatValue);
+                DebugLogger.LogDebug($"SetStatistic result: {success} for {floatStatRelease.Id} = {floatStatRelease.FloatValue}");
+                return success;
             }
             return false;
         }
 
         public bool StoreStats()
         {
+            if (DebugLogger.IsDebugMode)
+            {
+                DebugLogger.LogDebug("[DEBUG FAKE WRITE] StoreStats: All changes committed to fake cache (not actually written to Steam)");
+                return true; // Always return success in debug mode
+            }
+            
             DebugLogger.LogDebug("GameStatsService.StoreStats called");
-            return _steamClient.StoreStats();
+            bool success = _steamClient.StoreStats();
+            DebugLogger.LogDebug($"StoreStats result: {success}");
+            return success;
         }
 
         public bool ResetAllStats(bool achievementsToo)
