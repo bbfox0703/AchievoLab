@@ -28,18 +28,18 @@ namespace RunGame.Services
         private readonly System.Threading.Timer _timer;
         private bool _isEnabled;
         private bool _disposed = false;
-        private POINT _originalPosition;
+        private POINT _lastMousePos;
         private bool _moveRight = true;
         private readonly IntPtr _windowHandle;
 
         public MouseMoverService(IntPtr windowHandle)
         {
             _windowHandle = windowHandle;
-            
+
             // Move mouse every 30 seconds when enabled and window is in foreground
-            _timer = new System.Threading.Timer(MoveMouse, null, 
-                Timeout.Infinite, TimeSpan.FromSeconds(30).Milliseconds);
-            
+            _timer = new System.Threading.Timer(MoveMouse, null,
+                Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+
             DebugLogger.LogDebug("MouseMoverService initialized");
         }
 
@@ -55,18 +55,18 @@ namespace RunGame.Services
                     if (_isEnabled)
                     {
                         // Get current mouse position as starting point
-                        GetCursorPos(out _originalPosition);
+                        GetCursorPos(out _lastMousePos);
                         
                         // Start the timer
-                        _timer.Change(TimeSpan.FromSeconds(30).Milliseconds, 
-                                     TimeSpan.FromSeconds(30).Milliseconds);
+                        _timer.Change(TimeSpan.FromSeconds(30),
+                                     TimeSpan.FromSeconds(30));
                         
                         DebugLogger.LogDebug("Mouse auto-movement enabled");
                     }
                     else
                     {
                         // Stop the timer
-                        _timer.Change(Timeout.Infinite, Timeout.Infinite);
+                        _timer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
                         DebugLogger.LogDebug("Mouse auto-movement disabled");
                     }
                 }
@@ -90,22 +90,30 @@ namespace RunGame.Services
                 // Get current cursor position
                 GetCursorPos(out var currentPos);
 
-                // Calculate new position (small movement to fool Steam)
-                int deltaX = _moveRight ? 5 : -5;
-                int newX = currentPos.X + deltaX;
-                int newY = currentPos.Y;
+                // If the cursor has moved since last run, update and exit
+                if (currentPos.X != _lastMousePos.X || currentPos.Y != _lastMousePos.Y)
+                {
+                    _lastMousePos = currentPos;
+                    return;
+                }
 
-                // Set new cursor position
-                SetCursorPos(newX, newY);
+                int moveDistance = 5;
+                int direction = _moveRight ? 1 : -1;
 
-                // Immediately move back to avoid user annoyance
-                Thread.Sleep(100);
-                SetCursorPos(currentPos.X, currentPos.Y);
+                // Move gradually to avoid detection
+                for (int i = 1; i <= moveDistance; i++)
+                {
+                    SetCursorPos(currentPos.X + direction * i, currentPos.Y);
+                    Thread.Sleep(15);
+                }
 
-                // Alternate direction for next movement
+                // Toggle direction for next call
                 _moveRight = !_moveRight;
 
-                DebugLogger.LogDebug($"Auto-moved mouse: {currentPos.X},{currentPos.Y} -> {newX},{newY} -> {currentPos.X},{currentPos.Y}");
+                // Update last known position
+                _lastMousePos = new POINT { X = currentPos.X + direction * moveDistance, Y = currentPos.Y };
+
+                DebugLogger.LogDebug($"Auto-moved mouse: {currentPos.X},{currentPos.Y} -> {_lastMousePos.X},{_lastMousePos.Y}");
             }
             catch (Exception ex)
             {

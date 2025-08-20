@@ -365,7 +365,7 @@ namespace RunGame.Services
                             ? DateTimeOffset.FromUnixTimeSeconds(unlockTime).LocalDateTime 
                             : null,
                         IconNormal = def.IconNormal,
-                        IconLocked = def.IconLocked,
+                        IconLocked = string.IsNullOrEmpty(def.IconLocked) ? def.IconNormal : def.IconLocked,
                         Permission = def.Permission
                     };
                     

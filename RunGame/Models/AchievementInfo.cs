@@ -36,7 +36,10 @@ namespace RunGame.Models
         public string IconNormal { get; set; } = string.Empty;
         public string IconLocked { get; set; } = string.Empty;
         public int Permission { get; set; }
-        public string IconUrl => IsAchieved ? IconNormal : IconLocked;
+        public string IconUrl =>
+            IsAchieved
+                ? IconNormal
+                : string.IsNullOrEmpty(IconLocked) ? IconNormal : IconLocked;
         public bool IsProtected => (Permission & 3) != 0;
         public Visibility LockVisibility => IsProtected && !IsAchieved ? Visibility.Visible : Visibility.Collapsed;
         

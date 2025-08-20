@@ -19,7 +19,7 @@
             <AppBarButton x:Name="UnlockAllButton" Icon="Pin" Label="Unlock All" Click="OnUnlockAll" ToolTipService.ToolTip="Unlock All"/>
             <AppBarButton x:Name="InvertAllButton" Icon="Switch" Label="Invert All" Click="OnInvertAll" ToolTipService.ToolTip="Invert All"/>
             <AppBarButton x:Name="ResetStatsButton" Icon="Delete" Label="Reset Stats" Click="OnResetAllStats" ToolTipService.ToolTip="Reset Stats"/>
-            <AppBarButton x:Name="AutoMouseMoveButton" Icon="Target" Label="Auto Mouse" Click="OnAutoMouseMove" ToolTipService.ToolTip="Auto Mouse"/>
+            <AppBarToggleButton x:Name="AutoMouseMoveButton" Icon="Target" Label="Auto Mouse" Checked="OnAutoMouseMove" Unchecked="OnAutoMouseMove" ToolTipService.ToolTip="Auto Mouse"/>
             <AppBarToggleButton x:Name="TimerToggleButton" Icon="Clock" Label="Timer" Click="OnTimerToggle" ToolTipService.ToolTip="Timer"/>
         </CommandBar>
 
