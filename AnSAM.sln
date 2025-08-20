@@ -9,7 +9,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AnSAM.Tests", "AnSAM.Tests\
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RunGame", "RunGame\RunGame.csproj", "{B12F8C5D-123A-4567-89AB-1234567890CD}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MyOwnGames", "MyOwnGames\MyOwnGames.csproj", "{5C47258E-4C36-4AED-BE53-30DE88D5E79A}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MyOwnGames", "MyOwnGames\MyOwnGames.csproj", "{1064C046-D0DB-4DB8-80AE-1BC8C606E659}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -33,12 +33,12 @@ Global
 		{B12F8C5D-123A-4567-89AB-1234567890CD}.Release|x64.ActiveCfg = Release|x64
 		{B12F8C5D-123A-4567-89AB-1234567890CD}.Release|x64.Build.0 = Release|x64
 		{B12F8C5D-123A-4567-89AB-1234567890CD}.Release|x64.Deploy.0 = Release|x64
-		{5C47258E-4C36-4AED-BE53-30DE88D5E79A}.Debug|x64.ActiveCfg = Debug|x64
-		{5C47258E-4C36-4AED-BE53-30DE88D5E79A}.Debug|x64.Build.0 = Debug|x64
-		{5C47258E-4C36-4AED-BE53-30DE88D5E79A}.Debug|x64.Deploy.0 = Debug|x64
-		{5C47258E-4C36-4AED-BE53-30DE88D5E79A}.Release|x64.ActiveCfg = Release|x64
-		{5C47258E-4C36-4AED-BE53-30DE88D5E79A}.Release|x64.Build.0 = Release|x64
-		{5C47258E-4C36-4AED-BE53-30DE88D5E79A}.Release|x64.Deploy.0 = Release|x64
+		{1064C046-D0DB-4DB8-80AE-1BC8C606E659}.Debug|x64.ActiveCfg = Debug|x64
+		{1064C046-D0DB-4DB8-80AE-1BC8C606E659}.Debug|x64.Build.0 = Debug|x64
+		{1064C046-D0DB-4DB8-80AE-1BC8C606E659}.Debug|x64.Deploy.0 = Debug|x64
+		{1064C046-D0DB-4DB8-80AE-1BC8C606E659}.Release|x64.ActiveCfg = Release|x64
+		{1064C046-D0DB-4DB8-80AE-1BC8C606E659}.Release|x64.Build.0 = Release|x64
+		{1064C046-D0DB-4DB8-80AE-1BC8C606E659}.Release|x64.Deploy.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

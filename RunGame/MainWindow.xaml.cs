@@ -399,21 +399,25 @@ namespace RunGame
 
                 if (!silent)
                 {
-                    if (DebugLogger.IsDebugMode)
+                    // Ensure UI updates happen on the UI thread
+                    this.DispatcherQueue.TryEnqueue(() =>
                     {
-                        StatusLabel.Text = $"[DEBUG MODE] Fake stored {achievementCount} achievements and {statCount} statistics (not written to Steam)";
-                        // No need to reload in debug mode since data wasn't actually changed
-                    }
-                    else
-                    {
-                        StatusLabel.Text = $"Successfully stored {achievementCount} achievements and {statCount} statistics to Steam. Refreshing...";
-                        // Reload data from Steam after successful store (like Legacy SAM.Game)
-                        this.DispatcherQueue.TryEnqueue(async () =>
+                        if (DebugLogger.IsDebugMode)
                         {
-                            await Task.Delay(500); // Brief delay to allow Steam to update
-                            await LoadStatsAsync();
-                        });
-                    }
+                            StatusLabel.Text = $"[DEBUG MODE] Fake stored {achievementCount} achievements and {statCount} statistics (not written to Steam)";
+                            // No need to reload in debug mode since data wasn't actually changed
+                        }
+                        else
+                        {
+                            StatusLabel.Text = $"Successfully stored {achievementCount} achievements and {statCount} statistics to Steam. Refreshing...";
+                            // Reload data from Steam after successful store (like Legacy SAM.Game)
+                            _ = Task.Run(async () =>
+                            {
+                                await Task.Delay(500); // Brief delay to allow Steam to update
+                                await LoadStatsAsync();
+                            });
+                        }
+                    });
                 }
                 else
                 {
@@ -426,7 +430,10 @@ namespace RunGame
                 DebugLogger.LogDebug($"Error in PerformStore: {ex.Message}");
                 if (!silent)
                 {
-                    ShowErrorDialog($"Error storing stats: {ex.Message}");
+                    this.DispatcherQueue.TryEnqueue(() =>
+                    {
+                        ShowErrorDialog($"Error storing stats: {ex.Message}");
+                    });
                 }
             }
         }
@@ -435,8 +442,16 @@ namespace RunGame
         {
             int count = 0;
             
-            // Only process achievements that have been modified
-            foreach (var achievement in _achievements.Where(a => a.IsModified))
+            // Get all modified achievements
+            var modifiedAchievements = _achievements.Where(a => a.IsModified).ToList();
+            
+            if (modifiedAchievements.Count == 0)
+                return 0;
+            
+            // Sort achievements by their statistic requirements to ensure proper ordering
+            var sortedAchievements = SortAchievementsByStatisticDependency(modifiedAchievements);
+            
+            foreach (var achievement in sortedAchievements)
             {
                 DebugLogger.LogDebug($"Achievement {achievement.Id} modified: {achievement.OriginalIsAchieved} -> {achievement.IsAchieved}");
                 
@@ -455,6 +470,38 @@ namespace RunGame
             }
             
             return count;
+        }
+        
+        private List<AchievementInfo> SortAchievementsByStatisticDependency(List<AchievementInfo> achievements)
+        {
+            // Define the same mapping as in GameStatsService for consistency
+            var achievementStatMap = new Dictionary<string, (string statId, int requiredValue)>
+            {
+                { "DestroyXUnits", ("DestroyXUnits_Stat", 5000) },
+                { "037_DestroyXUnitsLow", ("DestroyXUnits_Stat", 2500) },
+                { "WinXSkirmishGames", ("WinXSkirmishGames_Stat", 10) },
+                { "PillageXLocations", ("PillageXLocations_Stat", 100) },
+                { "RebuildXLocations", ("RebuildXLocations_Stat", 100) },
+                { "GetXLocationsToMaxProsperity", ("GetXLocationsToMaxProsperity_Stat", 500) },
+                { "BuildXBuildings", ("BuildXBuildings_Stat", 500) },
+                { "RecruitXUnits", ("RecruitXUnits_Stat", 2000) },
+                { "PlayXCombatCards", ("PlayXCombatCards_Stat", 6000) },
+                { "FindWanderingEruditeOnAllMaps", ("FindWanderingEruditeOnAllMaps_Stat", 8) },
+                { "FinishCampaignOnHardDifficulty", ("FinishCampaignOnHardDifficulty_Stat", 1) },
+                { "UnlockXLexicanumEntries", ("UnlockXLexicanumEntries_Stat", 999) }
+            };
+            
+            // Sort achievements: those with lower stat requirements first
+            return achievements.OrderBy(a =>
+            {
+                if (achievementStatMap.TryGetValue(a.Id, out var statInfo))
+                {
+                    // Return the required value for sorting (lower values first)
+                    return statInfo.requiredValue;
+                }
+                // Achievements without stat requirements go first
+                return 0;
+            }).ToList();
         }
 
         private int StoreStatistics(bool silent)

@@ -8,11 +8,11 @@
   IgnorableNamespaces="uap rescap">
 
   <Identity
-    Name="65b6fcd3-5cc6-4bee-95bb-a089c615c1b0"
+    Name="6be30da6-89db-40f8-a7e5-fc9cef56a101"
     Publisher="CN=Andyc"
     Version="1.0.0.0" />
 
-  <mp:PhoneIdentity PhoneProductId="65b6fcd3-5cc6-4bee-95bb-a089c615c1b0" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
+  <mp:PhoneIdentity PhoneProductId="6be30da6-89db-40f8-a7e5-fc9cef56a101" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
 
   <Properties>
     <DisplayName>MyOwnGames</DisplayName>
