@@ -679,9 +679,12 @@ namespace RunGame
         {
             if (_mouseMoverService != null)
             {
-                _mouseMoverService.IsEnabled = !_mouseMoverService.IsEnabled;
-                AutoMouseMoveButton.Label = _mouseMoverService.IsEnabled ? "Stop Auto Mouse" : "Auto Mouse";
-                DebugLogger.LogDebug($"Auto mouse movement {(_mouseMoverService.IsEnabled ? "enabled" : "disabled")}");
+                bool enabled = AutoMouseMoveButton.IsChecked == true;
+                _mouseMoverService.IsEnabled = enabled;
+                AutoMouseMoveButton.Label = enabled ? "Stop Auto Mouse" : "Auto Mouse";
+                AutoMouseMoveButton.Icon = enabled ? new SymbolIcon(Symbol.Pause) : new SymbolIcon(Symbol.Target);
+                ToolTipService.SetToolTip(AutoMouseMoveButton, enabled ? "Stop Auto Mouse" : "Auto Mouse");
+                DebugLogger.LogDebug($"Auto mouse movement {(enabled ? "enabled" : "disabled")}");
             }
         }
 
