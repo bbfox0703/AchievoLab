@@ -537,23 +537,31 @@ namespace RunGame.Services
                 // If this achievement uses the same statistic and has lower/equal requirement
                 if (relatedStatId == statId && requiredValue <= newValue)
                 {
-                    // Check if achievement is not already achieved
-                    var achievements = GetAchievements();
-                    var targetAchievement = achievements.FirstOrDefault(a => a.Id == achievementId);
-                    
-                    if (targetAchievement != null && !targetAchievement.IsAchieved)
+                    // Check if achievement is not already achieved using direct Steam API call
+                    if (_steamClient.GetAchievementAndUnlockTime(achievementId, out bool isAchieved, out _))
                     {
-                        DebugLogger.LogDebug($"Auto-triggering achievement {achievementId} due to stat {statId} = {newValue} (requires {requiredValue})");
-                        
-                        if (DebugLogger.IsDebugMode)
+                        if (!isAchieved)
                         {
-                            DebugLogger.LogDebug($"[DEBUG FAKE WRITE] Auto SetAchievement: {achievementId} = True (not actually written to Steam)");
+                            DebugLogger.LogDebug($"Auto-triggering achievement {achievementId} due to stat {statId} = {newValue} (requires {requiredValue})");
+                            
+                            if (DebugLogger.IsDebugMode)
+                            {
+                                DebugLogger.LogDebug($"[DEBUG FAKE WRITE] Auto SetAchievement: {achievementId} = True (not actually written to Steam)");
+                            }
+                            else
+                            {
+                                bool success = _steamClient.SetAchievement(achievementId, true);
+                                DebugLogger.LogDebug($"Auto SetAchievement result: {success} for {achievementId} = True");
+                            }
                         }
                         else
                         {
-                            bool success = _steamClient.SetAchievement(achievementId, true);
-                            DebugLogger.LogDebug($"Auto SetAchievement result: {success} for {achievementId} = True");
+                            DebugLogger.LogDebug($"Achievement {achievementId} is already achieved, skipping auto-trigger");
                         }
+                    }
+                    else
+                    {
+                        DebugLogger.LogDebug($"Failed to get achievement status for {achievementId}, skipping auto-trigger");
                     }
                 }
             }

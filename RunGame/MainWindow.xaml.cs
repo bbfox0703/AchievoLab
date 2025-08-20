@@ -404,8 +404,13 @@ namespace RunGame
                     {
                         if (DebugLogger.IsDebugMode)
                         {
-                            StatusLabel.Text = $"[DEBUG MODE] Fake stored {achievementCount} achievements and {statCount} statistics (not written to Steam)";
-                            // No need to reload in debug mode since data wasn't actually changed
+                            StatusLabel.Text = $"[DEBUG MODE] Fake stored {achievementCount} achievements and {statCount} statistics (not written to Steam). Refreshing to show actual state...";
+                            // Refresh in debug mode to show that changes weren't actually applied (like Legacy SAM.Game)
+                            _ = Task.Run(async () =>
+                            {
+                                await Task.Delay(500); // Brief delay to show status message
+                                this.DispatcherQueue.TryEnqueue(async () => await LoadStatsAsync());
+                            });
                         }
                         else
                         {
@@ -414,7 +419,7 @@ namespace RunGame
                             _ = Task.Run(async () =>
                             {
                                 await Task.Delay(500); // Brief delay to allow Steam to update
-                                await LoadStatsAsync();
+                                this.DispatcherQueue.TryEnqueue(async () => await LoadStatsAsync());
                             });
                         }
                     });
