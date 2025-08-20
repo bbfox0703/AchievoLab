@@ -3,12 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
 using System.Threading.Tasks;
-using Microsoft.UI.Xaml.Media.Imaging;
-using Windows.Storage.Streams;
-using Windows.Storage;
-using System.Runtime.InteropServices.WindowsRuntime;
-using Windows.Graphics.Imaging;
-using Windows.ApplicationModel;
+// Service no longer constructs BitmapImages directly
 
 namespace RunGame.Services
 {
@@ -16,7 +11,7 @@ namespace RunGame.Services
     {
         private readonly HttpClient _httpClient;
         private readonly string _cacheDirectory;
-        private readonly Dictionary<string, BitmapSource> _memoryCache = new();
+        private readonly Dictionary<string, string> _memoryCache = new();
         private readonly long _gameId;
         private bool _disposed = false;
 
@@ -35,7 +30,7 @@ namespace RunGame.Services
             DebugLogger.LogDebug($"AchievementIconService initialized with cache directory: {_cacheDirectory}");
         }
 
-        public async Task<BitmapSource?> GetAchievementIconAsync(string achievementId, string iconFileName, bool isAchieved)
+        public async Task<string?> GetAchievementIconAsync(string achievementId, string iconFileName, bool isAchieved)
         {
             if (string.IsNullOrEmpty(iconFileName))
             {
@@ -49,10 +44,10 @@ namespace RunGame.Services
                 DebugLogger.LogDebug($"Processing icon for {achievementId}, filename: {iconFileName}, isAchieved: {isAchieved}");
                 
                 // Check memory cache first
-                if (_memoryCache.TryGetValue(cacheKey, out var cachedImage))
+                if (_memoryCache.TryGetValue(cacheKey, out var cachedPath))
                 {
                     DebugLogger.LogDebug($"Found cached icon for {achievementId}");
-                    return cachedImage;
+                    return cachedPath;
                 }
 
                 // Check disk cache - keep original extension (usually .jpg)
@@ -75,7 +70,6 @@ namespace RunGame.Services
 
                 if (File.Exists(filePath))
                 {
-                    // Use the bytes approach which is more reliable in WinUI 3
                     return await LoadImageFromBytesAsync(filePath, cacheKey, achievementId);
                 }
             }
@@ -116,58 +110,33 @@ namespace RunGame.Services
         }
 
 
-        private async Task<BitmapSource?> LoadImageFromBytesAsync(string filePath, string cacheKey, string achievementId)
+        private Task<string?> LoadImageFromBytesAsync(string filePath, string cacheKey, string achievementId)
         {
             try
             {
                 DebugLogger.LogDebug($"Attempting to load icon for {achievementId} from {filePath}");
-                
-                // Check if file exists and has content
+
                 if (!File.Exists(filePath))
                 {
                     DebugLogger.LogDebug($"File does not exist: {filePath}");
-                    return null;
+                    return Task.FromResult<string?>(null);
                 }
-                
+
                 var fileInfo = new FileInfo(filePath);
                 if (fileInfo.Length == 0)
                 {
                     DebugLogger.LogDebug($"File is empty: {filePath}");
-                    return null;
+                    return Task.FromResult<string?>(null);
                 }
-                
-                DebugLogger.LogDebug($"File exists and has {fileInfo.Length} bytes");
-                
-                // Use URI approach like AnSAM does
-                Uri? fileUri = null;
-                try
-                {
-                    if (Uri.TryCreate(filePath, UriKind.Absolute, out fileUri))
-                    {
-                        var bitmap = new BitmapImage(fileUri);
-                        
-                        _memoryCache[cacheKey] = bitmap;
-                        DebugLogger.LogDebug($"Successfully loaded icon using URI for {achievementId}: {fileUri}");
-                        return bitmap;
-                    }
-                    else
-                    {
-                        DebugLogger.LogDebug($"Failed to create URI from path for {achievementId}: {filePath}");
-                        return null;
-                    }
-                }
-                catch (Exception uriEx)
-                {
-                    DebugLogger.LogDebug($"URI approach failed for {achievementId}: {uriEx.Message} ({uriEx.GetType().Name})");
-                    DebugLogger.LogDebug($"Attempted URI: {fileUri}");
-                    DebugLogger.LogDebug($"Stack trace: {uriEx.StackTrace}");
-                    return null;
-                }
+
+                _memoryCache[cacheKey] = filePath;
+                DebugLogger.LogDebug($"Icon path cached for {achievementId}: {filePath}");
+                return Task.FromResult<string?>(filePath);
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"All approaches failed for {achievementId}: {ex.Message}");
-                return null;
+                DebugLogger.LogDebug($"Failed to load icon path for {achievementId}: {ex.Message}");
+                return Task.FromResult<string?>(null);
             }
         }
 
