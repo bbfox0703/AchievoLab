@@ -38,7 +38,7 @@ namespace MyOwnGames
             try
             {
                 // Ensure Windows App SDK runtime is registered when running unpackaged.
-                Bootstrap.Initialize();
+                Bootstrap.Initialize(0);
             }
             catch (System.Exception)
             {
