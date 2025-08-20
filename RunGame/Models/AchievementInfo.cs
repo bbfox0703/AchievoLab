@@ -15,6 +15,9 @@ namespace RunGame.Models
         public string Name { get; set; } = string.Empty;
         public string Description { get; set; } = string.Empty;
         
+        // Track original state for change detection
+        public bool OriginalIsAchieved { get; set; }
+        
         public bool IsAchieved 
         { 
             get => _isAchieved; 
@@ -42,6 +45,9 @@ namespace RunGame.Models
                 : string.IsNullOrEmpty(IconLocked) ? IconNormal : IconLocked;
         public bool IsProtected => (Permission & 3) != 0;
         public Visibility LockVisibility => IsProtected && !IsAchieved ? Visibility.Visible : Visibility.Collapsed;
+        
+        // Check if achievement state has been modified
+        public bool IsModified => IsAchieved != OriginalIsAchieved;
         
         // Cached icon image
         private BitmapSource? _iconImage;

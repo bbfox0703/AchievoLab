@@ -35,8 +35,10 @@ namespace AnSAM
         protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
         {
             var theme = LoadThemePreference() ?? GetSystemTheme();
-            this.RequestedTheme = ToApplicationTheme(theme);
-
+            
+            // Don't set Application.RequestedTheme to avoid COMException
+            // Theme will be applied at MainWindow level instead
+            
             _steamClient = new SteamClient();
             _window = new MainWindow(_steamClient, theme);
             _window.Closed += (_, _) => _steamClient?.Dispose();

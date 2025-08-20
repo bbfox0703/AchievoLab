@@ -331,6 +331,9 @@ namespace RunGame
                         achievement.Counter = counter;
                     }
 
+                    // Set original state for change detection
+                    achievement.OriginalIsAchieved = achievement.IsAchieved;
+
                     // Listen for property changes to update icons dynamically
                     achievement.PropertyChanged += OnAchievementPropertyChanged;
 
@@ -432,23 +435,23 @@ namespace RunGame
         {
             int count = 0;
             
-            foreach (var achievement in _achievements)
+            // Only process achievements that have been modified
+            foreach (var achievement in _achievements.Where(a => a.IsModified))
             {
-                var originalState = _gameStatsService.GetAchievements()
-                    .FirstOrDefault(a => a.Id == achievement.Id)?.IsAchieved ?? false;
+                DebugLogger.LogDebug($"Achievement {achievement.Id} modified: {achievement.OriginalIsAchieved} -> {achievement.IsAchieved}");
                 
-                if (achievement.IsAchieved != originalState)
+                if (!_gameStatsService.SetAchievement(achievement.Id, achievement.IsAchieved))
                 {
-                    if (!_gameStatsService.SetAchievement(achievement.Id, achievement.IsAchieved))
+                    if (!silent)
                     {
-                        if (!silent)
-                        {
-                            ShowErrorDialog($"Failed to set achievement '{achievement.Id}'");
-                        }
-                        return -1;
+                        ShowErrorDialog($"Failed to set achievement '{achievement.Id}'");
                     }
-                    count++;
+                    return -1;
                 }
+                
+                // Update original state after successful write
+                achievement.OriginalIsAchieved = achievement.IsAchieved;
+                count++;
             }
             
             return count;
@@ -629,11 +632,12 @@ namespace RunGame
 
         private async void OnSetTimer(object sender, RoutedEventArgs e)
         {
-            var selectedItems = AchievementListView.SelectedItems.Cast<AchievementInfo>().ToList();
+            // Set timer for all unachieved achievements (like Legacy SAM.Game)
+            var unachievedItems = _achievements.Where(a => !a.IsAchieved && !a.IsProtected).ToList();
             
-            if (selectedItems.Count == 0)
+            if (unachievedItems.Count == 0)
             {
-                ShowErrorDialog("Please select at least one achievement");
+                ShowErrorDialog("No unachieved achievements available for timer");
                 return;
             }
 
@@ -674,14 +678,14 @@ namespace RunGame
                         return;
                     }
 
-                    foreach (var achievement in selectedItems)
+                    foreach (var achievement in unachievedItems)
                     {
                         achievement.ScheduledUnlockTime = unlockTime;
                         _achievementTimerService?.ScheduleAchievement(achievement.Id, unlockTime);
                         DebugLogger.LogDebug($"Scheduled achievement {achievement.Id} to unlock at {unlockTime}");
                     }
 
-                    StatusLabel.Text = $"Scheduled {selectedItems.Count} achievement(s) to unlock at {unlockTime:yyyy-MM-dd HH:mm:ss}";
+                    StatusLabel.Text = $"Scheduled {unachievedItems.Count} unachieved achievement(s) to unlock at {unlockTime:yyyy-MM-dd HH:mm:ss}";
                 }
                 else
                 {
@@ -843,14 +847,18 @@ namespace RunGame
 
         private void ShowErrorDialog(string message)
         {
-            var dialog = new ContentDialog
+            try
             {
-                Title = "Error",
-                Content = message,
-                CloseButtonText = "OK",
-                XamlRoot = this.Content.XamlRoot
-            };
-            _ = dialog.ShowAsync();
+                this.DispatcherQueue.TryEnqueue(() =>
+                {
+                    StatusLabel.Text = $"Error: {message}";
+                    DebugLogger.LogDebug($"Error dialog: {message}");
+                });
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error showing error dialog: {ex.Message}");
+            }
         }
 
         private static string GetErrorDescription(int errorCode)

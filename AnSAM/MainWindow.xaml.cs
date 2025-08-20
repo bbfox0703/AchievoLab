@@ -47,7 +47,6 @@ namespace AnSAM
         public MainWindow(SteamClient steamClient, ElementTheme theme)
         {
             _steamClient = steamClient;
-            this.RequestedTheme = theme;
             InitializeComponent();
 
             _uiSettings.ColorValuesChanged += UiSettings_ColorValuesChanged;
@@ -111,7 +110,7 @@ namespace AnSAM
                 }
             }
 
-            ((App)Application.Current).RequestedTheme = App.ToApplicationTheme(theme);
+            // Don't set Application.RequestedTheme to avoid COMException in WinUI 3
         }
         private void Theme_Default_Click(object sender, RoutedEventArgs e) => ApplyTheme(ElementTheme.Default);
         private void Theme_Light_Click(object sender, RoutedEventArgs e) => ApplyTheme(ElementTheme.Light);

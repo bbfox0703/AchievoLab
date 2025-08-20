@@ -1,6 +1,6 @@
 {
   "profiles": {
-    "AnSAM_RunGame": {
+    "RunGame": {
       "commandName": "Project",
       "commandLineArgs": "2195410"
     }
