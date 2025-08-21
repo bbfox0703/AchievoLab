@@ -83,21 +83,21 @@ namespace MyOwnGames.Services
                             {
                                 // Ensure thread-safe file write
                                 await Task.Run(() => File.WriteAllBytes(filePath, content));
-                                System.Diagnostics.Debug.WriteLine($"Downloaded game image: {url} -> {filePath}");
+                                DebugLogger.LogDebug($"Downloaded game image: {url} -> {filePath}");
                                 return;
                             }
                         }
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"Failed to download from {url}: {ex.Message}");
+                        DebugLogger.LogDebug($"Failed to download from {url}: {ex.Message}");
                         continue;
                     }
                 }
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Error downloading game image for {appId}: {ex.Message}");
+                DebugLogger.LogDebug($"Error downloading game image for {appId}: {ex.Message}");
             }
         }
 
@@ -114,7 +114,7 @@ namespace MyOwnGames.Services
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Error clearing image cache: {ex.Message}");
+                DebugLogger.LogDebug($"Error clearing image cache: {ex.Message}");
             }
         }
 

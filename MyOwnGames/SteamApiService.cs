@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using System.Globalization;
 using System.Threading;
+using MyOwnGames.Services;
 
 namespace MyOwnGames
 {
@@ -122,7 +123,7 @@ namespace MyOwnGames
             catch (Exception ex)
             {
                 // Log error and fall back to English name
-                System.Diagnostics.Debug.WriteLine($"Error getting localized name for {appId}: {ex.Message}");
+                DebugLogger.LogDebug($"Error getting localized name for {appId}: {ex.Message}");
             }
 
             return englishName; // Return English name as fallback

@@ -40,7 +40,7 @@ namespace MyOwnGames.Services
                 );
 
                 await Task.Run(() => root.Save(_xmlFilePath));
-                System.Diagnostics.Debug.WriteLine($"Saved {games.Count} games to {_xmlFilePath}");
+                DebugLogger.LogDebug($"Saved {games.Count} games to {_xmlFilePath}");
             }
             catch (Exception ex)
             {
@@ -67,12 +67,12 @@ namespace MyOwnGames.Services
                     })
                     .ToList() ?? new List<SteamGame>();
 
-                System.Diagnostics.Debug.WriteLine($"Loaded {games.Count} games from {_xmlFilePath}");
+                DebugLogger.LogDebug($"Loaded {games.Count} games from {_xmlFilePath}");
                 return games;
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Error loading games from XML: {ex.Message}");
+                DebugLogger.LogDebug($"Error loading games from XML: {ex.Message}");
                 return new List<SteamGame>();
             }
         }
@@ -99,7 +99,7 @@ namespace MyOwnGames.Services
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Error getting export info: {ex.Message}");
+                DebugLogger.LogDebug($"Error getting export info: {ex.Message}");
                 return null;
             }
         }
