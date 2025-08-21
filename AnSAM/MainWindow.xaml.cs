@@ -36,6 +36,7 @@ namespace AnSAM
     public sealed partial class MainWindow : Window
     {
         public ObservableCollection<GameItem> Games { get; } = new();
+        public ObservableCollection<string> LogEntries { get; } = new();
         private readonly List<GameItem> _allGames = new();
         private readonly SteamClient _steamClient;
         private readonly AppWindow _appWindow;
@@ -584,6 +585,16 @@ namespace AnSAM
                     StatusExtra.Text = $"{Games.Count}/{_allGames.Count}";
                 }
             });
+        }
+
+        public void AppendLog(string message)
+        {
+            var entry = $"{DateTime.Now:HH:mm:ss} {message}";
+            LogEntries.Add(entry);
+            if (LogList.Items.Count > 0)
+            {
+                LogList.ScrollIntoView(LogList.Items[^1]);
+            }
         }
 
         private static ScrollViewer? FindScrollViewer(DependencyObject root)
