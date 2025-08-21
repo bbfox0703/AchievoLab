@@ -55,6 +55,17 @@ namespace AnSAM.Services
         }
 
         /// <summary>
+        /// Returns the current icon download progress counters.
+        /// </summary>
+        /// <returns>A tuple of completed and total downloads.</returns>
+        public static (int completed, int total) GetProgress()
+        {
+            var total = Volatile.Read(ref _totalRequests);
+            var completed = Volatile.Read(ref _completed);
+            return (completed, total);
+        }
+
+        /// <summary>
         /// Returns a local file path for the provided cover URI, downloading it if necessary.
         /// </summary>
         /// <param name="id">Steam application identifier used to name the file.</param>
@@ -80,6 +91,9 @@ namespace AnSAM.Services
 #if DEBUG
                         DebugLogger.LogDebug($"Using cached icon for {id} at {path}");
 #endif
+                        Interlocked.Increment(ref _totalRequests);
+                        Interlocked.Increment(ref _completed);
+                        ReportProgress();
                         return Task.FromResult(new IconPathResult(path, false));
                     }
 
