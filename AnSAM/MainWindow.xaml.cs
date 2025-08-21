@@ -43,11 +43,13 @@ namespace AnSAM
         private bool _autoLoaded;
         private ScrollViewer? _gamesScrollViewer;
         private readonly UISettings _uiSettings = new();
+        private bool _queuedOffscreenCovers;
 
         public MainWindow(SteamClient steamClient, ElementTheme theme)
         {
             _steamClient = steamClient;
             InitializeComponent();
+            GamesView.ContainerContentChanging += GamesView_ContainerContentChanging;
 
             _uiSettings.ColorValuesChanged += UiSettings_ColorValuesChanged;
 
@@ -248,7 +250,27 @@ namespace AnSAM
                 return;
             }
 
-            await game.LoadCoverAsync(_steamClient);
+            if (game.CoverPath == null)
+            {
+                await game.LoadCoverAsync(_steamClient);
+            }
+
+            if (_queuedOffscreenCovers)
+            {
+                return;
+            }
+
+            _queuedOffscreenCovers = true;
+            _ = Task.Run(async () =>
+            {
+                foreach (var g in Games)
+                {
+                    if (g.CoverPath == null)
+                    {
+                        await g.LoadCoverAsync(_steamClient).ConfigureAwait(false);
+                    }
+                }
+            });
         }
 
         private void GameCard_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
