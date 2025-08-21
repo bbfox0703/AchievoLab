@@ -361,6 +361,7 @@ namespace AnSAM
             var apps = await GameCacheService.RefreshAsync(baseDir, _steamClient, http);
 
             var (allGames, filteredGames) = await BuildGameListAsync(apps, null);
+            var (completedIcons, totalIcons) = IconCache.GetProgress();
 
             _ = DispatcherQueue.TryEnqueue(() =>
             {
@@ -373,11 +374,21 @@ namespace AnSAM
                     Games.Add(game);
                 }
 
-                StatusText.Text = _steamClient.Initialized
-                    ? $"Loaded {_allGames.Count} games"
-                    : $"Steam unavailable - showing {_allGames.Count} games";
-                StatusProgress.Value = 0;
-                StatusExtra.Text = $"{Games.Count}/{_allGames.Count}";
+                if (totalIcons > completedIcons)
+                {
+                    double p = totalIcons > 0 ? (double)completedIcons / totalIcons * 100 : 0;
+                    StatusText.Text = "Downloading icons…";
+                    StatusProgress.Value = p;
+                    StatusExtra.Text = $"{completedIcons}/{totalIcons}";
+                }
+                else
+                {
+                    StatusText.Text = _steamClient.Initialized
+                        ? $"Loaded {_allGames.Count} games"
+                        : $"Steam unavailable - showing {_allGames.Count} games";
+                    StatusProgress.Value = 0;
+                    StatusExtra.Text = $"{Games.Count}/{_allGames.Count}";
+                }
             });
         }
 
@@ -551,16 +562,18 @@ namespace AnSAM
         {
             _ = DispatcherQueue.TryEnqueue(() =>
             {
-                double p = total > 0 ? (double)completed / total * 100 : 0;
-                StatusProgress.Value = p;
-                StatusExtra.Text = $"{completed}/{total}";
                 if (completed < total)
                 {
-                    StatusText.Text = "Downloading icons";
+                    double p = total > 0 ? (double)completed / total * 100 : 0;
+                    StatusProgress.Value = p;
+                    StatusExtra.Text = $"{completed}/{total}";
+                    StatusText.Text = "Downloading icons…";
                 }
                 else if (total > 0)
                 {
                     StatusText.Text = $"Loaded {_allGames.Count} games";
+                    StatusProgress.Value = 0;
+                    StatusExtra.Text = $"{Games.Count}/{_allGames.Count}";
                 }
             });
         }
