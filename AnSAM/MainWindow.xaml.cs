@@ -659,12 +659,14 @@ namespace AnSAM
 
             _coverLoading = true;
             var dispatcher = DispatcherQueue.GetForCurrentThread();
+            var coverAssigned = false;
 
             try
             {
                 var cached = IconCache.TryGetCachedIconUri(ID);
                 if (cached != null)
                 {
+                    coverAssigned = true;
                     if (dispatcher != null)
                     {
                         _ = dispatcher.TryEnqueue(() => CoverPath = cached);
@@ -697,6 +699,7 @@ namespace AnSAM
                     var result = await IconCache.GetIconPathAsync(ID, remoteUri).ConfigureAwait(false);
                     if (Uri.TryCreate(result.Path, UriKind.Absolute, out var localUri))
                     {
+                        coverAssigned = true;
                         if (dispatcher != null)
                         {
                             _ = dispatcher.TryEnqueue(() => CoverPath = localUri);
@@ -716,7 +719,7 @@ namespace AnSAM
             }
             finally
             {
-                if (CoverPath == null)
+                if (!coverAssigned && CoverPath == null)
                 {
                     var fallback = new Uri("ms-appx:///Assets/no_icon.png", UriKind.Absolute);
                     if (dispatcher != null)
