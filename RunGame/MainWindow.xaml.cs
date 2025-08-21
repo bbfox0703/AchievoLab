@@ -339,6 +339,9 @@ namespace RunGame
                 await LoadAchievements();
                 LoadStatistics();
 
+                // Restore timer display after loading achievements
+                UpdateScheduledTimesDisplay();
+
                 DebugLogger.LogDebug($"UI updated - {_achievements.Count} achievements, {_statistics.Count} statistics");
                 StatusLabel.Text = $"Retrieved {_achievements.Count} achievements and {_statistics.Count} statistics";
 
@@ -712,87 +715,64 @@ namespace RunGame
 
         private void OnLockAll(object sender, RoutedEventArgs e)
         {
-            DebugLogger.LogDebug("Lock All button clicked");
-            foreach (var achievement in _achievements)
+            DebugLogger.LogDebug("Select all unlocked button clicked");
+            
+            // Clear current selection
+            AchievementListView.SelectedItems.Clear();
+            
+            // Select all unlocked achievements that are not protected
+            var unlockedAchievements = _achievements
+                .Where(a => !a.IsProtected && a.IsAchieved)
+                .ToList();
+            
+            foreach (var achievement in unlockedAchievements)
             {
-                if (!achievement.IsProtected)
-                {
-                    achievement.IsAchieved = false;
-                }
+                AchievementListView.SelectedItems.Add(achievement);
             }
+            
+            DebugLogger.LogDebug($"Selected {unlockedAchievements.Count} unlocked achievements");
         }
 
         private void OnUnlockAll(object sender, RoutedEventArgs e)
         {
-            DebugLogger.LogDebug("Unlock All button clicked");
-            foreach (var achievement in _achievements)
+            DebugLogger.LogDebug("Select all locked button clicked");
+            
+            // Clear current selection
+            AchievementListView.SelectedItems.Clear();
+            
+            // Select all locked achievements that are not protected
+            var lockedAchievements = _achievements
+                .Where(a => !a.IsProtected && !a.IsAchieved)
+                .ToList();
+            
+            foreach (var achievement in lockedAchievements)
             {
-                if (!achievement.IsProtected)
-                {
-                    achievement.IsAchieved = true;
-                }
+                AchievementListView.SelectedItems.Add(achievement);
             }
+            
+            DebugLogger.LogDebug($"Selected {lockedAchievements.Count} locked achievements");
         }
 
         private void OnInvertAll(object sender, RoutedEventArgs e)
         {
-            DebugLogger.LogDebug("Invert All button clicked");
-            foreach (var achievement in _achievements)
+            DebugLogger.LogDebug("Select All button clicked");
+            
+            // Clear current selection
+            AchievementListView.SelectedItems.Clear();
+            
+            // Select all achievements that are not protected
+            var selectableAchievements = _achievements
+                .Where(a => !a.IsProtected)
+                .ToList();
+            
+            foreach (var achievement in selectableAchievements)
             {
-                if (!achievement.IsProtected)
-                {
-                    achievement.IsAchieved = !achievement.IsAchieved;
-                }
+                AchievementListView.SelectedItems.Add(achievement);
             }
+            
+            DebugLogger.LogDebug($"Selected {selectableAchievements.Count} achievements");
         }
 
-        private async void OnResetAllStats(object sender, RoutedEventArgs e)
-        {
-            var dialog = new ContentDialog
-            {
-                Title = "Reset All Stats",
-                Content = "Are you absolutely sure you want to reset all stats?",
-                PrimaryButtonText = "Yes",
-                SecondaryButtonText = "No",
-                DefaultButton = ContentDialogButton.Secondary,
-                XamlRoot = this.Content.XamlRoot
-            };
-
-            if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
-
-            var achievementDialog = new ContentDialog
-            {
-                Title = "Reset Achievements Too?",
-                Content = "Do you want to reset achievements as well?",
-                PrimaryButtonText = "Yes",
-                SecondaryButtonText = "No",
-                DefaultButton = ContentDialogButton.Secondary,
-                XamlRoot = this.Content.XamlRoot
-            };
-
-            bool resetAchievements = await achievementDialog.ShowAsync() == ContentDialogResult.Primary;
-
-            var confirmDialog = new ContentDialog
-            {
-                Title = "Final Confirmation",
-                Content = "Really really sure? This cannot be undone!",
-                PrimaryButtonText = "Yes, Reset Everything",
-                SecondaryButtonText = "Cancel",
-                DefaultButton = ContentDialogButton.Secondary,
-                XamlRoot = this.Content.XamlRoot
-            };
-
-            if (await confirmDialog.ShowAsync() != ContentDialogResult.Primary) return;
-
-            if (_gameStatsService.ResetAllStats(resetAchievements))
-            {
-                await LoadStatsAsync();
-            }
-            else
-            {
-                ShowErrorDialog("Failed to reset stats");
-            }
-        }
 
         private void OnSearchTextChanged(object sender, TextChangedEventArgs e)
         {

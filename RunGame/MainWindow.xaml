@@ -16,10 +16,9 @@
             <AppBarButton x:Name="RefreshButton" Icon="Refresh" Label="Refresh" Click="OnRefresh" ToolTipService.ToolTip="Refresh"/>
             <AppBarButton x:Name="StoreButton" Icon="Save" Label="Store" Click="OnStore" ToolTipService.ToolTip="Store"/>
             <AppBarSeparator/>
-            <AppBarButton x:Name="LockAllButton" Icon="DisableUpdates" Label="Lock All" Click="OnLockAll" ToolTipService.ToolTip="Lock All"/>
-            <AppBarButton x:Name="UnlockAllButton" Icon="Pin" Label="Unlock All" Click="OnUnlockAll" ToolTipService.ToolTip="Unlock All"/>
-            <AppBarButton x:Name="InvertAllButton" Icon="Switch" Label="Invert All" Click="OnInvertAll" ToolTipService.ToolTip="Invert All"/>
-            <AppBarButton x:Name="ResetStatsButton" Icon="Delete" Label="Reset Stats" Click="OnResetAllStats" ToolTipService.ToolTip="Reset Stats"/>
+            <AppBarButton x:Name="LockAllButton" Icon="DisableUpdates" Label="Select all unlocked" Click="OnUnlockAll" ToolTipService.ToolTip="Select all unlocked"/>
+            <AppBarButton x:Name="UnlockAllButton" Icon="Pin" Label="Select all locked" Click="OnLockAll" ToolTipService.ToolTip="Select all locked"/>
+            <AppBarButton x:Name="InvertAllButton" Icon="Switch" Label="Select All" Click="OnInvertAll" ToolTipService.ToolTip="Select All"/>
             <AppBarToggleButton x:Name="AutoMouseMoveButton" Icon="Target" Label="Auto Mouse" Checked="OnAutoMouseMove" Unchecked="OnAutoMouseMove" ToolTipService.ToolTip="Auto Mouse"/>
             <AppBarToggleButton x:Name="TimerToggleButton" Icon="Clock" Label="Timer" Click="OnTimerToggle" ToolTipService.ToolTip="Timer"/>
         </CommandBar>

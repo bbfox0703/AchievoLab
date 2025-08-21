@@ -88,7 +88,10 @@ namespace MyOwnGames
                     };
                     
                     games.Add(steamGame);
-                    
+
+                    // Log retrieval progress
+                    DebugLogger.LogDebug($"Retrieving game {i + 1}/{total}: {steamGame.NameEn}");
+
                     // Update progress more smoothly
                     var gameProgress = 40 + (60.0 * (i + 1) / total);
                     progress?.Report(gameProgress);

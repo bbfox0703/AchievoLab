@@ -36,8 +36,10 @@ namespace MyOwnGames
     public sealed partial class MainWindow : Window, INotifyPropertyChanged
     {
         public ObservableCollection<GameEntry> GameItems { get; } = new();
+        public ObservableCollection<string> LogEntries { get; } = new();
         private readonly GameImageService _imageService = new();
         private readonly GameDataService _dataService = new();
+        private readonly Action<string> _logHandler;
 
         private readonly AppWindow _appWindow;
 
@@ -89,17 +91,31 @@ namespace MyOwnGames
         public event PropertyChangedEventHandler? PropertyChanged;
         private void OnPropertyChanged([CallerMemberName] string? name = null)
             => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+
+        public void AppendLog(string message)
+        {
+            var entry = $"[{DateTime.Now:HH:mm:ss}] {message}";
+            LogEntries.Add(entry);
+            if (LogEntries.Count > 0)
+            {
+                LogList.UpdateLayout();
+                LogList.ScrollIntoView(LogEntries[LogEntries.Count - 1]);
+            }
+        }
         public MainWindow()
         {
             InitializeComponent();
             this.ExtendsContentIntoTitleBar = true;
             this.AppWindow.Title = "My Own Steam Games";
 
-            // ®˙±o AppWindow
+            _logHandler = message => DispatcherQueue.TryEnqueue(() => AppendLog(message));
+            DebugLogger.OnLog += _logHandler;
+
+            // ÂèñÂæó AppWindow
             var hwnd = WindowNative.GetWindowHandle(this);
             var winId = Win32Interop.GetWindowIdFromWindow(hwnd);
             _appWindow = AppWindow.GetFromWindowId(winId);
-            // ≥]©w Icon°G´¸¶V•¥•]´·™∫πÍ≈È¿…Æ◊∏ÙÆ|
+            // Ë®≠ÂÆö IconÔºöÊåáÂêëÊâìÂåÖÂæåÁöÑÂØ¶È´îÊ™îÊ°àË∑ØÂæë
             var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "MyOwnGames.ico");
             if (File.Exists(iconPath))
                 _appWindow.SetIcon(iconPath);
@@ -115,6 +131,7 @@ namespace MyOwnGames
         {
             try
             {
+                AppendLog("Loading saved games...");
                 StatusText = "Loading saved games...";
                 var savedGames = await _dataService.LoadGamesFromXmlAsync();
                 
@@ -144,10 +161,13 @@ namespace MyOwnGames
                 {
                     StatusText = "Ready. Enter Steam API Key and SteamID to fetch your games.";
                 }
+
+                AppendLog($"Loaded {savedGames.Count} saved games from {_dataService.GetXmlFilePath()}");
             }
             catch (Exception ex)
             {
                 StatusText = $"Error loading saved games: {ex.Message}";
+                AppendLog($"Error loading saved games: {ex.Message}");
             }
         }
 
@@ -163,11 +183,17 @@ namespace MyOwnGames
                     {
                         entry.IconUri = imagePath;
                     });
+                    AppendLog($"Loaded image for {appId}");
+                }
+                else
+                {
+                    AppendLog($"Image not found for {appId}");
                 }
             }
             catch (Exception ex)
             {
                 DebugLogger.LogDebug($"Error loading image for {appId}: {ex.Message}");
+                AppendLog($"Error loading image for {appId}: {ex.Message}");
             }
         }
 
@@ -183,8 +209,10 @@ namespace MyOwnGames
             }
 
             SteamApiService? steamService = null;
+            string? xmlPath = null;
             try
             {
+                AppendLog("Starting game retrieval...");
                 IsLoading = true;
                 StatusText = "Fetching game list from Steam Web API...";
                 ProgressValue = 0;
@@ -227,19 +255,22 @@ namespace MyOwnGames
 
                 // Save to XML for AnSAM usage
                 await _dataService.SaveGamesToXmlAsync(steamGames, steamId64, apiKey, selectedLanguage);
-                var xmlPath = _dataService.GetXmlFilePath();
+                xmlPath = _dataService.GetXmlFilePath();
 
                 StatusText = $"Successfully loaded {GameItems.Count} games ({selectedLanguage}) and saved to {xmlPath}";
+                AppendLog($"Retrieved {GameItems.Count} games and saved to {xmlPath}");
             }
             catch (Exception ex)
             {
                 StatusText = "Error: " + ex.Message;
+                AppendLog($"Error retrieving games: {ex.Message}");
             }
             finally
             {
                 steamService?.Dispose();
                 IsLoading = false;
                 ProgressValue = 100;
+                AppendLog("Finished retrieving games.");
             }
         }
 
@@ -266,6 +297,7 @@ namespace MyOwnGames
         ~MainWindow()
         {
             _imageService?.Dispose();
+            DebugLogger.OnLog -= _logHandler;
         }
     }
 
