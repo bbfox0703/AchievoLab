@@ -67,6 +67,7 @@
   <!-- Language Resource Filtering -->
   <PropertyGroup>
     <SatelliteResourceLanguages>en-US;en-GB;zh-TW;ja-JP;ko-KR</SatelliteResourceLanguages>
+    <ApplicationIcon>Assets\MyOwnGames.ico</ApplicationIcon>
   </PropertyGroup>
   
   <!-- Output Directory Configuration -->

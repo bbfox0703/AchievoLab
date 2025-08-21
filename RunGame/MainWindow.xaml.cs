@@ -9,6 +9,7 @@ using RunGame.Models;
 using RunGame.Services;
 using RunGame.Steam;
 using System;
+using System.IO;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -17,7 +18,9 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using Windows.Storage;
+using Windows.UI;
 using Windows.UI.ViewManagement;
+using Windows.UI.WindowManagement;
 using WinRT.Interop;
 
 namespace RunGame
@@ -41,6 +44,8 @@ namespace RunGame
         private bool _isLoadingStats = false;
         private bool _lastMouseMoveRight = true;
 
+        private readonly Microsoft.UI.Windowing.AppWindow _appWindow;
+
         // Theme
         private readonly UISettings _uiSettings = new();
 
@@ -54,6 +59,15 @@ namespace RunGame
             this.InitializeComponent();
             
             _gameId = gameId;
+
+            // 取得 AppWindow
+            var hwnd = WindowNative.GetWindowHandle(this);
+            var winId = Win32Interop.GetWindowIdFromWindow(hwnd);
+            _appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(winId);
+            // 設定 Icon：指向打包後的實體檔案路徑
+            var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "RunGame.ico");
+            if (File.Exists(iconPath))
+                _appWindow.SetIcon(iconPath);
 
             // Set Steam AppID environment variable - some games require this
             Environment.SetEnvironmentVariable("SteamAppId", gameId.ToString());

@@ -1,3 +1,5 @@
+using Microsoft.UI;
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -6,19 +8,22 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Navigation;
+using MyOwnGames.Services;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Globalization;
-using System.Runtime.CompilerServices;
-using System.Threading.Tasks;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices.WindowsRuntime;
+using System.Threading.Tasks;
 using Windows.Foundation;
 using Windows.Foundation.Collections;
-using MyOwnGames.Services;
+using Windows.UI;
+using Windows.UI.ViewManagement;
+using WinRT.Interop;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -33,6 +38,8 @@ namespace MyOwnGames
         public ObservableCollection<GameEntry> GameItems { get; } = new();
         private readonly GameImageService _imageService = new();
         private readonly GameDataService _dataService = new();
+
+        private readonly AppWindow _appWindow;
 
         private string _statusText = "Ready.";
         public string StatusText
@@ -87,6 +94,16 @@ namespace MyOwnGames
             InitializeComponent();
             this.ExtendsContentIntoTitleBar = true;
             this.AppWindow.Title = "My Own Steam Games";
+
+            // 取得 AppWindow
+            var hwnd = WindowNative.GetWindowHandle(this);
+            var winId = Win32Interop.GetWindowIdFromWindow(hwnd);
+            _appWindow = AppWindow.GetFromWindowId(winId);
+            // 設定 Icon：指向打包後的實體檔案路徑
+            var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "MyOwnGames.ico");
+            if (File.Exists(iconPath))
+                _appWindow.SetIcon(iconPath);
+
 
             // Set DataContext for binding
             RootGrid.DataContext = this;
