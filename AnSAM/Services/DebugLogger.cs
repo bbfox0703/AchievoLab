@@ -28,8 +28,26 @@ namespace AnSAM.Services
             var timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
             var logMessage = $"[{timestamp}] DEBUG: {message}";
 
-            Debug.WriteLine(logMessage);
-            Console.WriteLine(logMessage);
+            try
+            {
+                Debug.WriteLine(logMessage);
+            }
+            catch
+            {
+                // 忽略日誌輸出錯誤
+            }
+
+            if (Environment.UserInteractive || Debugger.IsAttached)
+            {
+                try
+                {
+                    Console.WriteLine(logMessage);
+                }
+                catch
+                {
+                    // 忽略日誌輸出錯誤
+                }
+            }
 
             try
             {
