@@ -350,6 +350,7 @@ namespace AnSAM
             }
 
             StatusText.Text = "Refresh";
+            StatusProgress.IsIndeterminate = false;
             StatusProgress.Value = 0;
             StatusExtra.Text = "0%";
 
@@ -569,7 +570,7 @@ namespace AnSAM
                     StatusExtra.Text = $"{completed}/{total}";
                     StatusText.Text = "Downloading icons…";
                 }
-                else if (total > 0)
+                else if (total > 0 && _allGames.Count > 0)
                 {
                     StatusText.Text = $"Loaded {_allGames.Count} games";
                     StatusProgress.Value = 0;

@@ -91,6 +91,9 @@ namespace AnSAM.Services
 #if DEBUG
                         DebugLogger.LogDebug($"Using cached icon for {id} at {path}");
 #endif
+                        Interlocked.Increment(ref _totalRequests);
+                        Interlocked.Increment(ref _completed);
+                        ReportProgress();
                         return Task.FromResult(new IconPathResult(path, false));
                     }
 
