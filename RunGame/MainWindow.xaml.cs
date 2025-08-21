@@ -35,7 +35,9 @@ namespace RunGame
         private readonly ObservableCollection<AchievementInfo> _achievements = new();
         private readonly ObservableCollection<StatInfo> _statistics = new();
         private readonly Dictionary<string, int> _achievementCounters = new();
-        
+        private List<AchievementInfo> _allAchievements = new();
+        private readonly DispatcherTimer _searchDebounceTimer;
+
         private bool _isLoadingStats = false;
         private bool _lastMouseMoveRight = true;
 
@@ -71,9 +73,16 @@ namespace RunGame
             
             _achievementTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
             _achievementTimer.Tick += OnAchievementTimerTick;
-            
+
             _mouseTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
             _mouseTimer.Tick += OnMouseTimerTick;
+
+            _searchDebounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
+            _searchDebounceTimer.Tick += (_, _) =>
+            {
+                _searchDebounceTimer.Stop();
+                FilterAchievements();
+            };
 
             // Set up event handlers
             _gameStatsService.UserStatsReceived += OnUserStatsReceived;
@@ -292,7 +301,25 @@ namespace RunGame
                 }
 
                 DebugLogger.LogDebug("Loading achievements and statistics...");
-                LoadAchievements();
+
+                foreach (var achievement in _allAchievements)
+                {
+                    achievement.PropertyChanged -= OnAchievementPropertyChanged;
+                }
+
+                _allAchievements = _gameStatsService.GetAchievements().ToList();
+
+                foreach (var achievement in _allAchievements)
+                {
+                    if (_achievementCounters.TryGetValue(achievement.Id, out int counter))
+                    {
+                        achievement.Counter = counter;
+                    }
+                    achievement.OriginalIsAchieved = achievement.IsAchieved;
+                    achievement.PropertyChanged += OnAchievementPropertyChanged;
+                }
+
+                FilterAchievements();
                 LoadStatistics();
                 
                 DebugLogger.LogDebug($"UI updated - {_achievements.Count} achievements, {_statistics.Count} statistics");
@@ -303,40 +330,26 @@ namespace RunGame
             });
         }
 
-        private void LoadAchievements()
+        private void FilterAchievements()
         {
             _achievements.Clear();
-            var achievements = _gameStatsService.GetAchievements();
-            
-            // Apply current filters
-            string searchText = SearchTextBox.Text?.ToLower() ?? "";
+
+            string searchText = SearchTextBox.Text ?? string.Empty;
             bool showLockedOnly = ShowLockedButton.IsChecked == true;
             bool showUnlockedOnly = ShowUnlockedButton.IsChecked == true;
-            
-            foreach (var achievement in achievements)
+
+            foreach (var achievement in _allAchievements)
             {
                 bool matchesSearch = string.IsNullOrEmpty(searchText) ||
-                    achievement.Name.ToLower().Contains(searchText) ||
-                    achievement.Description.ToLower().Contains(searchText);
-                
+                    achievement.Name.IndexOf(searchText, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    achievement.Description.IndexOf(searchText, StringComparison.OrdinalIgnoreCase) >= 0;
+
                 bool matchesFilter = (!showLockedOnly && !showUnlockedOnly) ||
                     (showLockedOnly && !achievement.IsAchieved) ||
                     (showUnlockedOnly && achievement.IsAchieved);
-                
+
                 if (matchesSearch && matchesFilter)
                 {
-                    // Restore counter value if exists
-                    if (_achievementCounters.TryGetValue(achievement.Id, out int counter))
-                    {
-                        achievement.Counter = counter;
-                    }
-
-                    // Set original state for change detection
-                    achievement.OriginalIsAchieved = achievement.IsAchieved;
-
-                    // Listen for property changes to update icons dynamically
-                    achievement.PropertyChanged += OnAchievementPropertyChanged;
-
                     _achievements.Add(achievement);
                 }
             }
@@ -615,7 +628,8 @@ namespace RunGame
 
         private void OnSearchTextChanged(object sender, TextChangedEventArgs e)
         {
-            LoadAchievements();
+            _searchDebounceTimer.Stop();
+            _searchDebounceTimer.Start();
         }
 
         private void OnShowLockedToggle(object sender, RoutedEventArgs e)
@@ -624,7 +638,7 @@ namespace RunGame
             {
                 ShowUnlockedButton.IsChecked = false;
             }
-            LoadAchievements();
+            FilterAchievements();
         }
 
         private void OnShowUnlockedToggle(object sender, RoutedEventArgs e)
@@ -633,7 +647,7 @@ namespace RunGame
             {
                 ShowLockedButton.IsChecked = false;
             }
-            LoadAchievements();
+            FilterAchievements();
         }
 
         private async void OnLanguageChanged(object sender, SelectionChangedEventArgs e)
