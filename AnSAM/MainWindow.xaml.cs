@@ -381,7 +381,7 @@ namespace AnSAM
             });
         }
 
-        private Task<(List<GameItem> allGames, List<GameItem> filteredGames)> BuildGameListAsync(IEnumerable<SteamApp> apps, string? keyword)
+        private Task<(List<GameItem> allGames, List<GameItem> filteredGames)> BuildGameListAsync(IEnumerable<SteamAppData> apps, string? keyword)
         {
             return Task.Run(() =>
             {
