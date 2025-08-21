@@ -716,6 +716,19 @@ namespace AnSAM
             }
             finally
             {
+                if (CoverPath == null)
+                {
+                    var fallback = new Uri("ms-appx:///Assets/no_icon.png", UriKind.Absolute);
+                    if (dispatcher != null)
+                    {
+                        _ = dispatcher.TryEnqueue(() => CoverPath = fallback);
+                    }
+                    else
+                    {
+                        CoverPath = fallback;
+                    }
+                }
+
                 _coverLoading = false;
             }
         }
