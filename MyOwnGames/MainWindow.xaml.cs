@@ -36,6 +36,7 @@ namespace MyOwnGames
     public sealed partial class MainWindow : Window, INotifyPropertyChanged
     {
         public ObservableCollection<GameEntry> GameItems { get; } = new();
+        public ObservableCollection<string> LogEntries { get; } = new();
         private readonly GameImageService _imageService = new();
         private readonly GameDataService _dataService = new();
 
@@ -89,17 +90,28 @@ namespace MyOwnGames
         public event PropertyChangedEventHandler? PropertyChanged;
         private void OnPropertyChanged([CallerMemberName] string? name = null)
             => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+
+        public void AppendLog(string message)
+        {
+            var entry = $"[{DateTime.Now:HH:mm:ss}] {message}";
+            LogEntries.Add(entry);
+            if (LogEntries.Count > 0)
+            {
+                LogList.UpdateLayout();
+                LogList.ScrollIntoView(LogEntries[LogEntries.Count - 1]);
+            }
+        }
         public MainWindow()
         {
             InitializeComponent();
             this.ExtendsContentIntoTitleBar = true;
             this.AppWindow.Title = "My Own Steam Games";
 
-            // ¨ú±o AppWindow
+            // å–å¾— AppWindow
             var hwnd = WindowNative.GetWindowHandle(this);
             var winId = Win32Interop.GetWindowIdFromWindow(hwnd);
             _appWindow = AppWindow.GetFromWindowId(winId);
-            // ³]©w Icon¡G«ü¦V¥´¥]«áªº¹êÅéÀÉ®×¸ô®|
+            // è¨­å®š Iconï¼šæŒ‡å‘æ‰“åŒ…å¾Œçš„å¯¦é«”æª”æ¡ˆè·¯å¾‘
             var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "MyOwnGames.ico");
             if (File.Exists(iconPath))
                 _appWindow.SetIcon(iconPath);
