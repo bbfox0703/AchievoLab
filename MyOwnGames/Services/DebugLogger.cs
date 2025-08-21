@@ -6,6 +6,7 @@ namespace MyOwnGames.Services
 {
     public static class DebugLogger
     {
+        public static event Action<string>? OnLog;
         private static readonly string LogFilePath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "MyOwnGames", "debug.log");
@@ -28,6 +29,8 @@ namespace MyOwnGames.Services
 #if DEBUG
             var timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
             var logMessage = $"[{timestamp}] DEBUG: {message}";
+
+            OnLog?.Invoke(logMessage);
             
             // 輸出到控制台
             try
