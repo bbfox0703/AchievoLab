@@ -9,6 +9,8 @@ namespace RunGame.Models
         public string DisplayName { get; set; } = string.Empty;
         public bool IsIncrementOnly { get; set; }
         public int Permission { get; set; }
+        public bool IsProtected => (Permission & 3) != 0;
+        public bool IsNotProtected => !IsProtected;
         public abstract object Value { get; set; }
         public abstract bool IsModified { get; }
         public abstract string Extra { get; }

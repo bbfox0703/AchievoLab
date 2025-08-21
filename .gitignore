@@ -431,3 +431,7 @@ FodyWeavers.xsd
 .claude/
 CLAUDE.md
 nul
+
+# repos specified
+/reference/
+/Legacy/

@@ -16,13 +16,6 @@ namespace RunGame.Services
         private static AppWindow? _appWindow;
         private static readonly UISettings _uiSettings = new();
 
-        public static void Initialize(Window window, FrameworkElement root)
-        {
-            _root = root;
-            var hwnd = WindowNative.GetWindowHandle(window);
-            var winId = Win32Interop.GetWindowIdFromWindow(hwnd);
-            _appWindow = AppWindow.GetFromWindowId(winId);
-        }
 
         public static ElementTheme GetCurrentTheme()
         {
@@ -44,15 +37,29 @@ namespace RunGame.Services
             return ElementTheme.Light;
         }
 
+        public static void Initialize(Window window, FrameworkElement root)
+        {
+            _root = root;
+            var hwnd = WindowNative.GetWindowHandle(window);
+            var winId = Win32Interop.GetWindowIdFromWindow(hwnd);
+            _appWindow = AppWindow.GetFromWindowId(winId);
+        }
+
         public static void ApplyTheme(ElementTheme theme)
         {
             if (_root is null)
                 return;
-            DebugLogger.LogDebug("ApplyTheme() Start");
+            DebugLogger.LogDebug($"ApplyTheme() Start - Setting theme to {theme}");
 
             _root.RequestedTheme = theme;
+            
             ApplyAccentBrush();
             UpdateTitleBar(theme);
+            
+            // Simple layout update for OS theme changes
+            _root.UpdateLayout();
+            
+            DebugLogger.LogDebug($"ApplyTheme() Complete - Theme set to {theme}, ActualTheme is {_root.ActualTheme}");
         }
 
         public static void ApplyAccentBrush()
@@ -73,6 +80,13 @@ namespace RunGame.Services
 
             DebugLogger.LogDebug("UpdateTitleBar() Start");
 
+            // Resolve actual theme if Default
+            var actualTheme = theme;
+            if (theme == ElementTheme.Default)
+            {
+                actualTheme = GetCurrentTheme();
+            }
+
             var titleBar = _appWindow.TitleBar;
             var accent = _uiSettings.GetColorValue(UIColorType.Accent);
             var accentDark1 = _uiSettings.GetColorValue(UIColorType.AccentDark1);
@@ -85,7 +99,7 @@ namespace RunGame.Services
                 (byte)(foreground.G / 2),
                 (byte)(foreground.B / 2));
 
-            if (theme == ElementTheme.Dark)
+            if (actualTheme == ElementTheme.Dark)
             {
                 DebugLogger.LogDebug("UpdateTitleBar(): set dark theme");
                 titleBar.BackgroundColor = accentDark2;

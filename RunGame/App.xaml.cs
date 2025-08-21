@@ -7,6 +7,30 @@ namespace RunGame
     public partial class App : Application
     {
         internal static ApplicationDataContainer? LocalSettings { get; private set; }
+        
+        internal static ApplicationTheme ToApplicationTheme(ElementTheme theme)
+        {
+            var resolved = theme == ElementTheme.Default ? GetSystemTheme() : theme;
+            return resolved == ElementTheme.Dark ? ApplicationTheme.Dark : ApplicationTheme.Light;
+        }
+        
+        private static ElementTheme GetSystemTheme()
+        {
+            try
+            {
+                using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+                var value = key?.GetValue("AppsUseLightTheme");
+                if (value is int i)
+                {
+                    return i != 0 ? ElementTheme.Light : ElementTheme.Dark;
+                }
+            }
+            catch
+            {
+                // Fall back to light theme if we can't read the registry
+            }
+            return ElementTheme.Light;
+        }
 
         public App()
         {

@@ -434,6 +434,19 @@ namespace RunGame.Services
 
         public bool SetAchievement(string id, bool achieved)
         {
+            if (DebugLogger.IsDebugMode)
+            {
+                DebugLogger.LogDebug($"[DEBUG FAKE WRITE] SetAchievement: {id} = {achieved} (not actually written to Steam)");
+                
+                // Even in debug mode, we should adjust related statistics for consistency
+                if (achieved)
+                {
+                    AdjustRelatedStatistics(id);
+                }
+                
+                return true; // Always return success in debug mode
+            }
+            
             DebugLogger.LogDebug($"GameStatsService.SetAchievement called: {id} = {achieved}");
             
             // If setting achievement to true, check for related statistics and adjust them
@@ -442,7 +455,9 @@ namespace RunGame.Services
                 AdjustRelatedStatistics(id);
             }
             
-            return _steamClient.SetAchievement(id, achieved);
+            bool success = _steamClient.SetAchievement(id, achieved);
+            DebugLogger.LogDebug($"SetAchievement result: {success} for {id} = {achieved}");
+            return success;
         }
         
         private void AdjustRelatedStatistics(string achievementId)
@@ -471,42 +486,131 @@ namespace RunGame.Services
                 // Get current stat value
                 if (_steamClient.GetStatValue(statId, out int currentValue))
                 {
-                    if (currentValue < requiredValue)
+                    // Always set to the required value to ensure consistency
+                    // This handles cases where multiple achievements use the same stat with different values
+                    DebugLogger.LogDebug($"Setting stat {statId} to {requiredValue} for achievement {achievementId} (current: {currentValue})");
+                    
+                    if (DebugLogger.IsDebugMode)
                     {
-                        DebugLogger.LogDebug($"Adjusting stat {statId} from {currentValue} to {requiredValue} for achievement {achievementId}");
-                        _steamClient.SetStatValue(statId, requiredValue);
+                        DebugLogger.LogDebug($"[DEBUG FAKE WRITE] SetStatValue: {statId} = {requiredValue} (not actually written to Steam)");
                     }
                     else
                     {
-                        DebugLogger.LogDebug($"Stat {statId} already meets requirement ({currentValue} >= {requiredValue}) for achievement {achievementId}");
+                        bool success = _steamClient.SetStatValue(statId, requiredValue);
+                        DebugLogger.LogDebug($"SetStatValue result: {success} for {statId} = {requiredValue}");
                     }
                 }
                 else
                 {
                     DebugLogger.LogDebug($"Failed to get current value for stat {statId}");
                 }
+                
+                // Auto-trigger other achievements that use the same statistic with lower requirements
+                AutoTriggerRelatedAchievements(statId, requiredValue);
+            }
+        }
+        
+        private void AutoTriggerRelatedAchievements(string statId, int newValue)
+        {
+            // Find all achievements that use this statistic with lower or equal requirements
+            var relatedAchievements = new Dictionary<string, (string statId, int requiredValue)>
+            {
+                { "DestroyXUnits", ("DestroyXUnits_Stat", 5000) },
+                { "037_DestroyXUnitsLow", ("DestroyXUnits_Stat", 2500) },
+                { "WinXSkirmishGames", ("WinXSkirmishGames_Stat", 10) },
+                { "PillageXLocations", ("PillageXLocations_Stat", 100) },
+                { "RebuildXLocations", ("RebuildXLocations_Stat", 100) },
+                { "GetXLocationsToMaxProsperity", ("GetXLocationsToMaxProsperity_Stat", 500) },
+                { "BuildXBuildings", ("BuildXBuildings_Stat", 500) },
+                { "RecruitXUnits", ("RecruitXUnits_Stat", 2000) },
+                { "PlayXCombatCards", ("PlayXCombatCards_Stat", 6000) },
+                { "FindWanderingEruditeOnAllMaps", ("FindWanderingEruditeOnAllMaps_Stat", 8) },
+                { "FinishCampaignOnHardDifficulty", ("FinishCampaignOnHardDifficulty_Stat", 1) },
+                { "UnlockXLexicanumEntries", ("UnlockXLexicanumEntries_Stat", 999) }
+            };
+            
+            foreach (var kvp in relatedAchievements)
+            {
+                var achievementId = kvp.Key;
+                var (relatedStatId, requiredValue) = kvp.Value;
+                
+                // If this achievement uses the same statistic and has lower/equal requirement
+                if (relatedStatId == statId && requiredValue <= newValue)
+                {
+                    // Check if achievement is not already achieved using direct Steam API call
+                    if (_steamClient.GetAchievementAndUnlockTime(achievementId, out bool isAchieved, out _))
+                    {
+                        if (!isAchieved)
+                        {
+                            DebugLogger.LogDebug($"Auto-triggering achievement {achievementId} due to stat {statId} = {newValue} (requires {requiredValue})");
+                            
+                            if (DebugLogger.IsDebugMode)
+                            {
+                                DebugLogger.LogDebug($"[DEBUG FAKE WRITE] Auto SetAchievement: {achievementId} = True (not actually written to Steam)");
+                            }
+                            else
+                            {
+                                bool success = _steamClient.SetAchievement(achievementId, true);
+                                DebugLogger.LogDebug($"Auto SetAchievement result: {success} for {achievementId} = True");
+                            }
+                        }
+                        else
+                        {
+                            DebugLogger.LogDebug($"Achievement {achievementId} is already achieved, skipping auto-trigger");
+                        }
+                    }
+                    else
+                    {
+                        DebugLogger.LogDebug($"Failed to get achievement status for {achievementId}, skipping auto-trigger");
+                    }
+                }
             }
         }
 
         public bool SetStatistic(StatInfo stat)
         {
-            if (stat is IntStatInfo intStat)
+            if (DebugLogger.IsDebugMode)
             {
-                DebugLogger.LogDebug($"GameStatsService.SetStatistic called: {intStat.Id} = {intStat.IntValue}");
-                return _steamClient.SetStatValue(intStat.Id, intStat.IntValue);
+                if (stat is IntStatInfo intStat)
+                {
+                    DebugLogger.LogDebug($"[DEBUG FAKE WRITE] SetStatistic: {intStat.Id} = {intStat.IntValue} (not actually written to Steam)");
+                }
+                else if (stat is FloatStatInfo floatStat)
+                {
+                    DebugLogger.LogDebug($"[DEBUG FAKE WRITE] SetStatistic: {floatStat.Id} = {floatStat.FloatValue} (not actually written to Steam)");
+                }
+                return true; // Always return success in debug mode
             }
-            else if (stat is FloatStatInfo floatStat)
+            
+            if (stat is IntStatInfo intStatRelease)
             {
-                DebugLogger.LogDebug($"GameStatsService.SetStatistic called: {floatStat.Id} = {floatStat.FloatValue}");
-                return _steamClient.SetStatValue(floatStat.Id, floatStat.FloatValue);
+                DebugLogger.LogDebug($"GameStatsService.SetStatistic called: {intStatRelease.Id} = {intStatRelease.IntValue}");
+                bool success = _steamClient.SetStatValue(intStatRelease.Id, intStatRelease.IntValue);
+                DebugLogger.LogDebug($"SetStatistic result: {success} for {intStatRelease.Id} = {intStatRelease.IntValue}");
+                return success;
+            }
+            else if (stat is FloatStatInfo floatStatRelease)
+            {
+                DebugLogger.LogDebug($"GameStatsService.SetStatistic called: {floatStatRelease.Id} = {floatStatRelease.FloatValue}");
+                bool success = _steamClient.SetStatValue(floatStatRelease.Id, floatStatRelease.FloatValue);
+                DebugLogger.LogDebug($"SetStatistic result: {success} for {floatStatRelease.Id} = {floatStatRelease.FloatValue}");
+                return success;
             }
             return false;
         }
 
         public bool StoreStats()
         {
+            if (DebugLogger.IsDebugMode)
+            {
+                DebugLogger.LogDebug("[DEBUG FAKE WRITE] StoreStats: All changes committed to fake cache (not actually written to Steam)");
+                return true; // Always return success in debug mode
+            }
+            
             DebugLogger.LogDebug("GameStatsService.StoreStats called");
-            return _steamClient.StoreStats();
+            bool success = _steamClient.StoreStats();
+            DebugLogger.LogDebug($"StoreStats result: {success}");
+            return success;
         }
 
         public bool ResetAllStats(bool achievementsToo)

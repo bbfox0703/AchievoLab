@@ -10,7 +10,7 @@ namespace AnSAM.Services
     /// </summary>
     public static class GameLauncher
     {
-        private static readonly string RunGamePath = Path.Combine(AppContext.BaseDirectory, "..", "RunGame.exe");
+        private static readonly string RunGamePath = Path.Combine(AppContext.BaseDirectory, "..", "RunGame", "RunGame.exe");
         private static readonly string SamGamePath = Path.Combine(AppContext.BaseDirectory, "SAM", "SAM.Game.exe");
 
         public static bool IsSamGameAvailable => File.Exists(RunGamePath) || File.Exists(SamGamePath);
