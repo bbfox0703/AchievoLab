@@ -150,7 +150,7 @@ namespace MyOwnGames
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Error loading image for {appId}: {ex.Message}");
+                DebugLogger.LogDebug($"Error loading image for {appId}: {ex.Message}");
             }
         }
 
