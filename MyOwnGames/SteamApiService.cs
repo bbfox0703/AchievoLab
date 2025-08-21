@@ -32,7 +32,7 @@ namespace MyOwnGames
                 lock (_apiCallLock)
                 {
                     var elapsed = DateTime.Now - _lastApiCall;
-                    var minDelay = TimeSpan.FromSeconds(1.2); // 1.2 seconds minimum between API calls
+                    var minDelay = TimeSpan.FromSeconds(1.35); // 1.35 seconds minimum between API calls
                     if (elapsed < minDelay)
                     {
                         var waitTime = minDelay - elapsed;
