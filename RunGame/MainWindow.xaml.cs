@@ -149,6 +149,7 @@ namespace RunGame
             
             // Initialize new services
             _achievementTimerService = new AchievementTimerService(_gameStatsService);
+            _achievementTimerService.StatusUpdated += OnTimerStatusUpdated;
             
             // Get window handle for mouse service
             var windowHandle = WinRT.Interop.WindowNative.GetWindowHandle(this);
@@ -330,6 +331,9 @@ namespace RunGame
                 // Start loading achievement icons
                 await LoadAchievementIconsAsync();
 
+                // Notify timer service that stats have been reloaded
+                _achievementTimerService?.NotifyStatsReloaded();
+
                 LoadingRing.IsActive = false;
             });
         }
@@ -390,6 +394,19 @@ namespace RunGame
             foreach (var stat in stats)
             {
                 _statistics.Add(stat);
+            }
+
+            // Enable/disable the stats editing checkbox based on whether there are any statistics
+            bool hasStatistics = _statistics.Count > 0;
+            EnableStatsEditingCheckBox.IsEnabled = hasStatistics;
+            if (!hasStatistics)
+            {
+                EnableStatsEditingCheckBox.IsChecked = false;
+                EnableStatsEditingCheckBox.Content = "No statistics available for this game";
+            }
+            else
+            {
+                EnableStatsEditingCheckBox.Content = "I understand that modifying stats can cause issues";
             }
         }
 
@@ -725,11 +742,23 @@ namespace RunGame
 
         private async void OnSetTimer(object sender, RoutedEventArgs e)
         {
-            // Set timer for selected unachieved achievements
+            // Set timer for selected achievements (only allow unachieved -> achieved)
             var selectedAchievements = AchievementListView.SelectedItems
                 .OfType<AchievementInfo>()
                 .Where(a => !a.IsAchieved && !a.IsProtected)
                 .ToList();
+
+            // Check if user tried to select achieved achievements
+            var achievedSelected = AchievementListView.SelectedItems
+                .OfType<AchievementInfo>()
+                .Where(a => a.IsAchieved)
+                .ToList();
+
+            if (achievedSelected.Count > 0)
+            {
+                ShowErrorDialog("Timer can only be set for unachieved achievements. To change achieved achievements to unachieved, use direct Store operation.");
+                return;
+            }
 
             if (selectedAchievements.Count == 0)
             {
@@ -837,9 +866,10 @@ namespace RunGame
             };
             Grid.SetRow(achievementList, 2);
 
+            var defaultTime = DateTime.Now.AddHours(1);
             var datePicker = new DatePicker
             {
-                Date = DateTime.Now.Date.AddDays(1),
+                Date = defaultTime.Date,
                 Margin = new Thickness(0, 0, 0, 10)
             };
             Grid.SetRow(datePicker, 3);
@@ -853,7 +883,7 @@ namespace RunGame
 
             var timePicker = new TimePicker
             {
-                Time = DateTime.Now.TimeOfDay.Add(TimeSpan.FromMinutes(5)),
+                Time = defaultTime.TimeOfDay,
                 Margin = new Thickness(0, 0, 0, 10)
             };
             Grid.SetRow(timePicker, 5);
@@ -1154,6 +1184,15 @@ namespace RunGame
                 TimerStatusText.Text = "⚪ Timer Off";
                 TimerStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Gray);
             }
+        }
+
+        private void OnTimerStatusUpdated(string status)
+        {
+            // Update status on UI thread
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                StatusLabel.Text = status;
+            });
         }
     }
 
