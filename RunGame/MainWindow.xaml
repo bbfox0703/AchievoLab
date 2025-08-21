@@ -27,7 +27,7 @@
         <!-- Main Content -->
         <TabView Grid.Row="1" x:Name="MainTabView">
             <!-- Achievements Tab -->
-            <TabViewItem Header="Achievements">
+            <TabViewItem Header="Achievements" IsClosable="False">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -42,6 +42,8 @@
                         <ComboBox x:Name="LanguageComboBox" PlaceholderText="Language" Width="120" SelectionChanged="OnLanguageChanged"/>
                         <ComboBox x:Name="ColumnLayoutComboBox" PlaceholderText="Column Layout" Width="150" SelectionChanged="OnColumnLayoutChanged"/>
                         <Button x:Name="SetTimerButton" Content="Set Timer" Click="OnSetTimer"/>
+                        <Button x:Name="ResetAllTimersButton" Content="Reset All Timers" Click="OnResetAllTimers"/>
+                        <Button x:Name="ResetSelectedTimersButton" Content="Reset Selected Timers" Click="OnResetSelectedTimers"/>
                         <TextBlock Text="⚪ Timer Off" x:Name="TimerStatusText" VerticalAlignment="Center" Margin="10,0,0,0" FontWeight="Bold"/>
                     </StackPanel>
 
@@ -49,6 +51,16 @@
                     <ListView Grid.Row="1" x:Name="AchievementListView"
                               SelectionMode="Extended"
                               Margin="10,0,10,10">
+                        <ListView.Resources>
+                            <x:String x:Key="AchievedColumnWidth">60</x:String>
+                            <x:String x:Key="IconColumnWidth">60</x:String>
+                            <x:String x:Key="IdColumnWidth">220</x:String>
+                            <x:String x:Key="NameColumnWidth">250</x:String>
+                            <x:String x:Key="DescriptionColumnWidth">300</x:String>
+                            <x:String x:Key="UnlockTimeColumnWidth">180</x:String>
+                            <x:String x:Key="ScheduledTimeColumnWidth">180</x:String>
+                            <x:String x:Key="PermissionColumnWidth">80</x:String>
+                        </ListView.Resources>
                         <ListView.ItemContainerStyle>
                             <Style TargetType="ListViewItem">
                                 <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
@@ -65,20 +77,20 @@
                             <DataTemplate>
                                 <Grid>
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="60"/>
-                                        <ColumnDefinition Width="60"/>
-                                        <ColumnDefinition Width="220"/>
-                                        <ColumnDefinition Width="250"/>
-                                        <ColumnDefinition Width="300"/>
-                                        <ColumnDefinition Width="180"/>
-                                        <ColumnDefinition Width="180"/>
-                                        <ColumnDefinition Width="80"/>
+                                        <ColumnDefinition Width="{StaticResource AchievedColumnWidth}"/>
+                                        <ColumnDefinition Width="{StaticResource IconColumnWidth}"/>
+                                        <ColumnDefinition Width="{StaticResource IdColumnWidth}"/>
+                                        <ColumnDefinition Width="{StaticResource NameColumnWidth}"/>
+                                        <ColumnDefinition Width="{StaticResource DescriptionColumnWidth}"/>
+                                        <ColumnDefinition Width="{StaticResource UnlockTimeColumnWidth}"/>
+                                        <ColumnDefinition Width="{StaticResource ScheduledTimeColumnWidth}"/>
+                                        <ColumnDefinition Width="{StaticResource PermissionColumnWidth}"/>
                                     </Grid.ColumnDefinitions>
 
-                                    <!-- Checkbox -->
+                                    <!-- Checkbox (Read-only status indicator) -->
                                     <CheckBox Grid.Column="0" 
-                                              IsChecked="{Binding IsAchieved, Mode=TwoWay}" 
-                                              IsEnabled="{Binding IsNotProtected}"
+                                              IsChecked="{Binding IsAchieved, Mode=OneWay}" 
+                                              IsEnabled="False"
                                               Content="✓"
                                               Margin="0,0,10,0"/>
                                     
@@ -165,14 +177,14 @@
                         <ListView.Header>
                             <Grid Margin="5" Padding="10">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="60"/>
-                                    <ColumnDefinition Width="100"/>
-                                    <ColumnDefinition Width="250"/>
-                                    <ColumnDefinition Width="300"/>
-                                    <ColumnDefinition Width="150"/>
-                                    <ColumnDefinition Width="150"/>
-                                    <ColumnDefinition Width="80"/>
+                                    <ColumnDefinition Width="{StaticResource AchievedColumnWidth}"/>
+                                    <ColumnDefinition Width="{StaticResource IconColumnWidth}"/>
+                                    <ColumnDefinition Width="{StaticResource IdColumnWidth}"/>
+                                    <ColumnDefinition Width="{StaticResource NameColumnWidth}"/>
+                                    <ColumnDefinition Width="{StaticResource DescriptionColumnWidth}"/>
+                                    <ColumnDefinition Width="{StaticResource UnlockTimeColumnWidth}"/>
+                                    <ColumnDefinition Width="{StaticResource ScheduledTimeColumnWidth}"/>
+                                    <ColumnDefinition Width="{StaticResource PermissionColumnWidth}"/>
                                 </Grid.ColumnDefinitions>
 
                                 <TextBlock Grid.Column="0" Text="Achieved" FontWeight="Bold" Margin="0,0,10,0"/>
@@ -190,7 +202,7 @@
             </TabViewItem>
 
             <!-- Statistics Tab -->
-            <TabViewItem Header="Statistics">
+            <TabViewItem Header="Statistics" IsClosable="False">
                 <Grid Margin="10">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>

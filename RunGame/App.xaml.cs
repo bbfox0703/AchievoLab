@@ -43,8 +43,19 @@ namespace RunGame
             {
                 LocalSettings = ApplicationData.Current.LocalSettings;
             }
-            catch (InvalidOperationException)
+            catch (InvalidOperationException ex)
             {
+                System.Diagnostics.Debug.WriteLine($"InvalidOperationException in LocalSettings access: {ex.Message}");
+                LocalSettings = null;
+            }
+            catch (System.IO.IOException ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"IOException in LocalSettings access: {ex.Message}");
+                LocalSettings = null;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Exception in LocalSettings access: {ex.Message}");
                 LocalSettings = null;
             }
 

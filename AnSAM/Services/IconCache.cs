@@ -55,6 +55,46 @@ namespace AnSAM.Services
         }
 
         /// <summary>
+        /// Returns the current icon download progress counters.
+        /// </summary>
+        /// <returns>A tuple of completed and total downloads.</returns>
+        public static (int completed, int total) GetProgress()
+        {
+            var total = Volatile.Read(ref _totalRequests);
+            var completed = Volatile.Read(ref _completed);
+            return (completed, total);
+        }
+
+        /// <summary>
+        /// Attempts to find a cached icon path for the given application id.
+        /// </summary>
+        /// <param name="id">Steam application identifier used to name the file.</param>
+        /// <returns>The cached file path if present and valid; otherwise <c>null</c>.</returns>
+        public static string? TryGetCachedPath(int id)
+        {
+            var basePath = Path.Combine(CacheDir, id.ToString());
+
+            foreach (var candidateExt in new HashSet<string>(MimeToExtension.Values))
+            {
+                var path = basePath + candidateExt;
+                if (File.Exists(path))
+                {
+                    if (IsCacheValid(path))
+                    {
+#if DEBUG
+                        DebugLogger.LogDebug($"Using cached icon for {id} at {path}");
+#endif
+                        return path;
+                    }
+
+                    try { File.Delete(path); } catch { }
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
         /// Returns a local file path for the provided cover URI, downloading it if necessary.
         /// </summary>
         /// <param name="id">Steam application identifier used to name the file.</param>
@@ -77,9 +117,9 @@ namespace AnSAM.Services
                 {
                     if (IsCacheValid(path))
                     {
-#if DEBUG
-                        DebugLogger.LogDebug($"Using cached icon for {id} at {path}");
-#endif
+                        Interlocked.Increment(ref _totalRequests);
+                        Interlocked.Increment(ref _completed);
+                        ReportProgress();
                         return Task.FromResult(new IconPathResult(path, false));
                     }
 
@@ -99,6 +139,47 @@ namespace AnSAM.Services
                 ReportProgress();
                 return DownloadAsync(uri, basePath, ext);
             });
+        }
+
+        /// <summary>
+        /// Attempts to retrieve a cached icon URI without initiating a download.
+        /// </summary>
+        /// <param name="id">Steam application identifier used to name the file.</param>
+        /// <returns>The local <see cref="Uri"/> of the cached icon if available; otherwise <c>null</c>.</returns>
+        public static Uri? TryGetCachedIconUri(int id)
+        {
+            try
+            {
+                Directory.CreateDirectory(CacheDir);
+            }
+            catch
+            {
+                return null;
+            }
+
+            var basePath = Path.Combine(CacheDir, id.ToString());
+
+            foreach (var candidateExt in new HashSet<string>(MimeToExtension.Values))
+            {
+                var path = basePath + candidateExt;
+                if (File.Exists(path))
+                {
+                    if (IsCacheValid(path))
+                    {
+#if DEBUG
+                        DebugLogger.LogDebug($"Using cached icon for {id} at {path}");
+#endif
+                        if (Uri.TryCreate(path, UriKind.Absolute, out var uri))
+                        {
+                            return uri;
+                        }
+                    }
+
+                    try { File.Delete(path); } catch { }
+                }
+            }
+
+            return null;
         }
 
         public static async Task<IconPathResult?> GetIconPathAsync(int id, IEnumerable<string> uris)
@@ -187,7 +268,7 @@ namespace AnSAM.Services
                 }
 
                 Span<byte> header = stackalloc byte[12];
-                using var fs = File.OpenRead(path);
+                using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
                 int read = fs.Read(header);
                 if (read >= 4)
                 {

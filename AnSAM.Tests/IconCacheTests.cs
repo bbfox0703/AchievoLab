@@ -37,7 +37,7 @@ public class IconCacheTests
 }
 
     [Fact]
-    public async Task ProgressReportsDownloadsOnly()
+    public async Task ProgressCountsCachedIcons()
     {
         IconCache.ResetProgress();
         var events = new List<(int completed, int total)>();
@@ -92,6 +92,6 @@ public class IconCacheTests
             IconCache.ProgressChanged -= Handler;
         }
 
-        Assert.Equal(new (int completed, int total)[] { (0, 1), (1, 1) }, events.ToArray());
+        Assert.Equal(new (int completed, int total)[] { (1, 1), (1, 2), (2, 2) }, events.ToArray());
     }
 }
