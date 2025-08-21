@@ -778,7 +778,6 @@ namespace RunGame
                     {
                         achievement.ScheduledUnlockTime = unlockTime;
                         _achievementTimerService?.ScheduleAchievement(achievement.Id, unlockTime);
-                        DebugLogger.LogDebug($"Scheduled achievement {achievement.Id} to unlock at {unlockTime}");
                     }
                     var formattedTime = unlockTime.ToString("yyyy-MM-dd HH:mm:ss");
                     StatusLabel.Text =
