@@ -725,19 +725,22 @@ namespace RunGame
 
         private async void OnSetTimer(object sender, RoutedEventArgs e)
         {
-            // Set timer for all unachieved achievements (like Legacy SAM.Game)
-            var unachievedItems = _achievements.Where(a => !a.IsAchieved && !a.IsProtected).ToList();
-            
-            if (unachievedItems.Count == 0)
+            // Set timer for selected unachieved achievements
+            var selectedAchievements = AchievementListView.SelectedItems
+                .OfType<AchievementInfo>()
+                .Where(a => !a.IsAchieved && !a.IsProtected)
+                .ToList();
+
+            if (selectedAchievements.Count == 0)
             {
-                ShowErrorDialog("No unachieved achievements available for timer");
+                ShowErrorDialog("Please select unachieved, unprotected achievements to schedule");
                 return;
             }
 
             try
             {
                 // Create the dialog content
-                var dialogContent = CreateTimerDialogContent(unachievedItems);
+                var dialogContent = CreateTimerDialogContent(selectedAchievements);
                 
                 // Show a content dialog to set the unlock time
                 var dialog = new ContentDialog
@@ -771,14 +774,15 @@ namespace RunGame
                         return;
                     }
 
-                    foreach (var achievement in unachievedItems)
+                    foreach (var achievement in selectedAchievements)
                     {
                         achievement.ScheduledUnlockTime = unlockTime;
                         _achievementTimerService?.ScheduleAchievement(achievement.Id, unlockTime);
                         DebugLogger.LogDebug($"Scheduled achievement {achievement.Id} to unlock at {unlockTime}");
                     }
-
-                    StatusLabel.Text = $"Scheduled {unachievedItems.Count} unachieved achievement(s) to unlock at {unlockTime:yyyy-MM-dd HH:mm:ss}";
+                    var formattedTime = unlockTime.ToString("yyyy-MM-dd HH:mm:ss");
+                    StatusLabel.Text =
+                        $"Scheduled {selectedAchievements.Count} achievement(s) to unlock at {formattedTime}";
                 }
                 else
                 {
