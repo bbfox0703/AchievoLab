@@ -652,6 +652,12 @@ namespace AnSAM
                                     app.Arguments,
                                     app.UriScheme);
 
+            if (IconCache.TryGetCachedPath(app.AppId) is string cached &&
+                Uri.TryCreate(cached, UriKind.Absolute, out var cachedUri))
+            {
+                item.CoverPath = cachedUri;
+            }
+
             if (app.CoverUrl != null)
             {
 #if DEBUG
