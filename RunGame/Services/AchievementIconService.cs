@@ -19,12 +19,12 @@ namespace RunGame.Services
         {
             _gameId = gameId;
             _httpClient = new HttpClient();
-            _httpClient.DefaultRequestHeaders.Add("User-Agent", "AnSAM_RunGame/1.0");
+            _httpClient.DefaultRequestHeaders.Add("User-Agent", "RunGame/1.0");
             
             // Create cache directory in user's AppData
             _cacheDirectory = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "AnSAM_RunGame", "IconCache", gameId.ToString());
+                "RunGame", "IconCache", gameId.ToString());
             
             Directory.CreateDirectory(_cacheDirectory);
             DebugLogger.LogDebug($"AchievementIconService initialized with cache directory: {_cacheDirectory}");

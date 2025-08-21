@@ -1,7 +1,7 @@
 <img src="./docs/res/AchievoLab.png" alt="AchievoLab" width="300"/>  
   
 # AchievoLab
-A Steam Achievement management GUI, built with WinUI 3 and .NET 8.
+A Steam achievement management GUI, built with WinUI 3 and .NET 8.
 
 ## Features
 - Wraps the Steamworks API directly via `steamclient64.dll` to query ownership and metadata for installed apps.
@@ -10,8 +10,6 @@ A Steam Achievement management GUI, built with WinUI 3 and .NET 8.
 - Fetches, caches and reuses cover icons for games.
 - Can launches games through GUI by right click popup menu.
 - Also can launch game from this UI by right click menu.
-- Can call original SAM.Game if it's placed under .\SAM folder.
-
 
 ## Getting Started
 1. Install the [.NET 8 SDK](https://dotnet.microsoft.com/download).
@@ -33,11 +31,12 @@ A Steam Achievement management GUI, built with WinUI 3 and .NET 8.
 ## Program list
 1. ./AnASM/AnASM.exe: primary GUI interface.
 2. ./RunGame/RunGame.exe: called by AnASM.exe when double click on a game title image.
-3. ./MyOwnGames/MyOwnGames.exe: This tool is designed to get your Steam account owned game data by Steam Web API:
+3. ./MyOwnGames/MyOwnGames.exe: This tool is designed to get your Steam account owned game data by Steam Web API.
 
 ## To use MyOwnGames
 1. Need a Steam API key. (Apply API key here)[https://steamcommunity.com/dev/apikey]. Please note API key is very important to your Steam account. Don't share it to anyone.
 2. Need your SteamID64 number: Several ways to get this. If you did not customize your Steam personal page URL end with ...profiles/7656119xxxxxxxx. Where 7656119xxxxxxxx is your SteamID64 number. Or you can get it from SteamDB after link logon info with Steam.
+This tool save your game list data and will be used for main program AnSAM. 
 
 ## Tests
 Unit tests cover some core services of AnSAM itself, such as icon caching. Run them with:

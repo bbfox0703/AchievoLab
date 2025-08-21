@@ -2,7 +2,11 @@
 <Window x:Class="RunGame.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        x:Name="Root">
+        xmlns:local="using:RunGame"
+        x:Name="Root"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        Title="AchievoLab:RunGame">
 
     <Grid>
         <Grid.RowDefinitions>

@@ -8,7 +8,7 @@ namespace RunGame.Services
     {
         private static readonly string LogFilePath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "AnSAM_RunGame", "debug.log");
+            "RunGame", "debug.log");
 
         static DebugLogger()
         {
