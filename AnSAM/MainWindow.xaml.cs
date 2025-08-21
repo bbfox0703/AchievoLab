@@ -241,6 +241,14 @@ namespace AnSAM
             }
         }
 
+        private async void OnGameImageLoaded(object sender, RoutedEventArgs e)
+        {
+            if (sender is FrameworkElement element && element.DataContext is GameItem game)
+            {
+                await game.LoadCoverAsync(_steamClient);
+            }
+        }
+
         private void GameCard_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
         {
             if (sender is FrameworkElement element && element.DataContext is GameItem game)
