@@ -19,8 +19,8 @@
             <!-- Top CommandBar -->
             <RowDefinition Height="*"/>
             <!-- Center List -->
-            <RowDefinition Height="Auto"/>
-            <!-- Bottom StatusBar -->
+            <RowDefinition Height="Auto" MinHeight="100"/>
+            <!-- Bottom StatusBar + Logs -->
         </Grid.RowDefinitions>
 
         <!-- Top: CommandBar -->
@@ -182,25 +182,32 @@
             </ListView.ItemsPanel>
         </ListView>
 
-        <!-- Bottom: StatusBar (custom) -->
+        <!-- Bottom: StatusBar and Log -->
         <Border Grid.Row="2" Padding="10,6" BorderThickness="1,1,0,0" CornerRadius="6"
                 BorderBrush="{ThemeResource SystemControlForegroundBaseMediumBrush}">
-            <Grid ColumnSpacing="12">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="260"/>
-                </Grid.ColumnDefinitions>
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+                <Grid Grid.Row="0" ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="260"/>
+                    </Grid.ColumnDefinitions>
 
-                <TextBlock Text="{Binding StatusText}" VerticalAlignment="Center"/>
+                    <TextBlock Text="{Binding StatusText}" VerticalAlignment="Center"/>
 
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
-                    <ProgressBar Width="200"
-                                 IsIndeterminate="{Binding IsLoading}"
-                                 Minimum="0" Maximum="100"
-                                 Value="{Binding ProgressValue}"
-                                 Visibility="{Binding ProgressVisibility}"/>
-                    <TextBlock Text="{Binding ProgressPercentText}" VerticalAlignment="Center"/>
-                </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                        <ProgressBar Width="200"
+                                     IsIndeterminate="{Binding IsLoading}"
+                                     Minimum="0" Maximum="100"
+                                     Value="{Binding ProgressValue}"
+                                     Visibility="{Binding ProgressVisibility}"/>
+                        <TextBlock Text="{Binding ProgressPercentText}" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Grid>
+                <ListView x:Name="LogList" Grid.Row="1" ItemsSource="{Binding LogEntries}"/>
             </Grid>
         </Border>
 
