@@ -184,7 +184,7 @@
 
         <!-- Bottom: StatusBar (custom) -->
         <Border Grid.Row="2" Padding="10,6" BorderThickness="1,1,0,0" CornerRadius="6"
-                BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                BorderBrush="{ThemeResource SystemControlForegroundBaseMediumBrush}">
             <Grid ColumnSpacing="12">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>

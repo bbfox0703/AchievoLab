@@ -76,13 +76,13 @@
   </PropertyGroup>
   <!-- Output Directory Configuration -->
   <PropertyGroup Condition="'$(Configuration)'=='Debug'">
-    <OutputPath>..\output\Debug\$(Platform)\$(TargetFramework)\</OutputPath>
+    <OutputPath>..\output\Debug\$(Platform)\$(TargetFramework)\AnSAM\</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
     <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_BREAK_ON_UNHANDLED_EXCEPTION</DefineConstants>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)'=='Release'">
-    <OutputPath>..\output\Release\$(Platform)\$(TargetFramework)\</OutputPath>
+    <OutputPath>..\output\Release\$(Platform)\$(TargetFramework)\AnSAM\</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
   </PropertyGroup>
@@ -91,9 +91,4 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'" />
   
-  <!-- Post-build event to clean up unwanted language folders -->
-  <Target Name="CleanUnwantedLanguages" AfterTargets="Build">
-    <Exec Command="powershell -Command &quot;Get-ChildItem '$(OutputPath)' -Directory | Where-Object { $_.Name -match '^[a-z]{2}-[A-Z]{2}$' -and $_.Name -notin @('en-us','en-GB','zh-TW','ja-JP','ko-KR') } | Remove-Item -Recurse -Force&quot;" 
-          ContinueOnError="true" />
-  </Target>
 </Project>
