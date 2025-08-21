@@ -88,9 +88,6 @@ namespace AnSAM.Services
                 {
                     if (IsCacheValid(path))
                     {
-#if DEBUG
-                        DebugLogger.LogDebug($"Using cached icon for {id} at {path}");
-#endif
                         Interlocked.Increment(ref _totalRequests);
                         Interlocked.Increment(ref _completed);
                         ReportProgress();
@@ -122,6 +119,15 @@ namespace AnSAM.Services
         /// <returns>The local <see cref="Uri"/> of the cached icon if available; otherwise <c>null</c>.</returns>
         public static Uri? TryGetCachedIconUri(int id)
         {
+            try
+            {
+                Directory.CreateDirectory(CacheDir);
+            }
+            catch
+            {
+                return null;
+            }
+
             var basePath = Path.Combine(CacheDir, id.ToString());
 
             foreach (var candidateExt in new HashSet<string>(MimeToExtension.Values))
@@ -134,7 +140,10 @@ namespace AnSAM.Services
 #if DEBUG
                         DebugLogger.LogDebug($"Using cached icon for {id} at {path}");
 #endif
-                        return new Uri(path);
+                        if (Uri.TryCreate(path, UriKind.Absolute, out var uri))
+                        {
+                            return uri;
+                        }
                     }
 
                     try { File.Delete(path); } catch { }
@@ -230,7 +239,7 @@ namespace AnSAM.Services
                 }
 
                 Span<byte> header = stackalloc byte[12];
-                using var fs = File.OpenRead(path);
+                using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
                 int read = fs.Read(header);
                 if (read >= 4)
                 {

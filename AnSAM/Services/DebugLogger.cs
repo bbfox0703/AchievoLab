@@ -9,6 +9,7 @@ namespace AnSAM.Services
         private static readonly string LogFilePath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "AnSAM", "debug.log");
+        private static readonly object _logLock = new();
 
         static DebugLogger()
         {
@@ -51,7 +52,10 @@ namespace AnSAM.Services
 
             try
             {
-                File.AppendAllText(LogFilePath, logMessage + Environment.NewLine);
+                lock (_logLock)
+                {
+                    File.AppendAllText(LogFilePath, logMessage + Environment.NewLine);
+                }
             }
             catch
             {
