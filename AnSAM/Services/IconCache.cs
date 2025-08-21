@@ -115,6 +115,35 @@ namespace AnSAM.Services
             });
         }
 
+        /// <summary>
+        /// Attempts to retrieve a cached icon URI without initiating a download.
+        /// </summary>
+        /// <param name="id">Steam application identifier used to name the file.</param>
+        /// <returns>The local <see cref="Uri"/> of the cached icon if available; otherwise <c>null</c>.</returns>
+        public static Uri? TryGetCachedIconUri(int id)
+        {
+            var basePath = Path.Combine(CacheDir, id.ToString());
+
+            foreach (var candidateExt in new HashSet<string>(MimeToExtension.Values))
+            {
+                var path = basePath + candidateExt;
+                if (File.Exists(path))
+                {
+                    if (IsCacheValid(path))
+                    {
+#if DEBUG
+                        DebugLogger.LogDebug($"Using cached icon for {id} at {path}");
+#endif
+                        return new Uri(path);
+                    }
+
+                    try { File.Delete(path); } catch { }
+                }
+            }
+
+            return null;
+        }
+
         public static async Task<IconPathResult?> GetIconPathAsync(int id, IEnumerable<string> uris)
         {
             foreach (var url in uris)

@@ -647,7 +647,7 @@ namespace AnSAM
 #endif
             var item = new GameItem(app.Title,
                                     app.AppId,
-                                    null,
+                                    new Uri("ms-appx:///Assets/no_icon.png"),
                                     app.ExePath,
                                     app.Arguments,
                                     app.UriScheme);
@@ -658,6 +658,12 @@ namespace AnSAM
                 DebugLogger.LogDebug($"Queueing icon download for {app.AppId} from {app.CoverUrl}");
 #endif
                 var dispatcher = DispatcherQueue.GetForCurrentThread();
+                var cached = IconCache.TryGetCachedIconUri(app.AppId);
+                if (cached != null)
+                {
+                    item.CoverPath = cached;
+                }
+
                 _ = LoadIconAsync();
 
                 async Task LoadIconAsync()
@@ -687,14 +693,16 @@ namespace AnSAM
 #endif
                     }
 
-                    coverUri ??= new Uri("ms-appx:///Assets/no_icon.png");
-                    if (dispatcher != null)
+                    if (coverUri != null)
                     {
-                        _ = dispatcher.TryEnqueue(() => item.CoverPath = coverUri);
-                    }
-                    else
-                    {
-                        item.CoverPath = coverUri;
+                        if (dispatcher != null)
+                        {
+                            _ = dispatcher.TryEnqueue(() => item.CoverPath = coverUri);
+                        }
+                        else
+                        {
+                            item.CoverPath = coverUri;
+                        }
                     }
                 }
             }
@@ -703,7 +711,6 @@ namespace AnSAM
 #if DEBUG
                 DebugLogger.LogDebug($"No icon URL for {app.AppId}");
 #endif
-                item.CoverPath = new Uri("ms-appx:///Assets/no_icon.png");
             }
 
             return item;
