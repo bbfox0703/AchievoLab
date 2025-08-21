@@ -1,4 +1,4 @@
-[img src=./docs/res/AchievoLab.png]
+![AchievoLab](./docs/res/AchievoLab.png "AchievoLab")
 # AchievoLab
 A Steam Achievement management GUI, built with WinUI 3 and .NET 8.
 
