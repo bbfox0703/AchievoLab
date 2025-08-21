@@ -652,8 +652,8 @@ namespace AnSAM
                                     app.Arguments,
                                     app.UriScheme);
 
-            if (IconCache.TryGetCachedPath(app.AppId) is string cached &&
-                Uri.TryCreate(cached, UriKind.Absolute, out var cachedUri))
+            if (IconCache.TryGetCachedPath(app.AppId) is string cachedPath &&
+                Uri.TryCreate(cachedPath, UriKind.Absolute, out var cachedUri))
             {
                 item.CoverPath = cachedUri;
             }
@@ -664,10 +664,10 @@ namespace AnSAM
                 DebugLogger.LogDebug($"Queueing icon download for {app.AppId} from {app.CoverUrl}");
 #endif
                 var dispatcher = DispatcherQueue.GetForCurrentThread();
-                var cached = IconCache.TryGetCachedIconUri(app.AppId);
-                if (cached != null)
+                var cachedIconUri = IconCache.TryGetCachedIconUri(app.AppId);
+                if (cachedIconUri != null)
                 {
-                    item.CoverPath = cached;
+                    item.CoverPath = cachedIconUri;
                 }
 
                 _ = LoadIconAsync();
