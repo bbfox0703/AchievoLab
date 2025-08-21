@@ -400,10 +400,7 @@ namespace AnSAM
                 var allGames = new List<GameItem>();
                 foreach (var app in apps)
                 {
-                    var withCover = _steamClient.Initialized
-                        ? app with { CoverUrl = GameImageUrlResolver.GetGameImageUrl(_steamClient, (uint)app.AppId, "english") }
-                        : app;
-                    allGames.Add(GameItem.FromSteamApp(withCover));
+                    allGames.Add(GameItem.FromSteamApp(app));
                 }
 
                 allGames.Sort((a, b) => string.Compare(a.Title, b.Title, StringComparison.OrdinalIgnoreCase));
