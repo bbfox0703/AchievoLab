@@ -48,7 +48,8 @@
               ItemsSource="{x:Bind Games}"
               SelectionMode="None"
               IsItemClickEnabled="False"
-              ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+              ContainerContentChanging="GamesView_ContainerContentChanging">
                 <!-- 自動換行的磁磚排版 -->
                 <GridView.ItemsPanel>
                     <ItemsPanelTemplate>
