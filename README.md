@@ -11,19 +11,20 @@ A Steam achievement management GUI, built with WinUI 3 and .NET 8.
 - Can launches games through GUI by right click popup menu.
 - Also can launch game from this UI by right click menu.
 
-## Getting Started
+## To Compile
 1. Install the [.NET 8 SDK](https://dotnet.microsoft.com/download).
-2. Clone the repository and restore dependencies:
+2. Open solution from VS2022 and comiple, or:
+3. Clone the repository and restore dependencies:
    ```bash
    git clone https://github.com/bbfox0703/AchievoLab.git
    cd AchievoLab
    dotnet restore AnSAM.sln
    ```
-3. Build the WinUI application (requires Windows 10 17763 or later):
+4. Build the WinUI application (requires Windows 10 17763 or later):
    ```bash
    dotnet build AnSAM.sln -p:EnableWindowsTargeting=true
    ```
-4. Run the application:
+5. Run the application:
    ```bash
    dotnet run --project AnSAM.csproj -p:EnableWindowsTargeting=true
    ```
@@ -45,5 +46,5 @@ dotnet test AnSAM.Tests/AnSAM.Tests.csproj
 ```
 
 ## License
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.  
 Use origin SteamAchievementManager cloud game data source, this part is Zlib license.
