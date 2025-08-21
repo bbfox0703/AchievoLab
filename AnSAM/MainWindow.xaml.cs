@@ -241,12 +241,14 @@ namespace AnSAM
             }
         }
 
-        private async void OnGameImageLoaded(object sender, RoutedEventArgs e)
+        private async void GamesView_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs e)
         {
-            if (sender is FrameworkElement element && element.DataContext is GameItem game)
+            if (e.InRecycleQueue || e.Item is not GameItem game)
             {
-                await game.LoadCoverAsync(_steamClient);
+                return;
             }
+
+            await game.LoadCoverAsync(_steamClient);
         }
 
         private void GameCard_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
