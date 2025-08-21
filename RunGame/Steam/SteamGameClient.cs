@@ -397,7 +397,7 @@ namespace RunGame.Steam
             if (achieved)
             {
                 if (_setAchievement == null) return false;
-                return _setAchievement(_userStats, id, achieved);
+                return _setAchievement(_userStats, id);
             }
             else
             {
@@ -768,7 +768,7 @@ namespace RunGame.Steam
         [UnmanagedFunctionPointer(CallingConvention.ThisCall, CharSet = CharSet.Ansi)]
         [return: MarshalAs(UnmanagedType.I1)]
         private delegate bool SetAchievementDelegate(IntPtr self,
-            [MarshalAs(UnmanagedType.LPStr)] string name, bool achieved);
+            [MarshalAs(UnmanagedType.LPStr)] string name);
 
         [UnmanagedFunctionPointer(CallingConvention.ThisCall, CharSet = CharSet.Ansi)]
         [return: MarshalAs(UnmanagedType.I1)]

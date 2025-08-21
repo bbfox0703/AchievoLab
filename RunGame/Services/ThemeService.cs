@@ -68,9 +68,19 @@ namespace RunGame.Services
                 return;
             DebugLogger.LogDebug("ApplyAccentBrush() Start");
 
-            var accent = _uiSettings.GetColorValue(UIColorType.Accent);
-            var brush = new SolidColorBrush(accent);
-            _root.Resources["AppAccentBrush"] = brush;
+            try
+            {
+                var accent = _uiSettings.GetColorValue(UIColorType.Accent);
+                var brush = new SolidColorBrush(accent);
+                _root.Resources["AppAccentBrush"] = brush;
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error in ApplyAccentBrush: {ex.Message}");
+                // Use fallback color if UISettings fails
+                var fallbackBrush = new SolidColorBrush(Colors.Blue);
+                _root.Resources["AppAccentBrush"] = fallbackBrush;
+            }
         }
 
         public static void UpdateTitleBar(ElementTheme theme)
@@ -80,24 +90,26 @@ namespace RunGame.Services
 
             DebugLogger.LogDebug("UpdateTitleBar() Start");
 
-            // Resolve actual theme if Default
-            var actualTheme = theme;
-            if (theme == ElementTheme.Default)
+            try
             {
-                actualTheme = GetCurrentTheme();
-            }
+                // Resolve actual theme if Default
+                var actualTheme = theme;
+                if (theme == ElementTheme.Default)
+                {
+                    actualTheme = GetCurrentTheme();
+                }
 
-            var titleBar = _appWindow.TitleBar;
-            var accent = _uiSettings.GetColorValue(UIColorType.Accent);
-            var accentDark1 = _uiSettings.GetColorValue(UIColorType.AccentDark1);
-            var accentDark2 = _uiSettings.GetColorValue(UIColorType.AccentDark2);
-            var accentLight1 = _uiSettings.GetColorValue(UIColorType.AccentLight1);
-            var foreground = _uiSettings.GetColorValue(UIColorType.Foreground);
-            var inactiveForeground = Color.FromArgb(
-                foreground.A,
-                (byte)(foreground.R / 2),
-                (byte)(foreground.G / 2),
-                (byte)(foreground.B / 2));
+                var titleBar = _appWindow.TitleBar;
+                var accent = _uiSettings.GetColorValue(UIColorType.Accent);
+                var accentDark1 = _uiSettings.GetColorValue(UIColorType.AccentDark1);
+                var accentDark2 = _uiSettings.GetColorValue(UIColorType.AccentDark2);
+                var accentLight1 = _uiSettings.GetColorValue(UIColorType.AccentLight1);
+                var foreground = _uiSettings.GetColorValue(UIColorType.Foreground);
+                var inactiveForeground = Color.FromArgb(
+                    foreground.A,
+                    (byte)(foreground.R / 2),
+                    (byte)(foreground.G / 2),
+                    (byte)(foreground.B / 2));
 
             if (actualTheme == ElementTheme.Dark)
             {
@@ -134,6 +146,12 @@ namespace RunGame.Services
                 titleBar.InactiveForegroundColor = inactiveForeground;
                 titleBar.ButtonInactiveBackgroundColor = accentLight1;
                 titleBar.ButtonInactiveForegroundColor = inactiveForeground;
+            }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error in UpdateTitleBar: {ex.Message}");
+                // Skip title bar customization if UISettings fails
             }
         }
     }
