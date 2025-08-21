@@ -53,7 +53,7 @@ namespace MyOwnGames
                 await ThrottleApiCallAsync();
                 var ownedGamesUrl = $"https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key={_apiKey}&steamid={steamId64}&format=json&include_appinfo=true";
                 var ownedGamesResponse = await _httpClient.GetStringAsync(ownedGamesUrl);
-                var ownedGamesData = JsonSerializer.Deserialize<OwnedGamesResponse>(ownedGamesResponse);
+                var ownedGamesData = JsonSerializer.Deserialize<OwnedGamesResponse>(ownedGamesResponse, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
                 if (ownedGamesData?.response?.games == null)
                 {
@@ -112,7 +112,7 @@ namespace MyOwnGames
                 await ThrottleApiCallAsync();
                 var url = $"https://store.steampowered.com/api/appdetails?appids={appId}&l={targetLanguage}";
                 var response = await _httpClient.GetStringAsync(url);
-                var data = JsonSerializer.Deserialize<Dictionary<string, AppDetailsResponse>>(response);
+                var data = JsonSerializer.Deserialize<Dictionary<string, AppDetailsResponse>>(response, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                 
                 if (data != null && data.TryGetValue(appId.ToString(), out var appDetails) && 
                     appDetails.success && !string.IsNullOrEmpty(appDetails.data?.name))
