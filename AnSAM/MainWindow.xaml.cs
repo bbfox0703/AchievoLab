@@ -196,11 +196,11 @@ namespace AnSAM
         //    && Enum.TryParse<ElementTheme>(t?.ToString(), out var saved)) {
         //    ApplyTheme(saved);
         //}
-        private async void OnWindowActivated(object sender, WindowActivatedEventArgs args)
+        private void OnWindowActivated(object sender, WindowActivatedEventArgs args)
         {
             if (_autoLoaded) return;
             _autoLoaded = true;
-            await RefreshAsync();
+            DispatcherQueue.TryEnqueue(async () => await RefreshAsync());
         }
 
         private void OnWindowKeyDown(object sender, KeyRoutedEventArgs e)
@@ -357,26 +357,59 @@ namespace AnSAM
 
             var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AnSAM");
 
-            Games.Clear();
-            _allGames.Clear();
-
             using var http = new HttpClient();
             var apps = await GameCacheService.RefreshAsync(baseDir, _steamClient, http);
 
-            foreach (var app in apps)
+            var (allGames, filteredGames) = await BuildGameListAsync(apps, null);
+
+            _ = DispatcherQueue.TryEnqueue(() =>
             {
-                var withCover = _steamClient.Initialized
-                    ? app with { CoverUrl = GameImageUrlResolver.GetGameImageUrl(_steamClient, (uint)app.AppId, "english") }
-                    : app;
-                _allGames.Add(GameItem.FromSteamApp(withCover));
-            }
+                _allGames.Clear();
+                _allGames.AddRange(allGames);
 
-            SortAllGames();
-            FilterGames(null);
+                Games.Clear();
+                foreach (var game in filteredGames)
+                {
+                    Games.Add(game);
+                }
 
-            StatusText.Text = _steamClient.Initialized
-                ? $"Loaded {_allGames.Count} games"
-                : $"Steam unavailable - showing {_allGames.Count} games";
+                StatusText.Text = _steamClient.Initialized
+                    ? $"Loaded {_allGames.Count} games"
+                    : $"Steam unavailable - showing {_allGames.Count} games";
+                StatusProgress.Value = 0;
+                StatusExtra.Text = $"{Games.Count}/{_allGames.Count}";
+            });
+        }
+
+        private Task<(List<GameItem> allGames, List<GameItem> filteredGames)> BuildGameListAsync(IEnumerable<SteamApp> apps, string? keyword)
+        {
+            return Task.Run(() =>
+            {
+                var allGames = new List<GameItem>();
+                foreach (var app in apps)
+                {
+                    var withCover = _steamClient.Initialized
+                        ? app with { CoverUrl = GameImageUrlResolver.GetGameImageUrl(_steamClient, (uint)app.AppId, "english") }
+                        : app;
+                    allGames.Add(GameItem.FromSteamApp(withCover));
+                }
+
+                allGames.Sort((a, b) => string.Compare(a.Title, b.Title, StringComparison.OrdinalIgnoreCase));
+
+                List<GameItem> filtered;
+                if (string.IsNullOrEmpty(keyword))
+                {
+                    filtered = new List<GameItem>(allGames);
+                }
+                else
+                {
+                    filtered = allGames
+                        .Where(g => g.Title.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                        .ToList();
+                }
+
+                return (allGames, filtered);
+            });
         }
 
         private void OnClearCacheClicked(object sender, RoutedEventArgs e)
@@ -460,11 +493,6 @@ namespace AnSAM
                     }
                 }
             }
-        }
-
-        private void SortAllGames()
-        {
-            _allGames.Sort((a, b) => string.Compare(a.Title, b.Title, StringComparison.OrdinalIgnoreCase));
         }
 
         private void FilterGames(string? keyword)
