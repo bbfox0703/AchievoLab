@@ -417,6 +417,46 @@ namespace RunGame
 
         private async void OnStore(object sender, RoutedEventArgs e)
         {
+            // Get selected achievements
+            var selectedAchievements = AchievementListView.SelectedItems
+                .OfType<AchievementInfo>()
+                .Where(a => !a.IsProtected)
+                .ToList();
+
+            if (selectedAchievements.Count == 0)
+            {
+                ShowErrorDialog("Please select unprotected achievements to toggle");
+                return;
+            }
+
+            // Check for timer conflicts
+            var timerConflicts = selectedAchievements
+                .Where(a => _achievementTimerService?.GetScheduledTime(a.Id) != null)
+                .ToList();
+
+            if (timerConflicts.Count > 0)
+            {
+                ShowErrorDialog($"Cannot store changes for achievements with active timers: {string.Join(", ", timerConflicts.Select(a => a.Id))}");
+                return;
+            }
+
+            // Check for achieved -> unachieved changes and confirm
+            var achievedToUnachieved = selectedAchievements
+                .Where(a => a.IsAchieved)
+                .ToList();
+
+            if (achievedToUnachieved.Count > 0)
+            {
+                var result = await ShowConfirmationDialog(
+                    "Confirm Achievement Reset", 
+                    $"Are you sure you want to reset {achievedToUnachieved.Count} achieved achievement(s) to unachieved?\n\nThis action cannot be easily undone.");
+
+                if (result != Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary)
+                {
+                    return;
+                }
+            }
+
             // Show loading indicator and disable Store button to prevent multiple clicks
             LoadingRing.IsActive = true;
             StoreButton.IsEnabled = false;
@@ -424,12 +464,82 @@ namespace RunGame
             
             try
             {
-                await Task.Run(() => PerformStore(false));
+                await Task.Run(() => PerformStoreToggle(selectedAchievements));
             }
             finally
             {
                 LoadingRing.IsActive = false;
                 StoreButton.IsEnabled = true;
+            }
+        }
+
+        private void PerformStoreToggle(List<AchievementInfo> selectedAchievements)
+        {
+            try
+            {
+                DebugLogger.LogDebug($"PerformStoreToggle called for {selectedAchievements.Count} achievements");
+                DebugLogger.LogDebug($"Debug mode: {DebugLogger.IsDebugMode}");
+                
+                int achievementCount = 0;
+                foreach (var achievement in selectedAchievements)
+                {
+                    // Toggle the achievement state
+                    bool newState = !achievement.IsAchieved;
+                    DebugLogger.LogDebug($"Achievement {achievement.Id} toggle: {achievement.IsAchieved} -> {newState}");
+                    
+                    if (!_gameStatsService.SetAchievement(achievement.Id, newState))
+                    {
+                        this.DispatcherQueue.TryEnqueue(() =>
+                        {
+                            ShowErrorDialog($"Failed to set achievement '{achievement.Id}'");
+                        });
+                        return;
+                    }
+                    
+                    achievementCount++;
+                }
+                
+                // Store statistics (if any were modified)
+                int statCount = StoreStatistics(true);
+                
+                // Store changes to Steam
+                bool success = _gameStatsService.StoreStats();
+                DebugLogger.LogDebug($"StoreStats result: {success}");
+                
+                // Update UI on main thread
+                this.DispatcherQueue.TryEnqueue(() =>
+                {
+                    if (DebugLogger.IsDebugMode)
+                    {
+                        StatusLabel.Text = $"[DEBUG MODE] Fake toggled {achievementCount} achievements and {Math.Max(0, statCount)} statistics (not written to Steam). Refreshing to show actual state...";
+                        
+                        // Even in debug mode, reload to show Steam's actual state
+                        _ = Task.Run(async () =>
+                        {
+                            await Task.Delay(500);
+                            this.DispatcherQueue.TryEnqueue(async () => await LoadStatsAsync());
+                        });
+                    }
+                    else
+                    {
+                        StatusLabel.Text = $"Successfully toggled {achievementCount} achievements and {Math.Max(0, statCount)} statistics to Steam. Refreshing...";
+                        
+                        // Reload data from Steam after successful store
+                        _ = Task.Run(async () =>
+                        {
+                            await Task.Delay(500);
+                            this.DispatcherQueue.TryEnqueue(async () => await LoadStatsAsync());
+                        });
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error in PerformStoreToggle: {ex.Message}");
+                this.DispatcherQueue.TryEnqueue(() =>
+                {
+                    StatusLabel.Text = $"Error: {ex.Message}";
+                });
             }
         }
 
@@ -824,6 +934,109 @@ namespace RunGame
             }
         }
 
+        private void OnResetAllTimers(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (_achievementTimerService == null)
+                {
+                    ShowErrorDialog("Timer service is not available");
+                    return;
+                }
+
+                var scheduledAchievements = _achievementTimerService.GetAllScheduledAchievements();
+                if (scheduledAchievements.Count == 0)
+                {
+                    ShowErrorDialog("No active timers to reset");
+                    return;
+                }
+
+                foreach (var achievementId in scheduledAchievements.Keys)
+                {
+                    _achievementTimerService.CancelSchedule(achievementId);
+                }
+
+                StatusLabel.Text = $"Reset {scheduledAchievements.Count} active timer(s)";
+                DebugLogger.LogDebug($"Reset all timers - {scheduledAchievements.Count} timers cancelled");
+
+                // Update UI to reflect timer status
+                UpdateScheduledTimesDisplay();
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error in OnResetAllTimers: {ex.Message}");
+            }
+        }
+
+        private void OnResetSelectedTimers(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (_achievementTimerService == null)
+                {
+                    ShowErrorDialog("Timer service is not available");
+                    return;
+                }
+
+                var selectedAchievements = AchievementListView.SelectedItems
+                    .OfType<AchievementInfo>()
+                    .ToList();
+
+                if (selectedAchievements.Count == 0)
+                {
+                    ShowErrorDialog("Please select achievements to reset their timers");
+                    return;
+                }
+
+                int resetCount = 0;
+                foreach (var achievement in selectedAchievements)
+                {
+                    var scheduledTime = _achievementTimerService.GetScheduledTime(achievement.Id);
+                    if (scheduledTime.HasValue)
+                    {
+                        _achievementTimerService.CancelSchedule(achievement.Id);
+                        achievement.ScheduledUnlockTime = null;
+                        resetCount++;
+                    }
+                }
+
+                if (resetCount == 0)
+                {
+                    ShowErrorDialog("None of the selected achievements have active timers");
+                    return;
+                }
+
+                StatusLabel.Text = $"Reset {resetCount} timer(s) for selected achievements";
+                DebugLogger.LogDebug($"Reset selected timers - {resetCount} timers cancelled");
+
+                // Update UI to reflect timer status
+                UpdateScheduledTimesDisplay();
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error in OnResetSelectedTimers: {ex.Message}");
+            }
+        }
+
+        private void UpdateScheduledTimesDisplay()
+        {
+            if (_achievementTimerService == null) return;
+
+            var scheduledAchievements = _achievementTimerService.GetAllScheduledAchievements();
+            
+            foreach (var achievement in _achievements)
+            {
+                if (scheduledAchievements.TryGetValue(achievement.Id, out var scheduledTime))
+                {
+                    achievement.ScheduledUnlockTime = scheduledTime;
+                }
+                else
+                {
+                    achievement.ScheduledUnlockTime = null;
+                }
+            }
+        }
+
         private Grid CreateTimerDialogContent(List<AchievementInfo> achievements)
         {
             var grid = new Grid();
@@ -995,6 +1208,21 @@ namespace RunGame
         {
             public int X;
             public int Y;
+        }
+
+        private async Task<Microsoft.UI.Xaml.Controls.ContentDialogResult> ShowConfirmationDialog(string title, string message)
+        {
+            var dialog = new Microsoft.UI.Xaml.Controls.ContentDialog
+            {
+                Title = title,
+                Content = message,
+                PrimaryButtonText = "Yes",
+                SecondaryButtonText = "No",
+                DefaultButton = Microsoft.UI.Xaml.Controls.ContentDialogButton.Secondary,
+                XamlRoot = this.Content.XamlRoot
+            };
+
+            return await dialog.ShowAsync();
         }
 
         private void ShowErrorDialog(string message)

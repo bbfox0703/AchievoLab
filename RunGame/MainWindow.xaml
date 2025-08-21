@@ -27,7 +27,7 @@
         <!-- Main Content -->
         <TabView Grid.Row="1" x:Name="MainTabView">
             <!-- Achievements Tab -->
-            <TabViewItem Header="Achievements">
+            <TabViewItem Header="Achievements" IsClosable="False">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -42,6 +42,8 @@
                         <ComboBox x:Name="LanguageComboBox" PlaceholderText="Language" Width="120" SelectionChanged="OnLanguageChanged"/>
                         <ComboBox x:Name="ColumnLayoutComboBox" PlaceholderText="Column Layout" Width="150" SelectionChanged="OnColumnLayoutChanged"/>
                         <Button x:Name="SetTimerButton" Content="Set Timer" Click="OnSetTimer"/>
+                        <Button x:Name="ResetAllTimersButton" Content="Reset All Timers" Click="OnResetAllTimers"/>
+                        <Button x:Name="ResetSelectedTimersButton" Content="Reset Selected Timers" Click="OnResetSelectedTimers"/>
                         <TextBlock Text="⚪ Timer Off" x:Name="TimerStatusText" VerticalAlignment="Center" Margin="10,0,0,0" FontWeight="Bold"/>
                     </StackPanel>
 
@@ -85,10 +87,10 @@
                                         <ColumnDefinition Width="{StaticResource PermissionColumnWidth}"/>
                                     </Grid.ColumnDefinitions>
 
-                                    <!-- Checkbox -->
+                                    <!-- Checkbox (Read-only status indicator) -->
                                     <CheckBox Grid.Column="0" 
-                                              IsChecked="{Binding IsAchieved, Mode=TwoWay}" 
-                                              IsEnabled="{Binding IsNotProtected}"
+                                              IsChecked="{Binding IsAchieved, Mode=OneWay}" 
+                                              IsEnabled="False"
                                               Content="✓"
                                               Margin="0,0,10,0"/>
                                     
@@ -200,7 +202,7 @@
             </TabViewItem>
 
             <!-- Statistics Tab -->
-            <TabViewItem Header="Statistics">
+            <TabViewItem Header="Statistics" IsClosable="False">
                 <Grid Margin="10">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>

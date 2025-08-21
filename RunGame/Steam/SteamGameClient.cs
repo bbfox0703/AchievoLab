@@ -42,6 +42,7 @@ namespace RunGame.Steam
         private readonly RequestUserStatsDelegate? _requestUserStats;
         private readonly GetAchievementAndUnlockTimeDelegate? _getAchievementAndUnlockTime;
         private readonly SetAchievementDelegate? _setAchievement;
+        private readonly ClearAchievementDelegate? _clearAchievement;
         private readonly GetStatIntDelegate? _getStatInt;
         private readonly GetStatFloatDelegate? _getStatFloat;
         private readonly SetStatIntDelegate? _setStatInt;
@@ -177,6 +178,7 @@ namespace RunGame.Steam
                                     _setStatFloat = Marshal.GetDelegateForFunctionPointer<SetStatFloatDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 2));
                                     _setStatInt = Marshal.GetDelegateForFunctionPointer<SetStatIntDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 3));
                                     _setAchievement = Marshal.GetDelegateForFunctionPointer<SetAchievementDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 6));
+                                    _clearAchievement = Marshal.GetDelegateForFunctionPointer<ClearAchievementDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 7));
                                     _getAchievementAndUnlockTime = Marshal.GetDelegateForFunctionPointer<GetAchievementAndUnlockTimeDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 8));
                                     _storeStats = Marshal.GetDelegateForFunctionPointer<StoreStatsDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 9));
                                     _requestUserStats = Marshal.GetDelegateForFunctionPointer<RequestUserStatsDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 15));
@@ -385,14 +387,23 @@ namespace RunGame.Steam
         {
             DebugLogger.LogAchievementSet(id, achieved, DebugLogger.IsDebugMode);
             
-            if (!Initialized || _setAchievement == null) return false;
+            if (!Initialized) return false;
             
 #if DEBUG
             // Debug 模式下不實際寫入，只記錄
             return true;
 #else
             // Release 模式下實際寫入
-            return _setAchievement(_userStats, id, achieved);
+            if (achieved)
+            {
+                if (_setAchievement == null) return false;
+                return _setAchievement(_userStats, id, achieved);
+            }
+            else
+            {
+                if (_clearAchievement == null) return false;
+                return _clearAchievement(_userStats, id);
+            }
 #endif
         }
 
@@ -565,25 +576,37 @@ namespace RunGame.Steam
 
         private static IntPtr ResolveSteamClient(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
         {
-            if (!libraryName.Equals("steamclient64", StringComparison.OrdinalIgnoreCase))
-                return IntPtr.Zero;
-
-            DebugLogger.LogDebug("Attempting to determine Steam install path");
-            string? installPath = GetSteamPath();
-            if (string.IsNullOrEmpty(installPath)) return IntPtr.Zero;
-
-            string libraryPath = Path.Combine(installPath, "steamclient64.dll");
-            if (!File.Exists(libraryPath))
+            try
             {
-                libraryPath = Path.Combine(installPath, "bin", "steamclient64.dll");
-            }
-            
-            if (!File.Exists(libraryPath)) return IntPtr.Zero;
+                if (!libraryName.Equals("steamclient64", StringComparison.OrdinalIgnoreCase))
+                    return IntPtr.Zero;
 
-            Native.AddDllDirectory(installPath);
-            Native.AddDllDirectory(Path.Combine(installPath, "bin"));
-            return Native.LoadLibraryEx(libraryPath, IntPtr.Zero,
-                Native.LoadLibrarySearchDefaultDirs | Native.LoadLibrarySearchUserDirs);
+                DebugLogger.LogDebug("Attempting to determine Steam install path");
+                string? installPath = GetSteamPath();
+                if (string.IsNullOrEmpty(installPath)) return IntPtr.Zero;
+
+                string libraryPath = Path.Combine(installPath, "steamclient64.dll");
+                if (!File.Exists(libraryPath))
+                {
+                    libraryPath = Path.Combine(installPath, "bin", "steamclient64.dll");
+                }
+                
+                if (!File.Exists(libraryPath)) 
+                {
+                    DebugLogger.LogDebug($"steamclient64.dll not found at expected paths in {installPath}");
+                    return IntPtr.Zero;
+                }
+
+                Native.AddDllDirectory(installPath);
+                Native.AddDllDirectory(Path.Combine(installPath, "bin"));
+                return Native.LoadLibraryEx(libraryPath, IntPtr.Zero,
+                    Native.LoadLibrarySearchDefaultDirs | Native.LoadLibrarySearchUserDirs);
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error in ResolveSteamClient: {ex.Message}");
+                return IntPtr.Zero;
+            }
         }
 
         private static bool IsSteamRunning()
@@ -604,35 +627,57 @@ namespace RunGame.Steam
 
         private static string? GetSteamPath()
         {
-            DebugLogger.LogDebug("Searching registry for Steam install path");
-            const string subKey = @"Software\\Valve\\Steam";
-
-            // Check HKLM 64-bit and 32-bit (WOW6432Node) views
-            foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
+            try
             {
-                using var key = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, view).OpenSubKey(subKey);
-                var path = key?.GetValue("InstallPath") as string;
-                if (!string.IsNullOrEmpty(path))
-                {
-                    DebugLogger.LogDebug($"Steam install path found: {path}");
-                    return path;
-                }
-            }
+                DebugLogger.LogDebug("Searching registry for Steam install path");
+                const string subKey = @"Software\\Valve\\Steam";
 
-            // Fall back to HKCU
-            foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
+                // Check HKLM 64-bit and 32-bit (WOW6432Node) views
+                foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
+                {
+                    try
+                    {
+                        using var key = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, view).OpenSubKey(subKey);
+                        var path = key?.GetValue("InstallPath") as string;
+                        if (!string.IsNullOrEmpty(path))
+                        {
+                            DebugLogger.LogDebug($"Steam install path found: {path}");
+                            return path;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        DebugLogger.LogDebug($"Error accessing HKLM registry (view: {view}): {ex.Message}");
+                    }
+                }
+
+                // Fall back to HKCU
+                foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
+                {
+                    try
+                    {
+                        using var key = RegistryKey.OpenBaseKey(RegistryHive.CurrentUser, view).OpenSubKey(subKey);
+                        var path = key?.GetValue("InstallPath") as string;
+                        if (!string.IsNullOrEmpty(path))
+                        {
+                            DebugLogger.LogDebug($"Steam install path found: {path}");
+                            return path;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        DebugLogger.LogDebug($"Error accessing HKCU registry (view: {view}): {ex.Message}");
+                    }
+                }
+
+                DebugLogger.LogDebug("Steam install path not found in registry");
+                return null;
+            }
+            catch (Exception ex)
             {
-                using var key = RegistryKey.OpenBaseKey(RegistryHive.CurrentUser, view).OpenSubKey(subKey);
-                var path = key?.GetValue("InstallPath") as string;
-                if (!string.IsNullOrEmpty(path))
-                {
-                    DebugLogger.LogDebug($"Steam install path found: {path}");
-                    return path;
-                }
+                DebugLogger.LogDebug($"Error in GetSteamPath: {ex.Message}");
+                return null;
             }
-
-            DebugLogger.LogDebug("Steam install path not found in registry");
-            return null;
         }
 
         // P/Invoke and delegate declarations
@@ -724,6 +769,11 @@ namespace RunGame.Steam
         [return: MarshalAs(UnmanagedType.I1)]
         private delegate bool SetAchievementDelegate(IntPtr self,
             [MarshalAs(UnmanagedType.LPStr)] string name, bool achieved);
+
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall, CharSet = CharSet.Ansi)]
+        [return: MarshalAs(UnmanagedType.I1)]
+        private delegate bool ClearAchievementDelegate(IntPtr self,
+            [MarshalAs(UnmanagedType.LPStr)] string name);
 
         [UnmanagedFunctionPointer(CallingConvention.ThisCall, CharSet = CharSet.Ansi)]
         [return: MarshalAs(UnmanagedType.I1)]
