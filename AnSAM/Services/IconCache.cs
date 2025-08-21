@@ -66,6 +66,35 @@ namespace AnSAM.Services
         }
 
         /// <summary>
+        /// Attempts to find a cached icon path for the given application id.
+        /// </summary>
+        /// <param name="id">Steam application identifier used to name the file.</param>
+        /// <returns>The cached file path if present and valid; otherwise <c>null</c>.</returns>
+        public static string? TryGetCachedPath(int id)
+        {
+            var basePath = Path.Combine(CacheDir, id.ToString());
+
+            foreach (var candidateExt in new HashSet<string>(MimeToExtension.Values))
+            {
+                var path = basePath + candidateExt;
+                if (File.Exists(path))
+                {
+                    if (IsCacheValid(path))
+                    {
+#if DEBUG
+                        DebugLogger.LogDebug($"Using cached icon for {id} at {path}");
+#endif
+                        return path;
+                    }
+
+                    try { File.Delete(path); } catch { }
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
         /// Returns a local file path for the provided cover URI, downloading it if necessary.
         /// </summary>
         /// <param name="id">Steam application identifier used to name the file.</param>
