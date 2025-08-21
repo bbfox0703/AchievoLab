@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -53,7 +54,7 @@ namespace MyOwnGames
                 await ThrottleApiCallAsync();
                 var ownedGamesUrl = $"https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key={_apiKey}&steamid={steamId64}&format=json&include_appinfo=true";
                 var ownedGamesResponse = await _httpClient.GetStringAsync(ownedGamesUrl);
-                var ownedGamesData = JsonSerializer.Deserialize<OwnedGamesResponse>(ownedGamesResponse, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                var ownedGamesData = DeserializeOwnedGamesResponse(ownedGamesResponse);
 
                 if (ownedGamesData?.response?.games == null)
                 {
@@ -112,7 +113,7 @@ namespace MyOwnGames
                 await ThrottleApiCallAsync();
                 var url = $"https://store.steampowered.com/api/appdetails?appids={appId}&l={targetLanguage}";
                 var response = await _httpClient.GetStringAsync(url);
-                var data = JsonSerializer.Deserialize<Dictionary<string, AppDetailsResponse>>(response, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                var data = DeserializeAppDetailsResponse(response);
                 
                 if (data != null && data.TryGetValue(appId.ToString(), out var appDetails) && 
                     appDetails.success && !string.IsNullOrEmpty(appDetails.data?.name))
@@ -134,6 +135,18 @@ namespace MyOwnGames
             // Use the same pattern as AnSAM GameImageUrlResolver
             // Priority: small_capsule -> logo -> library_600x900 -> header_image
             return $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg";
+        }
+
+        [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "The types used in JSON deserialization are explicitly referenced and won't be trimmed")]
+        private static OwnedGamesResponse? DeserializeOwnedGamesResponse(string json)
+        {
+            return JsonSerializer.Deserialize<OwnedGamesResponse>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        }
+
+        [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "The types used in JSON deserialization are explicitly referenced and won't be trimmed")]
+        private static Dictionary<string, AppDetailsResponse>? DeserializeAppDetailsResponse(string json)
+        {
+            return JsonSerializer.Deserialize<Dictionary<string, AppDetailsResponse>>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
         }
 
         public void Dispose()
