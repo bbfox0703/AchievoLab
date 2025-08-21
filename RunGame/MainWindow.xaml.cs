@@ -78,10 +78,10 @@ namespace RunGame
             _mouseTimer.Tick += OnMouseTimerTick;
 
             _searchDebounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
-            _searchDebounceTimer.Tick += (_, _) =>
+            _searchDebounceTimer.Tick += async (_, _) =>
             {
                 _searchDebounceTimer.Stop();
-                FilterAchievements();
+                await LoadAchievements();
             };
 
             // Set up event handlers
@@ -263,16 +263,17 @@ namespace RunGame
                 {
                     StatusLabel.Text = "Failed to request user stats from Steam";
                     DebugLogger.LogDebug("LoadStatsAsync: Failed to request user stats from Steam");
+                    LoadingRing.IsActive = false;
                 }
             }
             catch (Exception ex)
             {
                 StatusLabel.Text = $"Error loading stats: {ex.Message}";
+                LoadingRing.IsActive = false;
             }
             finally
             {
                 _isLoadingStats = false;
-                LoadingRing.IsActive = false;
             }
         }
 
@@ -301,6 +302,7 @@ namespace RunGame
                 }
 
                 DebugLogger.LogDebug("Loading achievements and statistics...");
+                LoadingRing.IsActive = true;
 
                 foreach (var achievement in _allAchievements)
                 {
@@ -319,39 +321,64 @@ namespace RunGame
                     achievement.PropertyChanged += OnAchievementPropertyChanged;
                 }
 
-                FilterAchievements();
+                await LoadAchievements();
                 LoadStatistics();
-                
+
                 DebugLogger.LogDebug($"UI updated - {_achievements.Count} achievements, {_statistics.Count} statistics");
                 StatusLabel.Text = $"Retrieved {_achievements.Count} achievements and {_statistics.Count} statistics";
-                
-                // Start loading achievement icons on the UI thread
+
+                // Start loading achievement icons
                 await LoadAchievementIconsAsync();
+
+                LoadingRing.IsActive = false;
             });
         }
 
-        private void FilterAchievements()
+        private async Task LoadAchievements()
         {
-            _achievements.Clear();
+            StatusLabel.Text = "Filtering achievements...";
 
             string searchText = SearchTextBox.Text ?? string.Empty;
             bool showLockedOnly = ShowLockedButton.IsChecked == true;
             bool showUnlockedOnly = ShowUnlockedButton.IsChecked == true;
 
-            foreach (var achievement in _allAchievements)
+            var filtered = new List<AchievementInfo>();
+            int total = _allAchievements.Count;
+
+            await Task.Run(() =>
             {
-                bool matchesSearch = string.IsNullOrEmpty(searchText) ||
-                    achievement.Name.IndexOf(searchText, StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    achievement.Description.IndexOf(searchText, StringComparison.OrdinalIgnoreCase) >= 0;
-
-                bool matchesFilter = (!showLockedOnly && !showUnlockedOnly) ||
-                    (showLockedOnly && !achievement.IsAchieved) ||
-                    (showUnlockedOnly && achievement.IsAchieved);
-
-                if (matchesSearch && matchesFilter)
+                int processed = 0;
+                foreach (var achievement in _allAchievements)
                 {
-                    _achievements.Add(achievement);
+                    bool matchesSearch = string.IsNullOrEmpty(searchText) ||
+                        achievement.Name.IndexOf(searchText, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        achievement.Description.IndexOf(searchText, StringComparison.OrdinalIgnoreCase) >= 0;
+
+                    bool matchesFilter = (!showLockedOnly && !showUnlockedOnly) ||
+                        (showLockedOnly && !achievement.IsAchieved) ||
+                        (showUnlockedOnly && achievement.IsAchieved);
+
+                    if (matchesSearch && matchesFilter)
+                    {
+                        filtered.Add(achievement);
+                    }
+
+                    processed++;
+                    if (processed % 50 == 0)
+                    {
+                        int progress = processed;
+                        this.DispatcherQueue.TryEnqueue(() =>
+                        {
+                            StatusLabel.Text = $"Filtering achievements... {progress}/{total}";
+                        });
+                    }
                 }
+            });
+
+            _achievements.Clear();
+            foreach (var achievement in filtered)
+            {
+                _achievements.Add(achievement);
             }
         }
 
@@ -632,22 +659,22 @@ namespace RunGame
             _searchDebounceTimer.Start();
         }
 
-        private void OnShowLockedToggle(object sender, RoutedEventArgs e)
+        private async void OnShowLockedToggle(object sender, RoutedEventArgs e)
         {
             if (ShowLockedButton.IsChecked == true && ShowUnlockedButton.IsChecked == true)
             {
                 ShowUnlockedButton.IsChecked = false;
             }
-            FilterAchievements();
+            await LoadAchievements();
         }
 
-        private void OnShowUnlockedToggle(object sender, RoutedEventArgs e)
+        private async void OnShowUnlockedToggle(object sender, RoutedEventArgs e)
         {
             if (ShowLockedButton.IsChecked == true && ShowUnlockedButton.IsChecked == true)
             {
                 ShowLockedButton.IsChecked = false;
             }
-            FilterAchievements();
+            await LoadAchievements();
         }
 
         private async void OnLanguageChanged(object sender, SelectionChangedEventArgs e)
@@ -1014,36 +1041,60 @@ namespace RunGame
 
             try
             {
-                foreach (var achievement in _achievements)
+                var achievements = _achievements.ToList();
+                int total = achievements.Count;
+                int processed = 0;
+                const int batchSize = 10;
+
+                foreach (var batch in achievements.Chunk(batchSize))
                 {
-                    // Get the appropriate icon filename based on achievement state
-                    string iconFileName = achievement.IsAchieved || string.IsNullOrEmpty(achievement.IconLocked)
-                        ? achievement.IconNormal
-                        : achievement.IconLocked;
-
-                    if (!string.IsNullOrEmpty(iconFileName))
+                    var tasks = batch.Select(async achievement =>
                     {
-                        var iconPath = await _achievementIconService.GetAchievementIconAsync(
-                            achievement.Id, iconFileName, achievement.IsAchieved);
+                        string iconFileName = achievement.IsAchieved || string.IsNullOrEmpty(achievement.IconLocked)
+                            ? achievement.IconNormal
+                            : achievement.IconLocked;
 
-                        if (!string.IsNullOrEmpty(iconPath))
+                        if (string.IsNullOrEmpty(iconFileName)) return;
+
+                        try
                         {
-                            this.DispatcherQueue.TryEnqueue(() =>
+                            var iconPath = await _achievementIconService.GetAchievementIconAsync(
+                                achievement.Id, iconFileName, achievement.IsAchieved);
+
+                            if (!string.IsNullOrEmpty(iconPath))
                             {
-                                try
+                                this.DispatcherQueue.TryEnqueue(() =>
                                 {
-                                    achievement.IconImage = new BitmapImage(new Uri(iconPath));
-                                }
-                                catch (Exception ex)
-                                {
-                                    DebugLogger.LogDebug($"Error creating BitmapImage for {achievement.Id}: {ex.Message}");
-                                }
-                            });
+                                    try
+                                    {
+                                        achievement.IconImage = new BitmapImage(new Uri(iconPath));
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        DebugLogger.LogDebug($"Error creating BitmapImage for {achievement.Id}: {ex.Message}");
+                                    }
+                                });
+                            }
                         }
-                    }
+                        catch (Exception ex)
+                        {
+                            DebugLogger.LogDebug($"Error loading icon for {achievement.Id}: {ex.Message}");
+                        }
+                    });
+
+                    await Task.WhenAll(tasks);
+                    processed += batch.Length;
+
+                    int progress = processed;
+                    this.DispatcherQueue.TryEnqueue(() =>
+                    {
+                        StatusLabel.Text = $"Loading icons... {progress}/{total}";
+                    });
+
+                    await Task.Delay(1);
                 }
 
-                DebugLogger.LogDebug($"Finished loading icons for {_achievements.Count} achievements");
+                DebugLogger.LogDebug($"Finished loading icons for {total} achievements");
             }
             catch (Exception ex)
             {
