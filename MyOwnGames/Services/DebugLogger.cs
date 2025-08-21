@@ -2,16 +2,17 @@ using System;
 using System.Diagnostics;
 using System.IO;
 
-namespace AnSAM.Services
+namespace MyOwnGames.Services
 {
     public static class DebugLogger
     {
         private static readonly string LogFilePath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "AnSAM", "debug.log");
+            "MyOwnGames", "debug.log");
 
         static DebugLogger()
         {
+            // 確保日誌目錄存在
             var logDir = Path.GetDirectoryName(LogFilePath);
             if (!string.IsNullOrEmpty(logDir) && !Directory.Exists(logDir))
             {
@@ -27,14 +28,15 @@ namespace AnSAM.Services
 #if DEBUG
             var timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
             var logMessage = $"[{timestamp}] DEBUG: {message}";
-
+            
+            // 輸出到控制台
             try
             {
                 Debug.WriteLine(logMessage);
             }
             catch
             {
-                // 忽略日誌輸出錯誤
+                // 忽略調試輸出錯誤
             }
 
             if (Environment.UserInteractive || Debugger.IsAttached)
@@ -43,12 +45,13 @@ namespace AnSAM.Services
                 {
                     Console.WriteLine(logMessage);
                 }
-                catch
+                catch (IOException)
                 {
-                    // 忽略日誌輸出錯誤
+                    // 忽略控制台輸出錯誤
                 }
             }
-
+            
+            // 寫入到日誌文件
             try
             {
                 File.AppendAllText(LogFilePath, logMessage + Environment.NewLine);
@@ -156,4 +159,3 @@ namespace AnSAM.Services
         }
     }
 }
-
