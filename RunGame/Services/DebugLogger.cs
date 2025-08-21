@@ -30,8 +30,26 @@ namespace RunGame.Services
             var logMessage = $"[{timestamp}] DEBUG: {message}";
             
             // 輸出到控制台
-            Debug.WriteLine(logMessage);
-            Console.WriteLine(logMessage);
+            try
+            {
+                Debug.WriteLine(logMessage);
+            }
+            catch
+            {
+                // 忽略調試輸出錯誤
+            }
+
+            if (Environment.UserInteractive || Debugger.IsAttached)
+            {
+                try
+                {
+                    Console.WriteLine(logMessage);
+                }
+                catch (IOException)
+                {
+                    // 忽略控制台輸出錯誤
+                }
+            }
             
             // 寫入到日誌文件
             try
