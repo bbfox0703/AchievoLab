@@ -49,6 +49,16 @@
                     <ListView Grid.Row="1" x:Name="AchievementListView"
                               SelectionMode="Extended"
                               Margin="10,0,10,10">
+                        <ListView.Resources>
+                            <x:Double x:Key="AchievedColumnWidth">60</x:Double>
+                            <x:Double x:Key="IconColumnWidth">60</x:Double>
+                            <x:Double x:Key="IdColumnWidth">220</x:Double>
+                            <x:Double x:Key="NameColumnWidth">250</x:Double>
+                            <x:Double x:Key="DescriptionColumnWidth">300</x:Double>
+                            <x:Double x:Key="UnlockTimeColumnWidth">180</x:Double>
+                            <x:Double x:Key="ScheduledTimeColumnWidth">180</x:Double>
+                            <x:Double x:Key="PermissionColumnWidth">80</x:Double>
+                        </ListView.Resources>
                         <ListView.ItemContainerStyle>
                             <Style TargetType="ListViewItem">
                                 <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
@@ -65,14 +75,14 @@
                             <DataTemplate>
                                 <Grid>
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="60"/>
-                                        <ColumnDefinition Width="60"/>
-                                        <ColumnDefinition Width="220"/>
-                                        <ColumnDefinition Width="250"/>
-                                        <ColumnDefinition Width="300"/>
-                                        <ColumnDefinition Width="180"/>
-                                        <ColumnDefinition Width="180"/>
-                                        <ColumnDefinition Width="80"/>
+                                        <ColumnDefinition Width="{StaticResource AchievedColumnWidth}"/>
+                                        <ColumnDefinition Width="{StaticResource IconColumnWidth}"/>
+                                        <ColumnDefinition Width="{StaticResource IdColumnWidth}"/>
+                                        <ColumnDefinition Width="{StaticResource NameColumnWidth}"/>
+                                        <ColumnDefinition Width="{StaticResource DescriptionColumnWidth}"/>
+                                        <ColumnDefinition Width="{StaticResource UnlockTimeColumnWidth}"/>
+                                        <ColumnDefinition Width="{StaticResource ScheduledTimeColumnWidth}"/>
+                                        <ColumnDefinition Width="{StaticResource PermissionColumnWidth}"/>
                                     </Grid.ColumnDefinitions>
 
                                     <!-- Checkbox -->
@@ -165,14 +175,14 @@
                         <ListView.Header>
                             <Grid Margin="5" Padding="10">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="60"/>
-                                    <ColumnDefinition Width="100"/>
-                                    <ColumnDefinition Width="250"/>
-                                    <ColumnDefinition Width="300"/>
-                                    <ColumnDefinition Width="150"/>
-                                    <ColumnDefinition Width="150"/>
-                                    <ColumnDefinition Width="80"/>
+                                    <ColumnDefinition Width="{StaticResource AchievedColumnWidth}"/>
+                                    <ColumnDefinition Width="{StaticResource IconColumnWidth}"/>
+                                    <ColumnDefinition Width="{StaticResource IdColumnWidth}"/>
+                                    <ColumnDefinition Width="{StaticResource NameColumnWidth}"/>
+                                    <ColumnDefinition Width="{StaticResource DescriptionColumnWidth}"/>
+                                    <ColumnDefinition Width="{StaticResource UnlockTimeColumnWidth}"/>
+                                    <ColumnDefinition Width="{StaticResource ScheduledTimeColumnWidth}"/>
+                                    <ColumnDefinition Width="{StaticResource PermissionColumnWidth}"/>
                                 </Grid.ColumnDefinitions>
 
                                 <TextBlock Grid.Column="0" Text="Achieved" FontWeight="Bold" Margin="0,0,10,0"/>
