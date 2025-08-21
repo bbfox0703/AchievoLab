@@ -620,6 +620,9 @@ namespace AnSAM
         public string? UriScheme { get; set; }
         public bool IsSamGameAvailable => GameLauncher.IsSamGameAvailable;
 
+        private bool _coverLoading;
+        public bool IsCoverLoading => _coverLoading;
+
         public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
 
         public GameItem(string title,
@@ -637,86 +640,87 @@ namespace AnSAM
             UriScheme = uriScheme;
         }
 
+        public async Task LoadCoverAsync(SteamClient client)
+        {
+            if (CoverPath != null || _coverLoading)
+            {
+                return;
+            }
+
+            _coverLoading = true;
+            var dispatcher = DispatcherQueue.GetForCurrentThread();
+
+            try
+            {
+                var cached = IconCache.TryGetCachedIconUri(ID);
+                if (cached != null)
+                {
+                    if (dispatcher != null)
+                    {
+                        _ = dispatcher.TryEnqueue(() => CoverPath = cached);
+                    }
+                    else
+                    {
+                        CoverPath = cached;
+                    }
+                    return;
+                }
+
+                string language = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName switch
+                {
+                    "es" => "spanish",
+                    "fr" => "french",
+                    "de" => "german",
+                    "it" => "italian",
+                    "pt" => "portuguese",
+                    "ru" => "russian",
+                    "ja" => "japanese",
+                    "ko" => "korean",
+                    "zh" => "schinese",
+                    _ => "english"
+                };
+
+                var url = GameImageUrlResolver.GetGameImageUrl(client, (uint)ID, language);
+
+                if (Uri.TryCreate(url, UriKind.Absolute, out var remoteUri))
+                {
+                    var result = await IconCache.GetIconPathAsync(ID, remoteUri).ConfigureAwait(false);
+                    if (Uri.TryCreate(result.Path, UriKind.Absolute, out var localUri))
+                    {
+                        if (dispatcher != null)
+                        {
+                            _ = dispatcher.TryEnqueue(() => CoverPath = localUri);
+                        }
+                        else
+                        {
+                            CoverPath = localUri;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+#if DEBUG
+                DebugLogger.LogDebug($"Icon download failed for {ID}: {ex.GetBaseException().Message}");
+#endif
+            }
+            finally
+            {
+                _coverLoading = false;
+            }
+        }
+
         public static GameItem FromSteamApp(SteamAppData app)
         {
 #if DEBUG
             DebugLogger.LogDebug($"Creating GameItem for {app.AppId} - {app.Title}");
 #endif
-            var item = new GameItem(app.Title,
-                                    app.AppId,
-                                    new Uri("ms-appx:///Assets/no_icon.png"),
-                                    app.ExePath,
-                                    app.Arguments,
-                                    app.UriScheme);
-
-            if (IconCache.TryGetCachedPath(app.AppId) is string cachedPath &&
-                Uri.TryCreate(cachedPath, UriKind.Absolute, out var cachedUri))
-            {
-                item.CoverPath = cachedUri;
-            }
-
-            if (app.CoverUrl != null)
-            {
-#if DEBUG
-                DebugLogger.LogDebug($"Queueing icon download for {app.AppId} from {app.CoverUrl}");
-#endif
-                var dispatcher = DispatcherQueue.GetForCurrentThread();
-                var cachedIconUri = IconCache.TryGetCachedIconUri(app.AppId);
-                if (cachedIconUri != null)
-                {
-                    item.CoverPath = cachedIconUri;
-                }
-
-                _ = LoadIconAsync();
-
-                async Task LoadIconAsync()
-                {
-                    Uri? coverUri = null;
-                    try
-                    {
-                        if (Uri.TryCreate(app.CoverUrl, UriKind.Absolute, out var remoteUri))
-                        {
-                            var result = await IconCache.GetIconPathAsync(app.AppId, remoteUri);
-#if DEBUG
-                            if (result.Downloaded)
-                            {
-                                DebugLogger.LogDebug($"Icon for {app.AppId} stored at {result.Path}");
-                            }
-#endif
-                            if (Uri.TryCreate(result.Path, UriKind.Absolute, out var localUri))
-                            {
-                                coverUri = localUri;
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-#if DEBUG
-                        DebugLogger.LogDebug($"Icon download failed for {app.AppId}: {ex.GetBaseException().Message}");
-#endif
-                    }
-
-                    if (coverUri != null)
-                    {
-                        if (dispatcher != null)
-                        {
-                            _ = dispatcher.TryEnqueue(() => item.CoverPath = coverUri);
-                        }
-                        else
-                        {
-                            item.CoverPath = coverUri;
-                        }
-                    }
-                }
-            }
-            else
-            {
-#if DEBUG
-                DebugLogger.LogDebug($"No icon URL for {app.AppId}");
-#endif
-            }
-
-            return item;
+            return new GameItem(app.Title,
+                                app.AppId,
+                                null,
+                                app.ExePath,
+                                app.Arguments,
+                                app.UriScheme);
         }
     }
 }
