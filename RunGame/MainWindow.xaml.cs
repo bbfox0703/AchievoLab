@@ -696,7 +696,7 @@ namespace RunGame
             try
             {
                 // Create the dialog content
-                var dialogContent = CreateTimerDialogContent();
+                var dialogContent = CreateTimerDialogContent(unachievedItems);
                 
                 // Show a content dialog to set the unlock time
                 var dialog = new ContentDialog
@@ -713,9 +713,9 @@ namespace RunGame
                 if (result == ContentDialogResult.Primary)
                 {
                     // Extract the controls from our dialog content
-                    var datePicker = (DatePicker)dialogContent.Children[1];
-                    var timePicker = (TimePicker)dialogContent.Children[3];
-                    var secondsBox = (NumberBox)dialogContent.Children[5];
+                    var datePicker = (DatePicker)dialogContent.Children[3];
+                    var timePicker = (TimePicker)dialogContent.Children[5];
+                    var secondsBox = (NumberBox)dialogContent.Children[7];
 
                     var selectedDate = datePicker.Date.Date;
                     var selectedTime = timePicker.Time;
@@ -751,9 +751,11 @@ namespace RunGame
             }
         }
 
-        private Grid CreateTimerDialogContent()
+        private Grid CreateTimerDialogContent(List<AchievementInfo> achievements)
         {
             var grid = new Grid();
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -769,33 +771,55 @@ namespace RunGame
             };
             Grid.SetRow(instructions, 0);
 
+            // Add achievement information display
+            var achievementHeader = new TextBlock
+            {
+                Text = $"Achievements to be scheduled ({achievements.Count}):",
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                Margin = new Thickness(0, 0, 0, 5)
+            };
+            Grid.SetRow(achievementHeader, 1);
+
+            var achievementList = new TextBlock
+            {
+                Text = string.Join("\n", achievements.Take(5).Select(a => $"• {a.Id}: {a.Name}")) + 
+                       (achievements.Count > 5 ? $"\n... and {achievements.Count - 5} more" : ""),
+                FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
+                FontSize = 12,
+                Margin = new Thickness(0, 0, 0, 15),
+                TextWrapping = TextWrapping.Wrap,
+                MaxHeight = 120,
+                IsTextSelectionEnabled = true
+            };
+            Grid.SetRow(achievementList, 2);
+
             var datePicker = new DatePicker
             {
                 Date = DateTime.Now.Date.AddDays(1),
                 Margin = new Thickness(0, 0, 0, 10)
             };
-            Grid.SetRow(datePicker, 1);
+            Grid.SetRow(datePicker, 3);
 
             var timeLabel = new TextBlock
             {
                 Text = "Time:",
                 Margin = new Thickness(0, 0, 0, 5)
             };
-            Grid.SetRow(timeLabel, 2);
+            Grid.SetRow(timeLabel, 4);
 
             var timePicker = new TimePicker
             {
                 Time = DateTime.Now.TimeOfDay.Add(TimeSpan.FromMinutes(5)),
                 Margin = new Thickness(0, 0, 0, 10)
             };
-            Grid.SetRow(timePicker, 3);
+            Grid.SetRow(timePicker, 5);
 
             var secondsLabel = new TextBlock
             {
                 Text = "Seconds (0-59):",
                 Margin = new Thickness(0, 0, 0, 5)
             };
-            Grid.SetRow(secondsLabel, 4);
+            Grid.SetRow(secondsLabel, 6);
 
             var secondsBox = new NumberBox
             {
@@ -804,9 +828,11 @@ namespace RunGame
                 Maximum = 59,
                 SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline
             };
-            Grid.SetRow(secondsBox, 5);
+            Grid.SetRow(secondsBox, 7);
 
             grid.Children.Add(instructions);
+            grid.Children.Add(achievementHeader);
+            grid.Children.Add(achievementList);
             grid.Children.Add(datePicker);
             grid.Children.Add(timeLabel);
             grid.Children.Add(timePicker);

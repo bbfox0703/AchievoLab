@@ -44,6 +44,7 @@ namespace RunGame.Models
                 ? IconNormal
                 : string.IsNullOrEmpty(IconLocked) ? IconNormal : IconLocked;
         public bool IsProtected => (Permission & 3) != 0;
+        public bool IsNotProtected => !IsProtected;
         public Visibility LockVisibility => IsProtected && !IsAchieved ? Visibility.Visible : Visibility.Collapsed;
         
         // Check if achievement state has been modified

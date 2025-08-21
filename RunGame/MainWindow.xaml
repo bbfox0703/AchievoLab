@@ -67,6 +67,7 @@
                                     <!-- Checkbox -->
                                     <CheckBox Grid.Column="0" 
                                               IsChecked="{Binding IsAchieved, Mode=TwoWay}" 
+                                              IsEnabled="{Binding IsNotProtected}"
                                               Content="✓"
                                               Margin="0,0,10,0"/>
                                     
@@ -205,7 +206,7 @@
 
                                     <TextBlock Grid.Column="0" Text="{Binding Id}" FontFamily="Consolas" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,0"/>
                                     <TextBlock Grid.Column="1" Text="{Binding DisplayName}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                                    <TextBox Grid.Column="2" Text="{Binding Value, Mode=TwoWay}" FontFamily="Consolas" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                    <TextBox Grid.Column="2" Text="{Binding Value, Mode=TwoWay}" FontFamily="Consolas" VerticalAlignment="Center" Margin="0,0,10,0" IsEnabled="{Binding IsNotProtected}"/>
                                     <TextBlock Grid.Column="3" Text="{Binding OriginalValue}" FontFamily="Consolas" FontSize="12" Opacity="0.7" VerticalAlignment="Center" Margin="0,0,10,0"/>
                                     <CheckBox Grid.Column="4" IsChecked="{Binding IsIncrementOnly}" IsEnabled="False" Content="Increment Only" VerticalAlignment="Center" Margin="0,0,10,0"/>
                                     <TextBlock Grid.Column="5" Text="{Binding Permission}" FontFamily="Consolas" FontSize="12" VerticalAlignment="Center"/>
