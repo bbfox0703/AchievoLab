@@ -4,67 +4,67 @@ param(
     [switch]$WhatIf
 )
 
-# 需要清理的根路徑
-$baseDebug = Join-Path $PSScriptRoot 'output\Debug\x64\net8.0-windows10.0.22621.0'
-$baseRelease = Join-Path $PSScriptRoot 'output\Release\x64\net8.0-windows10.0.22621.0'
-$projects = @('AnSAM', 'RunGame', 'MyOwnGames')
+# 遞迴掃描這兩個根路徑底下的所有子資料夾
+$roots = @(
+    Join-Path $PSScriptRoot 'output\Debug'
+    Join-Path $PSScriptRoot 'output\Release'
+)
 
-$roots = @()
-foreach ($base in @($baseDebug, $baseRelease)) {
-    foreach ($project in $projects) {
-        $roots += Join-Path $base $project
-    }
-}
-
-# 要保留的語系（大小寫不敏感）
+# 白名單（大小寫不敏感）
 $keep = @('en-us','en-gb','zh-tw','ja-jp','ko-kr')
 
-# 語系資料夾命名模式
+# 語系資料夾命名樣式（符合 zh-CN、sr-Cyrl-BA、ca-Es-VALENCIA 等）
 $localeRegex = '^(?i)[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})+$'
+
+# 需要「剛好存在」的兩個檔案（大小寫不敏感比對）
+$mustFiles = @('Microsoft.ui.xaml.dll.mui','Microsoft.UI.Xaml.Phone.dll.mui')
 
 function Should-DeleteFolder([IO.DirectoryInfo]$dir) {
     $name = $dir.Name
-    if ($name -notmatch $localeRegex) { return $false }
-    if ($keep -contains $name.ToLowerInvariant()) { return $false }
+    if ($name -notmatch $localeRegex) { return $false }               # 不是語系命名
+    if ($keep -contains $name.ToLowerInvariant()) { return $false }   # 白名單保留
 
-    # 條件：必須同時存在這兩個檔案
-    $file1 = Join-Path $dir.FullName 'Microsoft.ui.xaml.dll.mui'
-    $file2 = Join-Path $dir.FullName 'Microsoft.UI.Xaml.Phone.dll.mui'
+    # 只檢查目錄本身（不遞迴）
+    $files = Get-ChildItem -LiteralPath $dir.FullName -File -Force -ErrorAction SilentlyContinue
+    $subDirs = Get-ChildItem -LiteralPath $dir.FullName -Directory -Force -ErrorAction SilentlyContinue
 
-    if ((Test-Path $file1) -and (Test-Path $file2)) {
-        return $true
-    }
-    return $false
+    # 必須沒有子資料夾
+    if ($subDirs.Count -ne 0) { return $false }
+
+    # 必須剛好只有 2 個檔案，且名稱為指定兩個（大小寫不敏感）
+    if ($files.Count -ne 2) { return $false }
+
+    $fileNames = $files.Name | ForEach-Object { $_.ToLowerInvariant() }
+    $mustLower = $mustFiles | ForEach-Object { $_.ToLowerInvariant() }
+
+    # 比對集合是否完全相等
+    $setEqual = ($fileNames | Sort-Object) -join '|' -eq ($mustLower | Sort-Object) -join '|'
+    return $setEqual
 }
 
 foreach ($root in $roots) {
     if (-not (Test-Path $root)) {
-        Write-Host "略過：找不到 $root" -ForegroundColor Yellow
+        Write-Host "Skip: not found $root" -ForegroundColor Yellow
         continue
     }
 
-    Write-Host "掃描：$root" -ForegroundColor Cyan
-    $candidates = Get-ChildItem -Path $root -Directory -ErrorAction SilentlyContinue
+    Write-Host "Recursive scan: $root" -ForegroundColor Cyan
+    $allDirs = Get-ChildItem -Path $root -Directory -Recurse -ErrorAction SilentlyContinue
 
-    $toDelete = @()
-    foreach ($d in $candidates) {
-        if (Should-DeleteFolder $d) { $toDelete += $d }
-    }
+    $toDelete = $allDirs | Where-Object { Should-DeleteFolder $_ }
 
     if (-not $toDelete) {
-        Write-Host "  沒有符合條件要刪除的資料夾。"
+        Write-Host "  No match."
         continue
     }
 
     foreach ($d in $toDelete) {
-        Write-Host ("  移除：{0}" -f $d.FullName)
+        Write-Host ("  Removed: {0}" -f $d.FullName)
         if ($WhatIf) { continue }
         try {
             Remove-Item -LiteralPath $d.FullName -Recurse -Force -ErrorAction Stop
         } catch {
-            Write-Host ("    失敗：{0}" -f $_.Exception.Message) -ForegroundColor Red
+            Write-Host ("    Failed: {0}" -f $_.Exception.Message) -ForegroundColor Red
         }
     }
 }
-
-Write-Host "全部完成。"
