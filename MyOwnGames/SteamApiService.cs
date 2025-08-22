@@ -10,20 +10,31 @@ using MyOwnGames.Services;
 
 namespace MyOwnGames
 {
-    public class SteamApiService
+    public class SteamApiService : IDisposable
     {
         private readonly HttpClient _httpClient;
         private readonly string _apiKey;
         private DateTime _lastApiCall = DateTime.MinValue;
         private readonly SemaphoreSlim _apiSemaphore = new(1, 1);
+        private readonly bool _disposeHttpClient;
+        private bool _disposed;
 
         public SteamApiService(string apiKey)
+            : this(apiKey, new HttpClient(), true)
+        {
+        }
+
+        public SteamApiService(string apiKey, HttpClient httpClient, bool disposeHttpClient = false)
         {
             ValidateCredentials(apiKey);
             _apiKey = apiKey;
-            _httpClient = new HttpClient();
+            _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+            _disposeHttpClient = disposeHttpClient;
             _httpClient.Timeout = TimeSpan.FromSeconds(30);
-            _httpClient.DefaultRequestHeaders.Add("User-Agent", "MyOwnGames/1.0");
+            if (!_httpClient.DefaultRequestHeaders.Contains("User-Agent"))
+            {
+                _httpClient.DefaultRequestHeaders.Add("User-Agent", "MyOwnGames/1.0");
+            }
         }
 
         private async Task ThrottleApiCallAsync()
@@ -173,7 +184,18 @@ namespace MyOwnGames
 
         public void Dispose()
         {
-            _httpClient?.Dispose();
+            if (_disposed)
+            {
+                return;
+            }
+
+            if (_disposeHttpClient)
+            {
+                _httpClient.Dispose();
+            }
+
+            _disposed = true;
+            GC.SuppressFinalize(this);
         }
     }
 
