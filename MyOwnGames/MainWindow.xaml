@@ -76,8 +76,7 @@
                     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                         <TextBlock Text="Language" VerticalAlignment="Center"/>
                         <ComboBox x:Name="LanguageComboBox"
-                                  Width="120"
-                                  SelectedIndex="1">
+                                  Width="120">
                             <ComboBoxItem Content="english"/>
                             <ComboBoxItem Content="tchinese"/>
                             <ComboBoxItem Content="japanese"/>
