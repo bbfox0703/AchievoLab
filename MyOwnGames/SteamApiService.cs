@@ -17,19 +17,25 @@ namespace MyOwnGames
         private DateTime _lastApiCall = DateTime.MinValue;
         private readonly SemaphoreSlim _apiSemaphore = new(1, 1);
         private readonly bool _disposeHttpClient;
+        private readonly double _minDelaySeconds;
+        private readonly double _maxDelaySeconds;
         private bool _disposed;
 
-        public SteamApiService(string apiKey)
-            : this(apiKey, new HttpClient(), true)
+        public SteamApiService(string apiKey, double minDelaySeconds = 2.0, double maxDelaySeconds = 3.5)
+            : this(apiKey, new HttpClient(), true, minDelaySeconds, maxDelaySeconds)
         {
         }
 
-        public SteamApiService(string apiKey, HttpClient httpClient, bool disposeHttpClient = false)
+        public SteamApiService(string apiKey, HttpClient httpClient, bool disposeHttpClient = false, double minDelaySeconds = 2.0, double maxDelaySeconds = 3.5)
         {
+            if (maxDelaySeconds < minDelaySeconds)
+                throw new ArgumentOutOfRangeException(nameof(maxDelaySeconds), "maxDelaySeconds must be greater than or equal to minDelaySeconds");
             ValidateCredentials(apiKey);
             _apiKey = apiKey;
             _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
             _disposeHttpClient = disposeHttpClient;
+            _minDelaySeconds = minDelaySeconds;
+            _maxDelaySeconds = maxDelaySeconds;
             _httpClient.Timeout = TimeSpan.FromSeconds(30);
             if (!_httpClient.DefaultRequestHeaders.Contains("User-Agent"))
             {
@@ -43,11 +49,11 @@ namespace MyOwnGames
             try
             {
                 var elapsed = DateTime.UtcNow - _lastApiCall;
-                var minDelay = TimeSpan.FromSeconds(2.5); // 2.5 seconds minimum between API calls
+                var jitterSeconds = _minDelaySeconds + Random.Shared.NextDouble() * (_maxDelaySeconds - _minDelaySeconds);
+                var minDelay = TimeSpan.FromSeconds(jitterSeconds);
                 if (elapsed < minDelay)
                 {
-                    var waitTime = minDelay - elapsed;
-                    await Task.Delay(waitTime);
+                    await Task.Delay(minDelay - elapsed);
                 }
                 _lastApiCall = DateTime.UtcNow;
             }
