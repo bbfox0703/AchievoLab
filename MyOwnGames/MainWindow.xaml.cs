@@ -125,6 +125,9 @@ namespace MyOwnGames
 
             _logHandler = message => DispatcherQueue.TryEnqueue(() => AppendLog(message));
             DebugLogger.OnLog += _logHandler;
+            
+            // Subscribe to image download completion events
+            _imageService.ImageDownloadCompleted += OnImageDownloadCompleted;
 
             // 取得 AppWindow
             var hwnd = WindowNative.GetWindowHandle(this);
@@ -142,7 +145,68 @@ namespace MyOwnGames
 
             // Load saved games on startup
             _ = LoadSavedGamesAsync();
+            
+            // Clean up old failed download records on startup
+            _ = CleanupOldFailedRecordsAsync();
         }
+
+        private void OnImageDownloadCompleted(int appId, string? imagePath)
+        {
+            // Find the corresponding game entry and update its image
+            this.DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.High, () =>
+            {
+                try
+                {
+                    var gameEntry = GameItems.FirstOrDefault(g => g.AppId == appId);
+                    if (gameEntry != null && !string.IsNullOrEmpty(imagePath) && File.Exists(imagePath))
+                    {
+                        // Force UI refresh by changing the URI
+                        var fileUri = new Uri(imagePath).AbsoluteUri;
+                        
+                        if (gameEntry.IconUri != fileUri)
+                        {
+                            gameEntry.IconUri = fileUri;
+                            DebugLogger.LogDebug($"Updated UI for downloaded image {appId}: {fileUri}");
+                            AppendLog($"Image updated for {appId}");
+                        }
+                        else
+                        {
+                            // Force refresh by temporarily changing to placeholder
+                            gameEntry.IconUri = "ms-appx:///Assets/steam_placeholder.png";
+                            
+                            // Then set the actual image with a small delay
+                            this.DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, () =>
+                            {
+                                gameEntry.IconUri = fileUri;
+                                DebugLogger.LogDebug($"Force refreshed UI for downloaded image {appId}: {fileUri}");
+                                AppendLog($"Image force-updated for {appId}");
+                            });
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    DebugLogger.LogDebug($"Error updating UI for downloaded image {appId}: {ex.Message}");
+                }
+            });
+        }
+
+        private async Task CleanupOldFailedRecordsAsync()
+        {
+            try
+            {
+                await Task.Run(() =>
+                {
+                    var failedDownloadService = new FailedDownloadService();
+                    failedDownloadService.CleanupOldRecords();
+                });
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"Error cleaning up old failed download records: {ex.Message}");
+            }
+        }
+
         private async Task LoadSavedGamesAsync()
         {
             try
@@ -193,16 +257,39 @@ namespace MyOwnGames
         {
             try
             {
+                DebugLogger.LogDebug($"Starting image load for {appId}");
                 var imagePath = await _imageService.GetGameImageAsync(appId);
+                
                 if (!string.IsNullOrEmpty(imagePath) && File.Exists(imagePath))
                 {
+                    DebugLogger.LogDebug($"Image found for {appId}: {imagePath}");
+                    
                     // Thread-safe UI update using DispatcherQueue with immediate priority
                     this.DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.High, () =>
                     {
                         try
                         {
-                            // Update IconUri with absolute path to trigger UI refresh
-                            entry.IconUri = new Uri(imagePath).AbsoluteUri;
+                            // Force a new URI to ensure UI refresh
+                            var fileUri = new Uri(imagePath).AbsoluteUri;
+                            
+                            // Add timestamp to force refresh if it's the same path
+                            if (entry.IconUri == fileUri)
+                            {
+                                // Temporarily set to placeholder to force change notification
+                                entry.IconUri = "ms-appx:///Assets/steam_placeholder.png";
+                                
+                                // Use a small delay to ensure the change is processed
+                                this.DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, () =>
+                                {
+                                    entry.IconUri = fileUri;
+                                    DebugLogger.LogDebug($"Updated UI for {appId} to {fileUri}");
+                                });
+                            }
+                            else
+                            {
+                                entry.IconUri = fileUri;
+                                DebugLogger.LogDebug($"Updated UI for {appId} to {fileUri}");
+                            }
                         }
                         catch (Exception ex)
                         {
@@ -211,10 +298,12 @@ namespace MyOwnGames
                             entry.IconUri = imagePath;
                         }
                     });
+                    
                     AppendLog($"Loaded image for {appId}");
                 }
                 else
                 {
+                    DebugLogger.LogDebug($"Image not found for {appId}");
                     AppendLog($"Image not found for {appId}");
                 }
             }
@@ -397,7 +486,14 @@ namespace MyOwnGames
 
             _steamService?.Dispose();
             _steamService = null;
-            _imageService.Dispose();
+            
+            // Unsubscribe from events before disposing
+            if (_imageService != null)
+            {
+                _imageService.ImageDownloadCompleted -= OnImageDownloadCompleted;
+                _imageService.Dispose();
+            }
+            
             DebugLogger.OnLog -= _logHandler;
             DebugLogger.LogDebug($"Shutdown completed ({reason})");
         }

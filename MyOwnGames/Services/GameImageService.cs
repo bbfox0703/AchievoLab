@@ -14,6 +14,10 @@ namespace MyOwnGames.Services
         private readonly string _cacheDirectory;
         private readonly Dictionary<int, string> _imageCache = new();
         private readonly DispatcherQueue _dispatcherQueue;
+        private readonly FailedDownloadService _failedDownloadService;
+        
+        // Event to notify when an image download completes
+        public event Action<int, string?>? ImageDownloadCompleted;
 
         public GameImageService()
         {
@@ -30,6 +34,7 @@ namespace MyOwnGames.Services
 
             // Get current UI dispatcher for thread-safe operations
             _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
+            _failedDownloadService = new FailedDownloadService();
         }
 
         public async Task<string?> GetGameImageAsync(int appId)
@@ -46,8 +51,30 @@ namespace MyOwnGames.Services
             
             if (!File.Exists(filePath))
             {
+                // Check if we should skip download due to recent failures
+                if (_failedDownloadService.ShouldSkipDownload(appId))
+                {
+                    return null;
+                }
+
                 // Download image
-                await DownloadGameImageAsync(appId, filePath);
+                var downloadSuccess = await DownloadGameImageAsync(appId, filePath);
+                
+                if (!downloadSuccess || !File.Exists(filePath))
+                {
+                    // Record failed download
+                    _failedDownloadService.RecordFailedDownload(appId);
+                    // Notify that download failed
+                    ImageDownloadCompleted?.Invoke(appId, null);
+                    return null;
+                }
+                else
+                {
+                    // Remove any previous failed record since download succeeded
+                    _failedDownloadService.RemoveFailedRecord(appId);
+                    // Notify that download completed successfully
+                    ImageDownloadCompleted?.Invoke(appId, filePath);
+                }
             }
 
             if (File.Exists(filePath))
@@ -60,7 +87,7 @@ namespace MyOwnGames.Services
             return null;
         }
 
-        private async Task DownloadGameImageAsync(int appId, string filePath)
+        private async Task<bool> DownloadGameImageAsync(int appId, string filePath)
         {
             try
             {
@@ -83,7 +110,7 @@ namespace MyOwnGames.Services
                     if (await TryDownloadWithRetryAsync(url, filePath))
                     {
                         DebugLogger.LogDebug($"Phase 1 success: Downloaded {appId} from {url}");
-                        return;
+                        return true;
                     }
                 }
 
@@ -98,7 +125,7 @@ namespace MyOwnGames.Services
                     if (await TryDownloadWithRetryAsync(url, filePath))
                     {
                         DebugLogger.LogDebug($"Phase 2 success: Downloaded {appId} from {url}");
-                        return;
+                        return true;
                     }
                 }
 
@@ -116,15 +143,17 @@ namespace MyOwnGames.Services
                     if (await TryDownloadWithRetryAsync(url, filePath))
                     {
                         DebugLogger.LogDebug($"Phase 3 success: Downloaded {appId} from {url}");
-                        return;
+                        return true;
                     }
                 }
 
                 DebugLogger.LogDebug($"All phases failed for {appId}");
+                return false;
             }
             catch (Exception ex)
             {
                 DebugLogger.LogDebug($"Error downloading game image for {appId}: {ex.Message}");
+                return false;
             }
         }
 
