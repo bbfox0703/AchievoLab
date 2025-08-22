@@ -43,7 +43,7 @@ namespace MyOwnGames
             });
         }
 
-        public async Task GetOwnedGamesAsync(string steamId64, string targetLanguage = "tchinese", Func<SteamGame, Task>? onGameRetrieved = null, IProgress<double>? progress = null)
+        public async Task<int> GetOwnedGamesAsync(string steamId64, string targetLanguage = "tchinese", Func<SteamGame, Task>? onGameRetrieved = null, IProgress<double>? progress = null, ISet<int>? existingAppIds = null)
         {
             try
             {
@@ -56,7 +56,7 @@ namespace MyOwnGames
 
                 if (ownedGamesData?.response?.games == null)
                 {
-                    return;
+                    return 0;
                 }
 
                 progress?.Report(30);
@@ -67,6 +67,13 @@ namespace MyOwnGames
                 for (int i = 0; i < total; i++)
                 {
                     var game = ownedGamesData.response.games[i];
+
+                    if (existingAppIds != null && existingAppIds.Contains(game.appid))
+                    {
+                        var skipProgress = 30 + (70.0 * (i + 1) / total);
+                        progress?.Report(skipProgress);
+                        continue;
+                    }
 
                     // Get localized name if not English
                     string localizedName = game.name; // Default to English name from owned games API
@@ -96,6 +103,8 @@ namespace MyOwnGames
                     var gameProgress = 30 + (70.0 * (i + 1) / total);
                     progress?.Report(gameProgress);
                 }
+
+                return total;
             }
             catch (Exception ex)
             {
