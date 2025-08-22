@@ -15,8 +15,8 @@ namespace MyOwnGames.Services
 
         public GameDataService()
         {
-            var documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-            var appDataPath = Path.Combine(documentsPath, "MyOwnGames");
+            var basePath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            var appDataPath = Path.Combine(basePath, "AchievoLab", "cache");
             Directory.CreateDirectory(appDataPath);
             _xmlFilePath = Path.Combine(appDataPath, "steam_games.xml");
         }
