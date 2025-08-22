@@ -234,10 +234,7 @@ namespace MyOwnGames
 
                 // Use real Steam API service with selected language
                 steamService = new SteamApiService(apiKey);
-                var steamGames = await steamService.GetOwnedGamesAsync(steamId64, selectedLanguage, progress);
-
-                // Convert to GameEntry format and load images asynchronously
-                foreach (var game in steamGames)
+                await steamService.GetOwnedGamesAsync(steamId64, selectedLanguage, async game =>
                 {
                     var entry = new GameEntry
                     {
@@ -246,15 +243,15 @@ namespace MyOwnGames
                         NameLocalized = game.NameLocalized,
                         IconUri = "ms-appx:///Assets/steam_placeholder.png" // Will be updated async
                     };
-                    
+
                     GameItems.Add(entry);
-                    
+
                     // Load image asynchronously in a thread-safe way
                     _ = LoadGameImageAsync(entry, game.AppId);
-                }
 
-                // Save to XML for AnSAM usage
-                await _dataService.SaveGamesToXmlAsync(steamGames, steamId64, apiKey, selectedLanguage);
+                    await _dataService.AppendGameAsync(game, steamId64, apiKey, selectedLanguage);
+                }, progress);
+
                 xmlPath = _dataService.GetXmlFilePath();
 
                 StatusText = $"Successfully loaded {GameItems.Count} games ({selectedLanguage}) and saved to {xmlPath}";

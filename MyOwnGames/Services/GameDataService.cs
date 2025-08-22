@@ -48,6 +48,65 @@ namespace MyOwnGames.Services
             }
         }
 
+        public async Task AppendGameAsync(SteamGame game, string steamId64, string apiKey, string language = "tchinese")
+        {
+            try
+            {
+                XDocument doc;
+                XElement root;
+
+                if (File.Exists(_xmlFilePath))
+                {
+                    doc = await Task.Run(() => XDocument.Load(_xmlFilePath));
+                    root = doc.Root ?? new XElement("SteamGames");
+                    if (doc.Root == null)
+                        doc.Add(root);
+                }
+                else
+                {
+                    root = new XElement("SteamGames");
+                    doc = new XDocument(root);
+                }
+
+                // Update metadata
+                root.SetAttributeValue("SteamID64", steamId64);
+                root.SetAttributeValue("ExportDate", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                root.SetAttributeValue("Language", language);
+                root.SetAttributeValue("ApiKeyHash", GetApiKeyHash(apiKey));
+
+                // Check if game already exists
+                var existing = root.Elements("Game")
+                    .FirstOrDefault(x => x.Attribute("AppID")?.Value == game.AppId.ToString());
+
+                var gameElement = new XElement("Game",
+                    new XAttribute("AppID", game.AppId),
+                    new XAttribute("PlaytimeForever", game.PlaytimeForever),
+                    new XElement("NameEN", game.NameEn ?? string.Empty),
+                    new XElement("NameLocalized", game.NameLocalized ?? string.Empty),
+                    new XElement("IconURL", game.IconUrl ?? string.Empty)
+                );
+
+                if (existing != null)
+                {
+                    existing.ReplaceWith(gameElement);
+                }
+                else
+                {
+                    root.Add(gameElement);
+                }
+
+                // Update total count
+                root.SetAttributeValue("TotalGames", root.Elements("Game").Count());
+
+                await Task.Run(() => doc.Save(_xmlFilePath));
+                DebugLogger.LogDebug($"Appended game {game.AppId} to {_xmlFilePath}");
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Error appending game to XML: {ex.Message}", ex);
+            }
+        }
+
         public async Task<List<SteamGame>> LoadGamesFromXmlAsync()
         {
             try
