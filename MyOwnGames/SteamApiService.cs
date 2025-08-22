@@ -5,7 +5,6 @@ using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
 using System.Globalization;
-using System.Threading;
 using MyOwnGames.Services;
 
 namespace MyOwnGames
@@ -14,52 +13,26 @@ namespace MyOwnGames
     {
         private readonly HttpClient _httpClient;
         private readonly string _apiKey;
-        private DateTime _lastApiCall = DateTime.MinValue;
-        private readonly SemaphoreSlim _apiSemaphore = new(1, 1);
+        private readonly RateLimiterService _rateLimiter;
         private readonly bool _disposeHttpClient;
-        private readonly double _minDelaySeconds;
-        private readonly double _maxDelaySeconds;
         private bool _disposed;
 
-        public SteamApiService(string apiKey, double minDelaySeconds = 2.0, double maxDelaySeconds = 3.5)
-            : this(apiKey, new HttpClient(), true, minDelaySeconds, maxDelaySeconds)
+        public SteamApiService(string apiKey)
+            : this(apiKey, new HttpClient(), true, null)
         {
         }
 
-        public SteamApiService(string apiKey, HttpClient httpClient, bool disposeHttpClient = false, double minDelaySeconds = 2.0, double maxDelaySeconds = 3.5)
+        public SteamApiService(string apiKey, HttpClient httpClient, bool disposeHttpClient = false, RateLimiterService? rateLimiter = null)
         {
-            if (maxDelaySeconds < minDelaySeconds)
-                throw new ArgumentOutOfRangeException(nameof(maxDelaySeconds), "maxDelaySeconds must be greater than or equal to minDelaySeconds");
             ValidateCredentials(apiKey);
             _apiKey = apiKey;
             _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
             _disposeHttpClient = disposeHttpClient;
-            _minDelaySeconds = minDelaySeconds;
-            _maxDelaySeconds = maxDelaySeconds;
+            _rateLimiter = rateLimiter ?? RateLimiterService.FromAppSettings();
             _httpClient.Timeout = TimeSpan.FromSeconds(30);
             if (!_httpClient.DefaultRequestHeaders.Contains("User-Agent"))
             {
                 _httpClient.DefaultRequestHeaders.Add("User-Agent", "MyOwnGames/1.0");
-            }
-        }
-
-        private async Task ThrottleApiCallAsync()
-        {
-            await _apiSemaphore.WaitAsync();
-            try
-            {
-                var elapsed = DateTime.UtcNow - _lastApiCall;
-                var jitterSeconds = _minDelaySeconds + Random.Shared.NextDouble() * (_maxDelaySeconds - _minDelaySeconds);
-                var minDelay = TimeSpan.FromSeconds(jitterSeconds);
-                if (elapsed < minDelay)
-                {
-                    await Task.Delay(minDelay - elapsed);
-                }
-                _lastApiCall = DateTime.UtcNow;
-            }
-            finally
-            {
-                _apiSemaphore.Release();
             }
         }
 
@@ -78,7 +51,7 @@ namespace MyOwnGames
             {
                 // Step 1: Get owned games with throttling
                 progress?.Report(10);
-                await ThrottleApiCallAsync();
+                await _rateLimiter.WaitAsync();
                 var ownedGamesUrl = $"https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key={_apiKey}&steamid={steamId64}&format=json&include_appinfo=true";
                 var ownedGamesResponse = await _httpClient.GetStringAsync(ownedGamesUrl);
                 var ownedGamesData = DeserializeOwnedGamesResponse(ownedGamesResponse);
@@ -149,7 +122,7 @@ namespace MyOwnGames
 
             try
             {
-                await ThrottleApiCallAsync();
+                await _rateLimiter.WaitAsync();
                 var url = $"https://store.steampowered.com/api/appdetails?appids={appId}&l={targetLanguage}";
                 var response = await _httpClient.GetStringAsync(url);
                 var data = DeserializeAppDetailsResponse(response);
