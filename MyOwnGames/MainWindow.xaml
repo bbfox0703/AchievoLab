@@ -19,7 +19,7 @@
             <!-- Top CommandBar -->
             <RowDefinition Height="*"/>
             <!-- Center List -->
-            <RowDefinition Height="Auto" MinHeight="100"/>
+            <RowDefinition Height="Auto" MinHeight="200"/>
             <!-- Bottom StatusBar + Logs -->
         </Grid.RowDefinitions>
 
