@@ -140,6 +140,74 @@ namespace MyOwnGames.Services
             }
         }
 
+        public async Task<(ISet<int> AppIds, int? ExpectedTotal)> LoadRetrievedAppIdsAsync()
+        {
+            var appIds = new HashSet<int>();
+            int? expectedTotal = null;
+
+            try
+            {
+                if (!File.Exists(_xmlFilePath))
+                    return (appIds, null);
+
+                var doc = await Task.Run(() => XDocument.Load(_xmlFilePath));
+                var root = doc.Root;
+                if (root == null) return (appIds, null);
+
+                appIds = root.Elements("Game")
+                    .Select(e => int.Parse(e.Attribute("AppID")?.Value ?? "0"))
+                    .ToHashSet();
+
+                if (int.TryParse(root.Attribute("Remaining")?.Value, out var remaining))
+                {
+                    expectedTotal = appIds.Count + remaining;
+                }
+                else if (int.TryParse(root.Attribute("TotalGames")?.Value, out var total))
+                {
+                    expectedTotal = total;
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error loading retrieved app IDs: {ex.Message}");
+            }
+
+            return (appIds, expectedTotal);
+        }
+
+        public async Task UpdateRemainingCountAsync(int remaining)
+        {
+            try
+            {
+                XDocument doc;
+                XElement root;
+
+                if (File.Exists(_xmlFilePath))
+                {
+                    doc = await Task.Run(() => XDocument.Load(_xmlFilePath));
+                    root = doc.Root ?? new XElement("SteamGames");
+                    if (doc.Root == null)
+                        doc.Add(root);
+                }
+                else
+                {
+                    root = new XElement("SteamGames");
+                    doc = new XDocument(root);
+                }
+
+                if (remaining > 0)
+                    root.SetAttributeValue("Remaining", remaining);
+                else
+                    root.Attribute("Remaining")?.Remove();
+
+                await Task.Run(() => doc.Save(_xmlFilePath));
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error updating remaining count: {ex.Message}");
+            }
+        }
+
         public async Task<GameExportInfo?> GetExportInfoAsync()
         {
             try

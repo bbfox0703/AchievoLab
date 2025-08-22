@@ -255,9 +255,12 @@ namespace MyOwnGames
                     selectedLanguage = selectedItem.Content?.ToString() ?? "tchinese";
                 }
 
+                // Load existing app IDs to avoid re-fetching
+                var (existingAppIds, _) = await _dataService.LoadRetrievedAppIdsAsync();
+
                 // Use real Steam API service with selected language
                 steamService = new SteamApiService(apiKey);
-                await steamService.GetOwnedGamesAsync(steamId64, selectedLanguage, async game =>
+                var total = await steamService.GetOwnedGamesAsync(steamId64, selectedLanguage, async game =>
                 {
                     var entry = new GameEntry
                     {
@@ -273,9 +276,19 @@ namespace MyOwnGames
                     _ = LoadGameImageAsync(entry, game.AppId);
 
                     await _dataService.AppendGameAsync(game, steamId64, apiKey, selectedLanguage);
-                }, progress);
+                }, progress, existingAppIds);
 
                 xmlPath = _dataService.GetXmlFilePath();
+
+                var savedCount = (existingAppIds?.Count ?? 0) + GameItems.Count;
+                if (savedCount < total)
+                {
+                    await _dataService.UpdateRemainingCountAsync(total - savedCount);
+                }
+                else
+                {
+                    await _dataService.UpdateRemainingCountAsync(0);
+                }
 
                 StatusText = $"Successfully loaded {GameItems.Count} games ({selectedLanguage}) and saved to {xmlPath}";
                 AppendLog($"Retrieved {GameItems.Count} games and saved to {xmlPath}");
