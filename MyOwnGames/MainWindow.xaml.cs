@@ -133,6 +133,8 @@ namespace MyOwnGames
             {
                 AppendLog("Loading saved games...");
                 StatusText = "Loading saved games...";
+                var enteredId = SteamIdBox.Text?.Trim() ?? string.Empty;
+                await EnsureSteamIdHashConsistencyAsync(enteredId);
                 var savedGames = await _dataService.LoadGamesFromXmlAsync();
                 
                 GameItems.Clear();
@@ -197,6 +199,25 @@ namespace MyOwnGames
             }
         }
 
+        private async Task EnsureSteamIdHashConsistencyAsync(string steamId64)
+        {
+            if (string.IsNullOrWhiteSpace(steamId64))
+                return;
+
+            var exportInfo = await _dataService.GetExportInfoAsync();
+            if (exportInfo != null && !string.IsNullOrEmpty(exportInfo.SteamIdHash))
+            {
+                var currentHash = _dataService.GetSteamIdHash(steamId64);
+                if (!string.Equals(currentHash, exportInfo.SteamIdHash, StringComparison.OrdinalIgnoreCase))
+                {
+                    _dataService.ClearGameData();
+                    _imageService.ClearCache();
+                    GameItems.Clear();
+                    AppendLog("SteamID changed, cleared previous data and image cache.");
+                }
+            }
+        }
+
         private async void GetGamesButton_Click(object sender, RoutedEventArgs e)
         {
             var apiKey = ApiKeyBox.Text?.Trim();
@@ -207,6 +228,8 @@ namespace MyOwnGames
                 StatusText = "Please enter Steam API Key and SteamID_64.";
                 return;
             }
+
+            await EnsureSteamIdHashConsistencyAsync(steamId64);
 
             SteamApiService? steamService = null;
             string? xmlPath = null;

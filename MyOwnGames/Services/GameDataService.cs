@@ -4,6 +4,8 @@ using System.IO;
 using System.Linq;
 using System.Xml.Linq;
 using System.Threading.Tasks;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace MyOwnGames.Services
 {
@@ -25,6 +27,7 @@ namespace MyOwnGames.Services
             {
                 var root = new XElement("SteamGames",
                     new XAttribute("SteamID64", steamId64),
+                    new XAttribute("SteamIdHash", GetSteamIdHash(steamId64)),
                     new XAttribute("ExportDate", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")),
                     new XAttribute("TotalGames", games.Count),
                     new XAttribute("Language", language),
@@ -70,6 +73,7 @@ namespace MyOwnGames.Services
 
                 // Update metadata
                 root.SetAttributeValue("SteamID64", steamId64);
+                root.SetAttributeValue("SteamIdHash", GetSteamIdHash(steamId64));
                 root.SetAttributeValue("ExportDate", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
                 root.SetAttributeValue("Language", language);
                 root.SetAttributeValue("ApiKeyHash", GetApiKeyHash(apiKey));
@@ -150,6 +154,7 @@ namespace MyOwnGames.Services
                 return new GameExportInfo
                 {
                     SteamId64 = root.Attribute("SteamID64")?.Value ?? "",
+                    SteamIdHash = root.Attribute("SteamIdHash")?.Value ?? "",
                     ExportDate = DateTime.Parse(root.Attribute("ExportDate")?.Value ?? DateTime.MinValue.ToString()),
                     TotalGames = int.Parse(root.Attribute("TotalGames")?.Value ?? "0"),
                     Language = root.Attribute("Language")?.Value ?? "tchinese",
@@ -165,6 +170,29 @@ namespace MyOwnGames.Services
 
         public string GetXmlFilePath() => _xmlFilePath;
 
+        public void ClearGameData()
+        {
+            try
+            {
+                if (File.Exists(_xmlFilePath))
+                {
+                    File.Delete(_xmlFilePath);
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error clearing game data: {ex.Message}");
+            }
+        }
+
+        public string GetSteamIdHash(string steamId64)
+        {
+            using var sha = SHA256.Create();
+            var bytes = Encoding.UTF8.GetBytes(steamId64);
+            var hash = sha.ComputeHash(bytes);
+            return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
+        }
+
         private string GetApiKeyHash(string apiKey)
         {
             // Simple hash for privacy - don't store actual API key
@@ -177,6 +205,7 @@ namespace MyOwnGames.Services
     public class GameExportInfo
     {
         public string SteamId64 { get; set; } = "";
+        public string SteamIdHash { get; set; } = "";
         public DateTime ExportDate { get; set; }
         public int TotalGames { get; set; }
         public string Language { get; set; } = "tchinese";
