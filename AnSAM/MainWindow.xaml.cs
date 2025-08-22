@@ -36,9 +36,7 @@ namespace AnSAM
     public sealed partial class MainWindow : Window
     {
         public ObservableCollection<GameItem> Games { get; } = new();
-        public ObservableCollection<GameItem> FamilyGames { get; } = new();
         private readonly List<GameItem> _allGames = new();
-        private readonly List<GameItem> _allFamilyGames = new();
         private readonly SteamClient _steamClient;
         private readonly AppWindow _appWindow;
 
@@ -253,15 +251,6 @@ namespace AnSAM
             await game.LoadCoverAsync(_steamClient);
         }
 
-        private async void FamilyGamesView_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs e)
-        {
-            if (e.InRecycleQueue || e.Item is not GameItem game)
-            {
-                return;
-            }
-
-            await game.LoadCoverAsync(_steamClient);
-        }
 
         private void GameCard_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
         {
@@ -278,64 +267,6 @@ namespace AnSAM
             }
         }
 
-        private async void FamilyGameCard_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
-        {
-            if (sender is FrameworkElement element && element.DataContext is GameItem game)
-            {
-                // Check if user already owns this game
-                var ownedGame = _allGames.FirstOrDefault(g => g.AppId == game.AppId);
-                if (ownedGame != null)
-                {
-                    var dialog = new ContentDialog
-                    {
-                        Title = "Game Already Owned",
-                        Content = $"You already own \"{ownedGame.Title}\" in your library. Do you want to launch the achievement manager for the family shared version instead?",
-                        PrimaryButtonText = "Launch Family Shared",
-                        SecondaryButtonText = "Launch Owned",
-                        CloseButtonText = "Cancel",
-                        XamlRoot = Content.XamlRoot
-                    };
-
-                    var result = await dialog.ShowAsync();
-                    if (result == ContentDialogResult.Primary)
-                    {
-                        // Launch family shared version
-                        if (game.IsSamGameAvailable)
-                        {
-                            StartSamGame(game);
-                        }
-                        else
-                        {
-                            StatusText.Text = "Achievement manager not found";
-                        }
-                    }
-                    else if (result == ContentDialogResult.Secondary)
-                    {
-                        // Launch owned version
-                        if (ownedGame.IsSamGameAvailable)
-                        {
-                            StartSamGame(ownedGame);
-                        }
-                        else
-                        {
-                            StatusText.Text = "Achievement manager not found";
-                        }
-                    }
-                }
-                else
-                {
-                    // User doesn't own this game, launch family shared version
-                    if (game.IsSamGameAvailable)
-                    {
-                        StartSamGame(game);
-                    }
-                    else
-                    {
-                        StatusText.Text = "Achievement manager not found";
-                    }
-                }
-            }
-        }
 
         private void OnLaunchSamGameClicked(object sender, RoutedEventArgs e)
         {
@@ -441,29 +372,19 @@ namespace AnSAM
 
             using var http = new HttpClient();
             var apps = await GameCacheService.RefreshAsync(baseDir, _steamClient, http);
-            var familyApps = await FamilyGameCacheService.RefreshAsync(baseDir, _steamClient, http);
 
             var (allGames, filteredGames) = await BuildGameListAsync(apps, null);
-            var (allFamilyGames, filteredFamilyGames) = await BuildGameListAsync(familyApps, null);
             var (completedIcons, totalIcons) = IconCache.GetProgress();
 
             _ = DispatcherQueue.TryEnqueue(() =>
             {
                 _allGames.Clear();
                 _allGames.AddRange(allGames);
-                _allFamilyGames.Clear();
-                _allFamilyGames.AddRange(allFamilyGames);
 
                 Games.Clear();
                 foreach (var game in filteredGames)
                 {
                     Games.Add(game);
-                }
-
-                FamilyGames.Clear();
-                foreach (var game in filteredFamilyGames)
-                {
-                    FamilyGames.Add(game);
                 }
 
                 if (totalIcons > completedIcons)
@@ -476,16 +397,10 @@ namespace AnSAM
                 else
                 {
                     StatusText.Text = _steamClient.Initialized
-                        ? $"Loaded {_allGames.Count} games, {_allFamilyGames.Count} family shared"
-                        : $"Steam unavailable - showing {_allGames.Count} games, {_allFamilyGames.Count} family shared";
+                        ? $"Loaded {_allGames.Count} games"
+                        : $"Steam unavailable - showing {_allGames.Count} games";
                     StatusProgress.Value = 0;
                     StatusExtra.Text = $"{Games.Count}/{_allGames.Count}";
-                    
-                    // Ensure the current tab displays correctly after loading
-                    if (MainTabView.SelectedIndex == 1)
-                    {
-                        StatusExtra.Text = $"{FamilyGames.Count}/{_allFamilyGames.Count}";
-                    }
                 }
             });
         }
@@ -568,11 +483,7 @@ namespace AnSAM
                 {
                     var titles = new HashSet<string>();
                     matches = new List<string>();
-                    
-                    // Search in the appropriate game list based on current tab
-                    var currentGames = MainTabView.SelectedIndex == 0 ? Games : FamilyGames;
-                    
-                    foreach (var game in currentGames)
+                    foreach (var game in Games)
                     {
                         if (game.Title.Contains(keyword, StringComparison.OrdinalIgnoreCase) && titles.Add(game.Title))
                         {
@@ -592,32 +503,14 @@ namespace AnSAM
         {
             if (args.SelectedItem is string title)
             {
-                if (MainTabView.SelectedIndex == 0)
+                var game = Games.FirstOrDefault(g => g.Title.Equals(title, StringComparison.OrdinalIgnoreCase));
+                if (game != null)
                 {
-                    // Owned games tab
-                    var game = Games.FirstOrDefault(g => g.Title.Equals(title, StringComparison.OrdinalIgnoreCase));
-                    if (game != null)
+                    GamesView.ScrollIntoView(game);
+                    GamesView.UpdateLayout();
+                    if (GamesView.ContainerFromItem(game) is GridViewItem item)
                     {
-                        GamesView.ScrollIntoView(game);
-                        GamesView.UpdateLayout();
-                        if (GamesView.ContainerFromItem(game) is GridViewItem item)
-                        {
-                            item.Focus(FocusState.Programmatic);
-                        }
-                    }
-                }
-                else
-                {
-                    // Family sharing tab
-                    var game = FamilyGames.FirstOrDefault(g => g.Title.Equals(title, StringComparison.OrdinalIgnoreCase));
-                    if (game != null)
-                    {
-                        FamilyGamesView.ScrollIntoView(game);
-                        FamilyGamesView.UpdateLayout();
-                        if (FamilyGamesView.ContainerFromItem(game) is GridViewItem item)
-                        {
-                            item.Focus(FocusState.Programmatic);
-                        }
+                        item.Focus(FocusState.Programmatic);
                     }
                 }
             }
@@ -627,22 +520,6 @@ namespace AnSAM
         {
             string kw = keyword ?? string.Empty;
             bool hasKeyword = kw.Length > 0;
-            
-            // Determine which tab is currently selected
-            var isOwnedGamesTab = MainTabView.SelectedIndex == 0;
-            
-            if (isOwnedGamesTab)
-            {
-                FilterOwnedGames(kw, hasKeyword);
-            }
-            else
-            {
-                FilterFamilyGames(kw, hasKeyword);
-            }
-        }
-
-        private void FilterOwnedGames(string kw, bool hasKeyword)
-        {
             int index = 0;
             foreach (var game in _allGames)
             {
@@ -669,84 +546,12 @@ namespace AnSAM
                 Games.RemoveAt(Games.Count - 1);
             }
 
-            StatusText.Text = $"Showing {Games.Count} of {_allGames.Count} owned games";
+            StatusText.Text = $"Showing {Games.Count} of {_allGames.Count} games";
             StatusProgress.Value = 0;
             StatusExtra.Text = $"{Games.Count}/{_allGames.Count}";
 #if DEBUG
-            DebugLogger.LogDebug($"FilterOwnedGames('{kw}') -> {Games.Count} items");
+            DebugLogger.LogDebug($"FilterGames('{kw}') -> {Games.Count} items");
 #endif
-        }
-
-        private void FilterFamilyGames(string kw, bool hasKeyword)
-        {
-            int index = 0;
-            foreach (var game in _allFamilyGames)
-            {
-                if (hasKeyword && !game.Title.Contains(kw, StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                while (index < FamilyGames.Count && !ReferenceEquals(FamilyGames[index], game))
-                {
-                    FamilyGames.RemoveAt(index);
-                }
-
-                if (index >= FamilyGames.Count)
-                {
-                    FamilyGames.Add(game);
-                }
-
-                index++;
-            }
-
-            while (FamilyGames.Count > index)
-            {
-                FamilyGames.RemoveAt(FamilyGames.Count - 1);
-            }
-
-            StatusText.Text = $"Showing {FamilyGames.Count} of {_allFamilyGames.Count} family shared games";
-            StatusProgress.Value = 0;
-            StatusExtra.Text = $"{FamilyGames.Count}/{_allFamilyGames.Count}";
-#if DEBUG
-            DebugLogger.LogDebug($"FilterFamilyGames('{kw}') -> {FamilyGames.Count} items");
-#endif
-        }
-
-        private void MainTabView_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            // Clear search box when switching tabs
-            SearchBox.Text = string.Empty;
-            
-            // Force update the visible GridView
-            if (MainTabView.SelectedIndex == 0)
-            {
-                // My Games tab
-                FilterOwnedGames("", false);
-                _ = DispatcherQueue.TryEnqueue(() =>
-                {
-                    GamesView.UpdateLayout();
-                    // Force trigger container content changing for visible items
-                    foreach (var item in Games.Take(20)) // Load first 20 items
-                    {
-                        _ = item.LoadCoverAsync(_steamClient);
-                    }
-                });
-            }
-            else
-            {
-                // Family Sharing tab  
-                FilterFamilyGames("", false);
-                _ = DispatcherQueue.TryEnqueue(() =>
-                {
-                    FamilyGamesView.UpdateLayout();
-                    // Force trigger container content changing for visible items
-                    foreach (var item in FamilyGames.Take(20)) // Load first 20 items
-                    {
-                        _ = item.LoadCoverAsync(_steamClient);
-                    }
-                });
-            }
         }
 
         private void OnGameListStatusChanged(string message)
