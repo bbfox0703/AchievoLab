@@ -1,7 +1,7 @@
 <img src="./docs/res/AchievoLabP.png" alt="AchievoLab" width="250"/>  
   
 # AchievoLab
-A Steam achievement management GUI, built with WinUI 3 and .NET 8.
+A x64 Steam achievement management GUI, built with WinUI 3 and .NET 8. under Windows 10 (1904) / 11
 
 ## Features
 - Achievement management part: wraps the Steamworks API directly via `steamclient64.dll` to query ownership and metadata for installed apps.
