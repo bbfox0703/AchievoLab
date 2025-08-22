@@ -136,7 +136,7 @@ namespace MyOwnGames
             {
                 AppendLog("Loading saved games...");
                 StatusText = "Loading saved games...";
-                var enteredId = SteamIdBox.Text?.Trim() ?? string.Empty;
+                var enteredId = SteamIdBox.Password?.Trim() ?? string.Empty;
                 await EnsureSteamIdHashConsistencyAsync(enteredId);
                 var savedGames = await _dataService.LoadGamesFromXmlAsync();
                 
@@ -223,8 +223,8 @@ namespace MyOwnGames
 
         private async void GetGamesButton_Click(object sender, RoutedEventArgs e)
         {
-            var apiKey = ApiKeyBox.Text?.Trim();
-            var steamId64 = SteamIdBox.Text?.Trim();
+            var apiKey = ApiKeyBox.Password?.Trim();
+            var steamId64 = SteamIdBox.Password?.Trim();
 
             if (string.IsNullOrEmpty(apiKey) || string.IsNullOrEmpty(steamId64))
             {

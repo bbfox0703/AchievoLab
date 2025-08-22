@@ -48,9 +48,11 @@
                 <AppBarElementContainer>
                     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                         <TextBlock Text="Steam API Key" VerticalAlignment="Center"/>
-                        <TextBox x:Name="ApiKeyBox"
-                                 Width="340"
-                                 PlaceholderText="Your Steam Web API Key"/>
+                        <PasswordBox x:Name="ApiKeyBox"
+                                     Width="340"
+                                     PasswordChar="*"
+                                     PlaceholderText="Your Steam Web API Key"
+                                     IsPasswordRevealButtonEnabled="True"/>
                     </StackPanel>
                 </AppBarElementContainer>
 
@@ -58,9 +60,12 @@
                 <AppBarElementContainer>
                     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                         <TextBlock Text="SteamID_64" VerticalAlignment="Center"/>
-                        <TextBox x:Name="SteamIdBox"
-                                 Width="260"
-                                 PlaceholderText="7656119xxxxxxxxxx"/>
+                        <PasswordBox x:Name="SteamIdBox"
+                                     Width="260"
+                                     PasswordChar="*"
+                                     PlaceholderText="7656119xxxxxxxxxx"
+                                     IsPasswordRevealButtonEnabled="True"
+                                     InputScope="Number"/>
                     </StackPanel>
                 </AppBarElementContainer>
 
