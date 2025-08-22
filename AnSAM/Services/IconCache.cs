@@ -16,7 +16,7 @@ namespace AnSAM.Services
     public static class IconCache
     {
         public readonly record struct IconPathResult(string Path, bool Downloaded);
-        private static readonly string CacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AnSAM", "appcache");
+        private static readonly string CacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab", "appcache");
         private static readonly HttpClient Http = new();
         private static readonly SemaphoreSlim Concurrency = new(4);
         private static readonly ConcurrentDictionary<string, Task<IconPathResult>> InFlight = new();

@@ -1,0 +1,7 @@
+run cmd.exe with administrator privilege
+cd to the folder. i.e. cd D:\Github\AchievoLab
+use "dir /x /a" to see the real name. For example, the name is "nul"
+Del \\?\D:\Github\AchievoLab\nul
+
+PowerShell 6+:
+Remove-Item -LiteralPath \\?\D:\Github\AchievoLab\nul

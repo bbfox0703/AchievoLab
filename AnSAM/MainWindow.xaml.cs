@@ -366,7 +366,7 @@ namespace AnSAM
 
             IconCache.ResetProgress();
 
-            var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AnSAM");
+            var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab");
 
             using var http = new HttpClient();
             var apps = await GameCacheService.RefreshAsync(baseDir, _steamClient, http);
@@ -435,7 +435,7 @@ namespace AnSAM
         {
             try
             {
-                var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AnSAM");
+                var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab");
                 var iconDir = Path.Combine(baseDir, "appcache");
                 var cacheDir = Path.Combine(baseDir, "cache");
                 var gameListPath = Path.Combine(cacheDir, "games.xml");

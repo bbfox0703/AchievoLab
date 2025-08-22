@@ -24,7 +24,7 @@ namespace RunGame.Services
             // Create cache directory in user's AppData
             _cacheDirectory = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "RunGame", "IconCache", gameId.ToString());
+                "AchievoLab", "IconCache", gameId.ToString());
             
             Directory.CreateDirectory(_cacheDirectory);
             DebugLogger.LogDebug($"AchievementIconService initialized with cache directory: {_cacheDirectory}");

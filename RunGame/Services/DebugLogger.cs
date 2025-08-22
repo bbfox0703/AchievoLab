@@ -8,7 +8,7 @@ namespace RunGame.Services
     {
         private static readonly string LogFilePath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "RunGame", "debug.log");
+            "AchievoLab", "debug.log");
 
         static DebugLogger()
         {

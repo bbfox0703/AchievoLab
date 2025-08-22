@@ -23,7 +23,7 @@ namespace MyOwnGames.Services
             // Create cache directory
             _cacheDirectory = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "MyOwnGames", "ImageCache");
+                "AchievoLab", "ImageCache");
             Directory.CreateDirectory(_cacheDirectory);
 
             // Get current UI dispatcher for thread-safe operations
