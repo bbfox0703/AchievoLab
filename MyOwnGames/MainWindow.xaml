@@ -162,11 +162,11 @@
                         </Grid>
 
                         <TextBlock Grid.Column="2"
-                                   Text="{x:Bind NameEn}"
+                                   Text="{x:Bind NameEn, Mode=OneWay}"
                                    TextTrimming="CharacterEllipsis"/>
 
                         <TextBlock Grid.Column="3"
-                                   Text="{x:Bind NameLocalized}"
+                                   Text="{x:Bind NameLocalized, Mode=OneWay}"
                                    TextTrimming="CharacterEllipsis"/>
                     </Grid>
                 </DataTemplate>
