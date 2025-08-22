@@ -37,6 +37,7 @@ namespace MyOwnGames
     public sealed partial class MainWindow : Window, INotifyPropertyChanged
     {
         public ObservableCollection<GameEntry> GameItems { get; } = new();
+        private List<GameEntry> AllGameItems { get; } = new();
         public ObservableCollection<string> LogEntries { get; } = new();
         private readonly GameImageService _imageService = new();
         private readonly GameDataService _dataService = new();
@@ -225,12 +226,12 @@ namespace MyOwnGames
                 
                 try
                 {
-                    var gameEntry = GameItems.FirstOrDefault(g => g.AppId == appId);
+                    var gameEntry = AllGameItems.FirstOrDefault(g => g.AppId == appId);
                     if (gameEntry != null && !string.IsNullOrEmpty(imagePath) && File.Exists(imagePath))
                     {
                         // Force UI refresh by changing the URI
                         var fileUri = new Uri(imagePath).AbsoluteUri;
-                        
+
                         // Always set the URI and force refresh
                         gameEntry.IconUri = fileUri;
                         gameEntry.ForceIconRefresh(); // Force UI refresh
@@ -279,8 +280,9 @@ namespace MyOwnGames
                 var enteredId = SteamIdBox.Password?.Trim() ?? string.Empty;
                 await EnsureSteamIdHashConsistencyAsync(enteredId);
                 var savedGames = await _dataService.LoadGamesFromXmlAsync();
-                
+
                 GameItems.Clear();
+                AllGameItems.Clear();
                 foreach (var game in savedGames) // Load all saved games
                 {
                     var entry = new GameEntry
@@ -290,9 +292,10 @@ namespace MyOwnGames
                         NameLocalized = game.NameLocalized,
                         IconUri = "ms-appx:///Assets/steam_placeholder.png" // Will be updated async
                     };
-                    
+
                     GameItems.Add(entry);
-                    
+                    AllGameItems.Add(entry);
+
                     // Load image asynchronously in a thread-safe way
                     _ = LoadGameImageAsync(entry, game.AppId);
                 }
@@ -378,6 +381,7 @@ namespace MyOwnGames
                     _dataService.ClearGameData();
                     _imageService.ClearCache();
                     GameItems.Clear();
+                    AllGameItems.Clear();
                     AppendLog("SteamID changed, cleared previous data and image cache.");
                 }
             }
@@ -433,9 +437,9 @@ namespace MyOwnGames
                 _steamService = new SteamApiService(apiKey);
                 var total = await _steamService.GetOwnedGamesAsync(steamId64, selectedLanguage, async game =>
                 {
-                    // Check if game already exists in the UI list
-                    var existingEntry = GameItems.FirstOrDefault(g => g.AppId == game.AppId);
-                    
+                    // Check if game already exists in the full list
+                    var existingEntry = AllGameItems.FirstOrDefault(g => g.AppId == game.AppId);
+
                     if (existingEntry != null)
                     {
                         // Update existing entry
@@ -443,7 +447,7 @@ namespace MyOwnGames
                         existingEntry.NameLocalized = game.NameLocalized;
                         // Keep existing IconUri unless we need to reload the image
                         AppendLog($"Updated existing game: {game.AppId} - {game.NameEn}");
-                        
+
                         // Reload image asynchronously to get the latest version
                         _ = LoadGameImageAsync(existingEntry, game.AppId);
                     }
@@ -459,6 +463,7 @@ namespace MyOwnGames
                         };
 
                         GameItems.Add(newEntry);
+                        AllGameItems.Add(newEntry);
                         AppendLog($"Added new game: {game.AppId} - {game.NameEn}");
 
                         // Load image asynchronously in a thread-safe way
@@ -519,20 +524,42 @@ namespace MyOwnGames
         private void KeywordBox_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
         {
             var keyword = args.QueryText?.Trim();
-            if (string.IsNullOrEmpty(keyword))
-            {
-                StatusText = "Please enter search keywords.";
-                return;
-            }
-
-            // Here you can use keyword for client-side filtering, or call the search API again
-            StatusText = $"Searching for: {keyword}";
-            // TODO: Filter GameItems or perform server-side search
+            FilterGameItems(keyword);
         }
 
         private void KeywordBox_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
         {
-            // Real-time search functionality could be implemented here
+            if (args.Reason == AutoSuggestBoxTextChangeReason.UserInput)
+            {
+                FilterGameItems(sender.Text?.Trim());
+            }
+        }
+
+        private void FilterGameItems(string? keyword)
+        {
+            if (string.IsNullOrWhiteSpace(keyword))
+            {
+                GameItems.Clear();
+                foreach (var item in AllGameItems)
+                    GameItems.Add(item);
+
+                StatusText = $"Showing {AllGameItems.Count} game(s).";
+                return;
+            }
+
+            var filtered = AllGameItems.Where(g =>
+                (!string.IsNullOrEmpty(g.NameLocalized) && g.NameLocalized.Contains(keyword, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrEmpty(g.NameEn) && g.NameEn.Contains(keyword, StringComparison.OrdinalIgnoreCase)) ||
+                g.AppId.ToString().Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            GameItems.Clear();
+            foreach (var item in filtered)
+                GameItems.Add(item);
+
+            StatusText = filtered.Count > 0
+                ? $"Found {filtered.Count} result(s) for \"{keyword}\"."
+                : $"No results found for \"{keyword}\".";
         }
 
         private async void OnAppWindowClosing(AppWindow sender, AppWindowClosingEventArgs args)
