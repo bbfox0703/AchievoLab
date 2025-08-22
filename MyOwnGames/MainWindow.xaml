@@ -158,7 +158,7 @@
                         <TextBlock Grid.Column="0" Text="{x:Bind AppId}"/>
 
                         <Grid Grid.Column="1" Width="40" Height="40">
-                            <Image Source="{x:Bind IconUri}" Stretch="Uniform"/>
+                            <Image Source="{x:Bind IconUri, Mode=OneWay}" Stretch="Uniform"/>
                         </Grid>
 
                         <TextBlock Grid.Column="2"
