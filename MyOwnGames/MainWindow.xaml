@@ -212,7 +212,25 @@
                         <TextBlock Text="{Binding ProgressPercentText}" VerticalAlignment="Center"/>
                     </StackPanel>
                 </Grid>
-                <ListView x:Name="LogList" Grid.Row="1" ItemsSource="{Binding LogEntries}"/>
+                <ScrollViewer x:Name="LogScrollViewer" 
+                              Grid.Row="1" 
+                              MaxHeight="200" 
+                              VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled"
+                              ZoomMode="Disabled">
+                    <ListView x:Name="LogList" 
+                              ItemsSource="{Binding LogEntries}"
+                              ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                              ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding}" 
+                                           TextWrapping="Wrap"
+                                           Margin="4,2"/>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </ScrollViewer>
             </Grid>
         </Border>
 

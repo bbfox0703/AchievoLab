@@ -98,11 +98,24 @@ namespace MyOwnGames
         {
             var entry = $"[{DateTime.Now:HH:mm:ss}] {message}";
             LogEntries.Add(entry);
-            if (LogEntries.Count > 0)
+            
+            // Auto-scroll to bottom after a short delay to ensure UI is updated
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
             {
-                LogList.UpdateLayout();
-                LogList.ScrollIntoView(LogEntries[LogEntries.Count - 1]);
-            }
+                try
+                {
+                    LogScrollViewer?.ScrollToVerticalOffset(LogScrollViewer.ScrollableHeight);
+                }
+                catch
+                {
+                    // Fallback: scroll ListView to last item
+                    try
+                    {
+                        LogList?.ScrollIntoView(LogEntries[LogEntries.Count - 1]);
+                    }
+                    catch { }
+                }
+            });
         }
         public MainWindow()
         {
@@ -141,7 +154,7 @@ namespace MyOwnGames
                 var savedGames = await _dataService.LoadGamesFromXmlAsync();
                 
                 GameItems.Clear();
-                foreach (var game in savedGames.Take(10)) // Limit to first 10 for demo
+                foreach (var game in savedGames) // Load all saved games
                 {
                     var entry = new GameEntry
                     {
@@ -183,10 +196,20 @@ namespace MyOwnGames
                 var imagePath = await _imageService.GetGameImageAsync(appId);
                 if (!string.IsNullOrEmpty(imagePath) && File.Exists(imagePath))
                 {
-                    // Thread-safe UI update using DispatcherQueue
-                    this.DispatcherQueue.TryEnqueue(() =>
+                    // Thread-safe UI update using DispatcherQueue with immediate priority
+                    this.DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.High, () =>
                     {
-                        entry.IconUri = imagePath;
+                        try
+                        {
+                            // Update IconUri with absolute path to trigger UI refresh
+                            entry.IconUri = new Uri(imagePath).AbsoluteUri;
+                        }
+                        catch (Exception ex)
+                        {
+                            DebugLogger.LogDebug($"Error updating UI for image {appId}: {ex.Message}");
+                            // Fallback to direct path assignment
+                            entry.IconUri = imagePath;
+                        }
                     });
                     AppendLog($"Loaded image for {appId}");
                 }
@@ -242,7 +265,8 @@ namespace MyOwnGames
                 StatusText = "Fetching game list from Steam Web API...";
                 ProgressValue = 0;
 
-                GameItems.Clear();
+                // Don't clear existing items - we'll use upsert logic instead
+                AppendLog($"Current games in list: {GameItems.Count}");
 
                 // Create progress reporter
                 var progress = new Progress<double>(value => 
@@ -264,36 +288,56 @@ namespace MyOwnGames
                 _steamService = new SteamApiService(apiKey);
                 var total = await _steamService.GetOwnedGamesAsync(steamId64, selectedLanguage, async game =>
                 {
-                    var entry = new GameEntry
+                    // Check if game already exists in the UI list
+                    var existingEntry = GameItems.FirstOrDefault(g => g.AppId == game.AppId);
+                    
+                    if (existingEntry != null)
                     {
-                        AppId = game.AppId,
-                        NameEn = game.NameEn,
-                        NameLocalized = game.NameLocalized,
-                        IconUri = "ms-appx:///Assets/steam_placeholder.png" // Will be updated async
-                    };
+                        // Update existing entry
+                        existingEntry.NameEn = game.NameEn;
+                        existingEntry.NameLocalized = game.NameLocalized;
+                        // Keep existing IconUri unless we need to reload the image
+                        AppendLog($"Updated existing game: {game.AppId} - {game.NameEn}");
+                        
+                        // Reload image asynchronously to get the latest version
+                        _ = LoadGameImageAsync(existingEntry, game.AppId);
+                    }
+                    else
+                    {
+                        // Create new entry
+                        var newEntry = new GameEntry
+                        {
+                            AppId = game.AppId,
+                            NameEn = game.NameEn,
+                            NameLocalized = game.NameLocalized,
+                            IconUri = "ms-appx:///Assets/steam_placeholder.png" // Will be updated async
+                        };
 
-                    GameItems.Add(entry);
+                        GameItems.Add(newEntry);
+                        AppendLog($"Added new game: {game.AppId} - {game.NameEn}");
 
-                    // Load image asynchronously in a thread-safe way
-                    _ = LoadGameImageAsync(entry, game.AppId);
+                        // Load image asynchronously in a thread-safe way
+                        _ = LoadGameImageAsync(newEntry, game.AppId);
+                    }
 
                     await _dataService.AppendGameAsync(game, steamId64, apiKey, selectedLanguage);
                 }, progress, existingAppIds);
 
                 xmlPath = _dataService.GetXmlFilePath();
 
-                var savedCount = (existingAppIds?.Count ?? 0) + GameItems.Count;
-                if (savedCount < total)
+                // Update remaining count based on actual total vs current items
+                var currentTotalCount = GameItems.Count;
+                if (currentTotalCount < total)
                 {
-                    await _dataService.UpdateRemainingCountAsync(total - savedCount);
+                    await _dataService.UpdateRemainingCountAsync(total - currentTotalCount);
                 }
                 else
                 {
                     await _dataService.UpdateRemainingCountAsync(0);
                 }
 
-                StatusText = $"Successfully loaded {GameItems.Count} games ({selectedLanguage}) and saved to {xmlPath}";
-                AppendLog($"Retrieved {GameItems.Count} games and saved to {xmlPath}");
+                StatusText = $"Successfully processed {total} games ({selectedLanguage}). Current list: {GameItems.Count} games. Saved to {xmlPath}";
+                AppendLog($"Processing complete - Total: {total}, Current display: {GameItems.Count} games, saved to {xmlPath}");
             }
             catch (Exception ex)
             {
