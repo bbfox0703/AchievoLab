@@ -15,36 +15,48 @@ namespace MyOwnGames
         private readonly HttpClient _httpClient;
         private readonly string _apiKey;
         private DateTime _lastApiCall = DateTime.MinValue;
-        private readonly object _apiCallLock = new object();
+        private readonly SemaphoreSlim _apiSemaphore = new(1, 1);
 
         public SteamApiService(string apiKey)
         {
+            ValidateCredentials(apiKey);
             _apiKey = apiKey;
             _httpClient = new HttpClient();
             _httpClient.Timeout = TimeSpan.FromSeconds(30);
             _httpClient.DefaultRequestHeaders.Add("User-Agent", "MyOwnGames/1.0");
         }
 
-        private Task ThrottleApiCallAsync()
+        private async Task ThrottleApiCallAsync()
         {
-            return Task.Run(() =>
+            await _apiSemaphore.WaitAsync();
+            try
             {
-                lock (_apiCallLock)
+                var elapsed = DateTime.UtcNow - _lastApiCall;
+                var minDelay = TimeSpan.FromSeconds(2.5); // 2.5 seconds minimum between API calls
+                if (elapsed < minDelay)
                 {
-                    var elapsed = DateTime.Now - _lastApiCall;
-                    var minDelay = TimeSpan.FromSeconds(2.5); // 2.5 seconds minimum between API calls
-                    if (elapsed < minDelay)
-                    {
-                        var waitTime = minDelay - elapsed;
-                        Thread.Sleep(waitTime);
-                    }
-                    _lastApiCall = DateTime.Now;
+                    var waitTime = minDelay - elapsed;
+                    await Task.Delay(waitTime);
                 }
-            });
+                _lastApiCall = DateTime.UtcNow;
+            }
+            finally
+            {
+                _apiSemaphore.Release();
+            }
+        }
+
+        private static void ValidateCredentials(string apiKey, string? steamId64 = null)
+        {
+            if (!InputValidator.IsValidApiKey(apiKey))
+                throw new ArgumentException("Invalid Steam API Key. It must be 32 hexadecimal characters.", nameof(apiKey));
+            if (steamId64 != null && !InputValidator.IsValidSteamId64(steamId64))
+                throw new ArgumentException("Invalid SteamID64. It must be a 17-digit number starting with 7656119.", nameof(steamId64));
         }
 
         public async Task<int> GetOwnedGamesAsync(string steamId64, string targetLanguage = "tchinese", Func<SteamGame, Task>? onGameRetrieved = null, IProgress<double>? progress = null, ISet<int>? existingAppIds = null)
         {
+            ValidateCredentials(_apiKey, steamId64);
             try
             {
                 // Step 1: Get owned games with throttling
