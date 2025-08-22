@@ -52,7 +52,8 @@
                                      Width="340"
                                      PasswordChar="*"
                                      PlaceholderText="Your Steam Web API Key"
-                                     IsPasswordRevealButtonEnabled="True"/>
+                                     IsPasswordRevealButtonEnabled="True"
+                                     PasswordChanged="InputFields_PasswordChanged"/>
                     </StackPanel>
                 </AppBarElementContainer>
 
@@ -65,7 +66,8 @@
                                      PasswordChar="*"
                                      PlaceholderText="7656119xxxxxxxxxx"
                                      IsPasswordRevealButtonEnabled="True"
-                                     InputScope="Number"/>
+                                     InputScope="Number"
+                                     PasswordChanged="InputFields_PasswordChanged"/>
                     </StackPanel>
                 </AppBarElementContainer>
 
@@ -114,7 +116,8 @@
                 <AppBarButton x:Name="GetGamesButton"
                                    Icon="Download"
                                    Label="Get Game list"
-                                   Click="GetGamesButton_Click"/>
+                                   Click="GetGamesButton_Click"
+                                   IsEnabled="False"/>
             </CommandBar.PrimaryCommands>
         </CommandBar>
 
