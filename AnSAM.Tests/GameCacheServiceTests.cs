@@ -18,6 +18,8 @@ public class GameCacheServiceTests
         public bool Initialized => true;
         public bool IsSubscribedApp(uint appId) => appId == 2;
         public string? GetAppData(uint appId, string key) => appId == 2 && key == "name" ? "Two" : null;
+        public bool IsSubscribedFromFamilySharing(uint appId) => false;
+        public ulong GetAppOwner(uint appId) => 0;
     }
 
     private sealed class StubHandler : HttpMessageHandler

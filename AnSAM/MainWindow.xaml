@@ -44,44 +44,89 @@
         </CommandBar>
         <Grid Grid.Row="1" x:Name="CenterPanel"
       Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
-            <GridView x:Name="GamesView"
-              ItemsSource="{x:Bind Games}"
-              SelectionMode="None"
-              IsItemClickEnabled="False"
-              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-              ContainerContentChanging="GamesView_ContainerContentChanging">
-                <!-- 自動換行的磁磚排版 -->
-                <GridView.ItemsPanel>
-                    <ItemsPanelTemplate>
-                        <ItemsWrapGrid Orientation="Horizontal"
-                               ItemWidth="240"
-                               ItemHeight="180"/>
-                    </ItemsPanelTemplate>
-                </GridView.ItemsPanel>
+            <TabView x:Name="MainTabView" TabWidthMode="Equal" SelectionChanged="MainTabView_SelectionChanged">
+                <TabViewItem Header="My Games">
+                    <GridView x:Name="GamesView"
+                      ItemsSource="{x:Bind Games}"
+                      SelectionMode="None"
+                      IsItemClickEnabled="False"
+                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                      ContainerContentChanging="GamesView_ContainerContentChanging">
+                        <!-- 自動換行的磁磚排版 -->
+                        <GridView.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <ItemsWrapGrid Orientation="Horizontal"
+                                       ItemWidth="240"
+                                       ItemHeight="180"/>
+                            </ItemsPanelTemplate>
+                        </GridView.ItemsPanel>
 
-                <!-- 卡片樣板：封面 + 標題（整張卡片支援 DoubleTapped） -->
-                <GridView.ItemTemplate>
-                    <DataTemplate x:DataType="local:GameItem">
-                        <StackPanel Width="231" DoubleTapped="GameCard_DoubleTapped">
-                            <StackPanel.ContextFlyout>
-                                <MenuFlyout>
-                                    <MenuFlyoutItem Text="Launch Achievement Manager" Click="OnLaunchSamGameClicked" IsEnabled="{x:Bind IsSamGameAvailable}"/>
-                                    <MenuFlyoutItem Text="Launch Game" Click="OnLaunchGameClicked"/>
-                                </MenuFlyout>
-                            </StackPanel.ContextFlyout>
-                            <Border Height="100" CornerRadius="8"
-                            Background="{ThemeResource SystemFillColorSolidNeutralBackgroundBrush}" HorizontalAlignment="Center">
-                                <Image Source="{x:Bind CoverImage, Mode=OneWay}" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                            </Border>
-                            <TextBlock Text="{x:Bind Title, Mode=OneWay}"
-                               Margin="2,8,0,0"
-                               TextWrapping="Wrap"
-                               TextTrimming="CharacterEllipsis"
-                               MaxLines="3"/>
-                        </StackPanel>
-                    </DataTemplate>
-                </GridView.ItemTemplate>
-            </GridView>
+                        <!-- 卡片樣板：封面 + 標題（整張卡片支援 DoubleTapped） -->
+                        <GridView.ItemTemplate>
+                            <DataTemplate x:DataType="local:GameItem">
+                                <StackPanel Width="231" DoubleTapped="GameCard_DoubleTapped">
+                                    <StackPanel.ContextFlyout>
+                                        <MenuFlyout>
+                                            <MenuFlyoutItem Text="Launch Achievement Manager" Click="OnLaunchSamGameClicked" IsEnabled="{x:Bind IsSamGameAvailable}"/>
+                                            <MenuFlyoutItem Text="Launch Game" Click="OnLaunchGameClicked"/>
+                                        </MenuFlyout>
+                                    </StackPanel.ContextFlyout>
+                                    <Border Height="100" CornerRadius="8"
+                                    Background="{ThemeResource SystemFillColorSolidNeutralBackgroundBrush}" HorizontalAlignment="Center">
+                                        <Image Source="{x:Bind CoverImage, Mode=OneWay}" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                    <TextBlock Text="{x:Bind Title, Mode=OneWay}"
+                                       Margin="2,8,0,0"
+                                       TextWrapping="Wrap"
+                                       TextTrimming="CharacterEllipsis"
+                                       MaxLines="3"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </GridView.ItemTemplate>
+                    </GridView>
+                </TabViewItem>
+                
+                <TabViewItem Header="Family Sharing">
+                    <GridView x:Name="FamilyGamesView"
+                      ItemsSource="{x:Bind FamilyGames}"
+                      SelectionMode="None"
+                      IsItemClickEnabled="False"
+                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                      ContainerContentChanging="FamilyGamesView_ContainerContentChanging">
+                        <!-- 自動換行的磁磚排版 -->
+                        <GridView.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <ItemsWrapGrid Orientation="Horizontal"
+                                       ItemWidth="240"
+                                       ItemHeight="180"/>
+                            </ItemsPanelTemplate>
+                        </GridView.ItemsPanel>
+
+                        <!-- 卡片樣板：封面 + 標題（整張卡片支援 DoubleTapped） -->
+                        <GridView.ItemTemplate>
+                            <DataTemplate x:DataType="local:GameItem">
+                                <StackPanel Width="231" DoubleTapped="FamilyGameCard_DoubleTapped">
+                                    <StackPanel.ContextFlyout>
+                                        <MenuFlyout>
+                                            <MenuFlyoutItem Text="Launch Achievement Manager" Click="OnLaunchSamGameClicked" IsEnabled="{x:Bind IsSamGameAvailable}"/>
+                                            <MenuFlyoutItem Text="Launch Game" Click="OnLaunchGameClicked"/>
+                                        </MenuFlyout>
+                                    </StackPanel.ContextFlyout>
+                                    <Border Height="100" CornerRadius="8"
+                                    Background="{ThemeResource SystemFillColorSolidNeutralBackgroundBrush}" HorizontalAlignment="Center">
+                                        <Image Source="{x:Bind CoverImage, Mode=OneWay}" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                    <TextBlock Text="{x:Bind Title, Mode=OneWay}"
+                                       Margin="2,8,0,0"
+                                       TextWrapping="Wrap"
+                                       TextTrimming="CharacterEllipsis"
+                                       MaxLines="3"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </GridView.ItemTemplate>
+                    </GridView>
+                </TabViewItem>
+            </TabView>
         </Grid>
         <!-- 底部狀態列（自製 StatusBar） -->
         <Grid Grid.Row="2" Height="28"

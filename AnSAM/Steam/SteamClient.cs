@@ -33,6 +33,8 @@ namespace AnSAM.Steam
         private readonly ReleaseSteamPipeDelegate? _releaseSteamPipe;
         private readonly IsSubscribedAppDelegate? _isSubscribedApp;
         private readonly GetAppDataDelegate? _getAppData;
+        private readonly BIsSubscribedFromFamilySharingDelegate? _isSubscribedFromFamilySharing;
+        private readonly GetAppOwnerDelegate? _getAppOwner;
 
 #if DEBUG
         private int _loggedSubscriptions;
@@ -96,6 +98,8 @@ namespace AnSAM.Steam
                                 {
                                     IntPtr appsVTable = Marshal.ReadIntPtr(_apps008);
                                     _isSubscribedApp = Marshal.GetDelegateForFunctionPointer<IsSubscribedAppDelegate>(Marshal.ReadIntPtr(appsVTable + IntPtr.Size * 6));
+                                    _isSubscribedFromFamilySharing = Marshal.GetDelegateForFunctionPointer<BIsSubscribedFromFamilySharingDelegate>(Marshal.ReadIntPtr(appsVTable + IntPtr.Size * 8));
+                                    _getAppOwner = Marshal.GetDelegateForFunctionPointer<GetAppOwnerDelegate>(Marshal.ReadIntPtr(appsVTable + IntPtr.Size * 9));
                                 }
                                 if (_apps001 != IntPtr.Zero)
                                 {
@@ -151,7 +155,7 @@ namespace AnSAM.Steam
             }
             bool result = _isSubscribedApp(_apps008, id);
 #if DEBUG
-            if (_loggedSubscriptions < 20)
+            if (result && _loggedSubscriptions < 20)
             {
                 DebugLogger.LogDebug($"IsSubscribedApp({id}) => {result}");
                 _loggedSubscriptions++;
@@ -218,6 +222,65 @@ namespace AnSAM.Steam
             {
                 ArrayPool<byte>.Shared.Return(buffer, clearArray: true);
             }
+        }
+
+        /// <summary>
+        /// Checks if the specified app is accessed via Family Sharing.
+        /// </summary>
+        public bool IsSubscribedFromFamilySharing(uint appId)
+        {
+            if (!Initialized)
+            {
+#if DEBUG
+                DebugLogger.LogDebug($"IsSubscribedFromFamilySharing({appId}) called before Steam initialization");
+#endif
+                return false;
+            }
+
+            if (_isSubscribedFromFamilySharing == null)
+            {
+#if DEBUG
+                DebugLogger.LogDebug("IsSubscribedFromFamilySharing delegate missing");
+#endif
+                return false;
+            }
+
+            bool result = _isSubscribedFromFamilySharing(_apps008, appId);
+#if DEBUG
+            if (result)
+            {
+                DebugLogger.LogDebug($"IsSubscribedFromFamilySharing({appId}) => {result}");
+            }
+#endif
+            return result;
+        }
+
+        /// <summary>
+        /// Gets the Steam ID of the original owner of the specified app.
+        /// </summary>
+        public ulong GetAppOwner(uint appId)
+        {
+            if (!Initialized)
+            {
+#if DEBUG
+                DebugLogger.LogDebug($"GetAppOwner({appId}) called before Steam initialization");
+#endif
+                return 0;
+            }
+
+            if (_getAppOwner == null)
+            {
+#if DEBUG
+                DebugLogger.LogDebug("GetAppOwner delegate missing");
+#endif
+                return 0;
+            }
+
+            ulong result = _getAppOwner(_apps008, appId);
+#if DEBUG
+            DebugLogger.LogDebug($"GetAppOwner({appId}) => {result}");
+#endif
+            return result;
         }
 
         public int CreateLocalUser(ref int pipe, AccountType type)
@@ -444,6 +507,13 @@ namespace AnSAM.Steam
                                                 [MarshalAs(UnmanagedType.LPStr)] string key,
                                                 IntPtr value,
                                                 int valueBufferSize);
+
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
+        [return: MarshalAs(UnmanagedType.I1)]
+        private delegate bool BIsSubscribedFromFamilySharingDelegate(IntPtr self, uint appId);
+
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
+        private delegate ulong GetAppOwnerDelegate(IntPtr self, uint appId);
     }
 
     public enum AccountType : int
