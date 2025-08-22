@@ -15,6 +15,7 @@ using Windows.ApplicationModel;
 using Windows.ApplicationModel.Activation;
 using Windows.Foundation;
 using Windows.Foundation.Collections;
+using MyOwnGames.Services;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -35,6 +36,8 @@ namespace MyOwnGames
         public App()
         {
             InitializeComponent();
+            Suspending += OnSuspending;
+            UnhandledException += OnUnhandledException;
         }
 
         /// <summary>
@@ -45,6 +48,32 @@ namespace MyOwnGames
         {
             _window = new MainWindow();
             _window.Activate();
+        }
+
+        private async void OnSuspending(object sender, SuspendingEventArgs e)
+        {
+            var deferral = e.SuspendingOperation.GetDeferral();
+            try
+            {
+                DebugLogger.LogDebug("App suspending");
+                if (_window is MainWindow mw)
+                {
+                    await mw.SaveAndDisposeAsync("suspending");
+                }
+            }
+            finally
+            {
+                deferral.Complete();
+            }
+        }
+
+        private async void OnUnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
+        {
+            DebugLogger.LogDebug($"Unhandled exception: {e.Exception.Message}");
+            if (_window is MainWindow mw)
+            {
+                await mw.SaveAndDisposeAsync("unhandled exception");
+            }
         }
     }
 }

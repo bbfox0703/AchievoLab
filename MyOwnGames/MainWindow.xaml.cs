@@ -40,6 +40,8 @@ namespace MyOwnGames
         private readonly GameImageService _imageService = new();
         private readonly GameDataService _dataService = new();
         private readonly Action<string> _logHandler;
+        private SteamApiService? _steamService;
+        private bool _isShuttingDown;
 
         private readonly AppWindow _appWindow;
 
@@ -115,6 +117,7 @@ namespace MyOwnGames
             var hwnd = WindowNative.GetWindowHandle(this);
             var winId = Win32Interop.GetWindowIdFromWindow(hwnd);
             _appWindow = AppWindow.GetFromWindowId(winId);
+            _appWindow.Closing += OnAppWindowClosing;
             // 設定 Icon：指向打包後的實體檔案路徑
             var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "MyOwnGames.ico");
             if (File.Exists(iconPath))
@@ -231,7 +234,6 @@ namespace MyOwnGames
 
             await EnsureSteamIdHashConsistencyAsync(steamId64);
 
-            SteamApiService? steamService = null;
             string? xmlPath = null;
             try
             {
@@ -259,8 +261,8 @@ namespace MyOwnGames
                 var (existingAppIds, _) = await _dataService.LoadRetrievedAppIdsAsync();
 
                 // Use real Steam API service with selected language
-                steamService = new SteamApiService(apiKey);
-                var total = await steamService.GetOwnedGamesAsync(steamId64, selectedLanguage, async game =>
+                _steamService = new SteamApiService(apiKey);
+                var total = await _steamService.GetOwnedGamesAsync(steamId64, selectedLanguage, async game =>
                 {
                     var entry = new GameEntry
                     {
@@ -300,7 +302,8 @@ namespace MyOwnGames
             }
             finally
             {
-                steamService?.Dispose();
+                _steamService?.Dispose();
+                _steamService = null;
                 IsLoading = false;
                 ProgressValue = 100;
                 AppendLog("Finished retrieving games.");
@@ -326,11 +329,33 @@ namespace MyOwnGames
             // Real-time search functionality could be implemented here
         }
 
-        // Clean up resources when window is closing
-        ~MainWindow()
+        private async void OnAppWindowClosing(AppWindow sender, AppWindowClosingEventArgs args)
         {
-            _imageService?.Dispose();
+            await SaveAndDisposeAsync("window closing");
+        }
+
+        public async Task SaveAndDisposeAsync(string reason)
+        {
+            if (_isShuttingDown)
+                return;
+            _isShuttingDown = true;
+
+            try
+            {
+                AppendLog("Saving game data...");
+                await _dataService.UpdateRemainingCountAsync(0);
+                AppendLog("Game data saved.");
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"Error saving data: {ex.Message}");
+            }
+
+            _steamService?.Dispose();
+            _steamService = null;
+            _imageService.Dispose();
             DebugLogger.OnLog -= _logHandler;
+            DebugLogger.LogDebug($"Shutdown completed ({reason})");
         }
     }
 
