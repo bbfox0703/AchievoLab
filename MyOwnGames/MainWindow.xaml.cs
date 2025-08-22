@@ -183,9 +183,11 @@ namespace MyOwnGames
 
             // Load saved games on startup
             _ = LoadSavedGamesAsync();
-            
+
             // Clean up old failed download records on startup
             _ = CleanupOldFailedRecordsAsync();
+
+            UpdateGetGamesButtonState();
         }
 
         private void OnImageDownloadCompleted(int appId, string? imagePath)
@@ -362,9 +364,15 @@ namespace MyOwnGames
             var apiKey = ApiKeyBox.Password?.Trim();
             var steamId64 = SteamIdBox.Password?.Trim();
 
-            if (string.IsNullOrEmpty(apiKey) || string.IsNullOrEmpty(steamId64))
+            if (!InputValidator.IsValidApiKey(apiKey))
             {
-                StatusText = "Please enter Steam API Key and SteamID_64.";
+                StatusText = "Invalid Steam API Key. It must be 32 hexadecimal characters.";
+                return;
+            }
+
+            if (!InputValidator.IsValidSteamId64(steamId64))
+            {
+                StatusText = "Invalid SteamID64. It must be a 17-digit number starting with 7656119.";
                 return;
             }
 
@@ -465,6 +473,18 @@ namespace MyOwnGames
                 ProgressValue = 100;
                 AppendLog("Finished retrieving games.");
             }
+        }
+
+        private void InputFields_PasswordChanged(object sender, RoutedEventArgs e)
+        {
+            UpdateGetGamesButtonState();
+        }
+
+        private void UpdateGetGamesButtonState()
+        {
+            var apiKey = ApiKeyBox.Password?.Trim();
+            var steamId64 = SteamIdBox.Password?.Trim();
+            GetGamesButton.IsEnabled = InputValidator.IsValidApiKey(apiKey) && InputValidator.IsValidSteamId64(steamId64);
         }
 
         private void KeywordBox_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
