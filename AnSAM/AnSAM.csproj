@@ -3,7 +3,7 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows10.0.22621.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
-    <RootNamespace>AnSAM</RootNamespace>
+    <RootNamespace>AnASM</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Platforms>x64</Platforms>
     <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
@@ -59,7 +59,7 @@
     <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
     <UseWindowsForms>False</UseWindowsForms>
     <StartupObject></StartupObject>
-    <Title>Another SAM.Picker</Title>
+    <Title>AchievoLab Main</Title>
     <PackageProjectUrl>https://github.com/bbfox0703/SteamAchievementManagerX2</PackageProjectUrl>
     <Copyright>bbfox</Copyright>
     <RepositoryUrl>https://github.com/bbfox0703/SteamAchievementManagerX2</RepositoryUrl>

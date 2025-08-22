@@ -9,7 +9,7 @@ namespace MyOwnGames.Services
         public static event Action<string>? OnLog;
         private static readonly string LogFilePath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "MyOwnGames", "debug.log");
+            "AchievoLab", "debug.log");
 
         static DebugLogger()
         {

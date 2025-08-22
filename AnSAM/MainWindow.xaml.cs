@@ -251,6 +251,7 @@ namespace AnSAM
             await game.LoadCoverAsync(_steamClient);
         }
 
+
         private void GameCard_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
         {
             if (sender is FrameworkElement element && element.DataContext is GameItem game)
@@ -265,6 +266,7 @@ namespace AnSAM
                 }
             }
         }
+
 
         private void OnLaunchSamGameClicked(object sender, RoutedEventArgs e)
         {
@@ -366,7 +368,7 @@ namespace AnSAM
 
             IconCache.ResetProgress();
 
-            var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AnSAM");
+            var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab");
 
             using var http = new HttpClient();
             var apps = await GameCacheService.RefreshAsync(baseDir, _steamClient, http);
@@ -435,7 +437,7 @@ namespace AnSAM
         {
             try
             {
-                var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AnSAM");
+                var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab");
                 var iconDir = Path.Combine(baseDir, "appcache");
                 var cacheDir = Path.Combine(baseDir, "cache");
                 var gameListPath = Path.Combine(cacheDir, "games.xml");
@@ -607,6 +609,7 @@ namespace AnSAM
     {
         public string Title { get; set; }
         public int ID { get; set; }
+        public int AppId => ID;
         public Uri? CoverPath
         {
             get => _coverPath;

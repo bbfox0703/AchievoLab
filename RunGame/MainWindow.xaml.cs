@@ -135,7 +135,7 @@ namespace RunGame
             // Set window title
             string gameName = _steamClient.GetAppData((uint)gameId, "name") ?? gameId.ToString();
             string debugMode = DebugLogger.IsDebugMode ? " [DEBUG MODE]" : "";
-            this.Title = $"AnSAM RunGame | {gameName}{debugMode}";
+            this.Title = $"AchievoLab:RunGame | {gameName}{debugMode}";
             
             // Initialize language options
             InitializeLanguageComboBox();
@@ -159,7 +159,7 @@ namespace RunGame
             }
             
             // 初始化日誌
-            DebugLogger.LogDebug($"AnSAM_RunGame started for game {gameId} in {(DebugLogger.IsDebugMode ? "DEBUG" : "RELEASE")} mode");
+            DebugLogger.LogDebug($"RunGame started for game {gameId} in {(DebugLogger.IsDebugMode ? "DEBUG" : "RELEASE")} mode");
             
             // Initialize new services
             _achievementTimerService = new AchievementTimerService(_gameStatsService);

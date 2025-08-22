@@ -151,7 +151,7 @@ namespace AnSAM.Steam
             }
             bool result = _isSubscribedApp(_apps008, id);
 #if DEBUG
-            if (_loggedSubscriptions < 20)
+            if (result && _loggedSubscriptions < 20)
             {
                 DebugLogger.LogDebug($"IsSubscribedApp({id}) => {result}");
                 _loggedSubscriptions++;
@@ -219,6 +219,7 @@ namespace AnSAM.Steam
                 ArrayPool<byte>.Shared.Return(buffer, clearArray: true);
             }
         }
+
 
         public int CreateLocalUser(ref int pipe, AccountType type)
         {

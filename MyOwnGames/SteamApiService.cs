@@ -32,7 +32,7 @@ namespace MyOwnGames
                 lock (_apiCallLock)
                 {
                     var elapsed = DateTime.Now - _lastApiCall;
-                    var minDelay = TimeSpan.FromSeconds(1.35); // 1.35 seconds minimum between API calls
+                    var minDelay = TimeSpan.FromSeconds(2.5); // 2.5 seconds minimum between API calls
                     if (elapsed < minDelay)
                     {
                         var waitTime = minDelay - elapsed;
@@ -43,10 +43,8 @@ namespace MyOwnGames
             });
         }
 
-        public async Task<List<SteamGame>> GetOwnedGamesAsync(string steamId64, string targetLanguage = "tchinese", IProgress<double>? progress = null)
+        public async Task<int> GetOwnedGamesAsync(string steamId64, string targetLanguage = "tchinese", Func<SteamGame, Task>? onGameRetrieved = null, IProgress<double>? progress = null, ISet<int>? existingAppIds = null)
         {
-            var games = new List<SteamGame>();
-
             try
             {
                 // Step 1: Get owned games with throttling
@@ -58,26 +56,32 @@ namespace MyOwnGames
 
                 if (ownedGamesData?.response?.games == null)
                 {
-                    return games;
+                    return 0;
                 }
 
                 progress?.Report(30);
 
                 var total = ownedGamesData.response.games.Length;
-                progress?.Report(40);
 
                 // Step 2: Process games with localized names (with throttling)
                 for (int i = 0; i < total; i++)
                 {
                     var game = ownedGamesData.response.games[i];
-                    
+
+                    if (existingAppIds != null && existingAppIds.Contains(game.appid))
+                    {
+                        var skipProgress = 30 + (70.0 * (i + 1) / total);
+                        progress?.Report(skipProgress);
+                        continue;
+                    }
+
                     // Get localized name if not English
                     string localizedName = game.name; // Default to English name from owned games API
                     if (targetLanguage != "english")
                     {
                         localizedName = await GetLocalizedGameNameAsync(game.appid, game.name, targetLanguage);
                     }
-                    
+
                     var steamGame = new SteamGame
                     {
                         AppId = game.appid,
@@ -86,23 +90,26 @@ namespace MyOwnGames
                         IconUrl = GetGameImageUrl(game.appid),
                         PlaytimeForever = game.playtime_forever
                     };
-                    
-                    games.Add(steamGame);
 
                     // Log retrieval progress
                     DebugLogger.LogDebug($"Retrieving game {i + 1}/{total}: {steamGame.NameEn}");
 
+                    if (onGameRetrieved != null)
+                    {
+                        await onGameRetrieved(steamGame);
+                    }
+
                     // Update progress more smoothly
-                    var gameProgress = 40 + (60.0 * (i + 1) / total);
+                    var gameProgress = 30 + (70.0 * (i + 1) / total);
                     progress?.Report(gameProgress);
                 }
+
+                return total;
             }
             catch (Exception ex)
             {
                 throw new Exception($"Error fetching Steam games: {ex.Message}", ex);
             }
-
-            return games;
         }
 
 

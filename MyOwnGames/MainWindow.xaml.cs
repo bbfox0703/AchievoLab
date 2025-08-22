@@ -18,6 +18,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices.WindowsRuntime;
+using System.Threading;
 using System.Threading.Tasks;
 using Windows.Foundation;
 using Windows.Foundation.Collections;
@@ -40,6 +41,9 @@ namespace MyOwnGames
         private readonly GameImageService _imageService = new();
         private readonly GameDataService _dataService = new();
         private readonly Action<string> _logHandler;
+        private SteamApiService? _steamService;
+        private bool _isShuttingDown;
+        private CancellationTokenSource? _cancellationTokenSource;
 
         private readonly AppWindow _appWindow;
 
@@ -90,16 +94,65 @@ namespace MyOwnGames
 
         public event PropertyChangedEventHandler? PropertyChanged;
         private void OnPropertyChanged([CallerMemberName] string? name = null)
-            => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        {
+            try
+            {
+                if (!_isShuttingDown)
+                {
+                    PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+                }
+            }
+            catch (System.Runtime.InteropServices.COMException)
+            {
+                // Ignore COM exceptions during shutdown
+            }
+            catch (Exception ex) when (_isShuttingDown)
+            {
+                // Ignore all exceptions during shutdown
+                DebugLogger.LogDebug($"Ignored exception during shutdown in OnPropertyChanged: {ex.Message}");
+            }
+        }
 
         public void AppendLog(string message)
         {
-            var entry = $"[{DateTime.Now:HH:mm:ss}] {message}";
-            LogEntries.Add(entry);
-            if (LogEntries.Count > 0)
+            if (_isShuttingDown) return; // Don't add logs during shutdown
+            
+            try
             {
-                LogList.UpdateLayout();
-                LogList.ScrollIntoView(LogEntries[LogEntries.Count - 1]);
+                var entry = $"[{DateTime.Now:HH:mm:ss}] {message}";
+                LogEntries.Add(entry);
+                
+                // Auto-scroll to bottom after a short delay to ensure UI is updated
+                DispatcherQueue?.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+                {
+                    if (_isShuttingDown) return; // Double check during async execution
+                    
+                    try
+                    {
+                        LogScrollViewer?.ScrollToVerticalOffset(LogScrollViewer.ScrollableHeight);
+                    }
+                    catch (System.Runtime.InteropServices.COMException)
+                    {
+                        // Ignore COM exceptions during shutdown
+                    }
+                    catch
+                    {
+                        // Fallback: scroll ListView to last item
+                        try
+                        {
+                            LogList?.ScrollIntoView(LogEntries[LogEntries.Count - 1]);
+                        }
+                        catch (System.Runtime.InteropServices.COMException)
+                        {
+                            // Ignore COM exceptions during shutdown
+                        }
+                        catch { }
+                    }
+                });
+            }
+            catch (Exception) when (_isShuttingDown)
+            {
+                // Ignore all exceptions during shutdown
             }
         }
         public MainWindow()
@@ -110,11 +163,15 @@ namespace MyOwnGames
 
             _logHandler = message => DispatcherQueue.TryEnqueue(() => AppendLog(message));
             DebugLogger.OnLog += _logHandler;
+            
+            // Subscribe to image download completion events
+            _imageService.ImageDownloadCompleted += OnImageDownloadCompleted;
 
             // 取得 AppWindow
             var hwnd = WindowNative.GetWindowHandle(this);
             var winId = Win32Interop.GetWindowIdFromWindow(hwnd);
             _appWindow = AppWindow.GetFromWindowId(winId);
+            _appWindow.Closing += OnAppWindowClosing;
             // 設定 Icon：指向打包後的實體檔案路徑
             var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "MyOwnGames.ico");
             if (File.Exists(iconPath))
@@ -126,17 +183,79 @@ namespace MyOwnGames
 
             // Load saved games on startup
             _ = LoadSavedGamesAsync();
+            
+            // Clean up old failed download records on startup
+            _ = CleanupOldFailedRecordsAsync();
         }
+
+        private void OnImageDownloadCompleted(int appId, string? imagePath)
+        {
+            if (_isShuttingDown) return; // Don't update UI during shutdown
+            
+            // Find the corresponding game entry and update its image
+            this.DispatcherQueue?.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.High, () =>
+            {
+                if (_isShuttingDown) return; // Double check during async execution
+                
+                try
+                {
+                    var gameEntry = GameItems.FirstOrDefault(g => g.AppId == appId);
+                    if (gameEntry != null && !string.IsNullOrEmpty(imagePath) && File.Exists(imagePath))
+                    {
+                        // Force UI refresh by changing the URI
+                        var fileUri = new Uri(imagePath).AbsoluteUri;
+                        
+                        // Always set the URI and force refresh
+                        gameEntry.IconUri = fileUri;
+                        gameEntry.ForceIconRefresh(); // Force UI refresh
+                        
+                        DebugLogger.LogDebug($"Updated UI for downloaded image {appId}: {fileUri}");
+                        AppendLog($"Image updated for {appId}");
+                    }
+                }
+                catch (System.Runtime.InteropServices.COMException)
+                {
+                    // Ignore COM exceptions during shutdown
+                }
+                catch (Exception) when (_isShuttingDown)
+                {
+                    // Ignore all exceptions during shutdown
+                }
+                catch (Exception ex)
+                {
+                    DebugLogger.LogDebug($"Error updating UI for downloaded image {appId}: {ex.Message}");
+                }
+            });
+        }
+
+        private async Task CleanupOldFailedRecordsAsync()
+        {
+            try
+            {
+                await Task.Run(() =>
+                {
+                    var failedDownloadService = new FailedDownloadService();
+                    failedDownloadService.CleanupOldRecords();
+                });
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"Error cleaning up old failed download records: {ex.Message}");
+            }
+        }
+
         private async Task LoadSavedGamesAsync()
         {
             try
             {
                 AppendLog("Loading saved games...");
                 StatusText = "Loading saved games...";
+                var enteredId = SteamIdBox.Password?.Trim() ?? string.Empty;
+                await EnsureSteamIdHashConsistencyAsync(enteredId);
                 var savedGames = await _dataService.LoadGamesFromXmlAsync();
                 
                 GameItems.Clear();
-                foreach (var game in savedGames.Take(10)) // Limit to first 10 for demo
+                foreach (var game in savedGames) // Load all saved games
                 {
                     var entry = new GameEntry
                     {
@@ -175,18 +294,40 @@ namespace MyOwnGames
         {
             try
             {
+                DebugLogger.LogDebug($"Starting image load for {appId}");
                 var imagePath = await _imageService.GetGameImageAsync(appId);
+                
                 if (!string.IsNullOrEmpty(imagePath) && File.Exists(imagePath))
                 {
-                    // Thread-safe UI update using DispatcherQueue
-                    this.DispatcherQueue.TryEnqueue(() =>
+                    DebugLogger.LogDebug($"Image found for {appId}: {imagePath}");
+                    
+                    // Thread-safe UI update using DispatcherQueue with immediate priority
+                    this.DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.High, () =>
                     {
-                        entry.IconUri = imagePath;
+                        try
+                        {
+                            // Force a new URI to ensure UI refresh
+                            var fileUri = new Uri(imagePath).AbsoluteUri;
+                            
+                            // Always update and force refresh
+                            entry.IconUri = fileUri;
+                            entry.ForceIconRefresh(); // Force UI refresh
+                            
+                            DebugLogger.LogDebug($"Updated UI for {appId} to {fileUri}");
+                        }
+                        catch (Exception ex)
+                        {
+                            DebugLogger.LogDebug($"Error updating UI for image {appId}: {ex.Message}");
+                            // Fallback to direct path assignment
+                            entry.IconUri = imagePath;
+                        }
                     });
+                    
                     AppendLog($"Loaded image for {appId}");
                 }
                 else
                 {
+                    DebugLogger.LogDebug($"Image not found for {appId}");
                     AppendLog($"Image not found for {appId}");
                 }
             }
@@ -197,10 +338,29 @@ namespace MyOwnGames
             }
         }
 
+        private async Task EnsureSteamIdHashConsistencyAsync(string steamId64)
+        {
+            if (string.IsNullOrWhiteSpace(steamId64))
+                return;
+
+            var exportInfo = await _dataService.GetExportInfoAsync();
+            if (exportInfo != null && !string.IsNullOrEmpty(exportInfo.SteamIdHash))
+            {
+                var currentHash = _dataService.GetSteamIdHash(steamId64);
+                if (!string.Equals(currentHash, exportInfo.SteamIdHash, StringComparison.OrdinalIgnoreCase))
+                {
+                    _dataService.ClearGameData();
+                    _imageService.ClearCache();
+                    GameItems.Clear();
+                    AppendLog("SteamID changed, cleared previous data and image cache.");
+                }
+            }
+        }
+
         private async void GetGamesButton_Click(object sender, RoutedEventArgs e)
         {
-            var apiKey = ApiKeyBox.Text?.Trim();
-            var steamId64 = SteamIdBox.Text?.Trim();
+            var apiKey = ApiKeyBox.Password?.Trim();
+            var steamId64 = SteamIdBox.Password?.Trim();
 
             if (string.IsNullOrEmpty(apiKey) || string.IsNullOrEmpty(steamId64))
             {
@@ -208,7 +368,8 @@ namespace MyOwnGames
                 return;
             }
 
-            SteamApiService? steamService = null;
+            await EnsureSteamIdHashConsistencyAsync(steamId64);
+
             string? xmlPath = null;
             try
             {
@@ -217,7 +378,8 @@ namespace MyOwnGames
                 StatusText = "Fetching game list from Steam Web API...";
                 ProgressValue = 0;
 
-                GameItems.Clear();
+                // Don't clear existing items - we'll use upsert logic instead
+                AppendLog($"Current games in list: {GameItems.Count}");
 
                 // Create progress reporter
                 var progress = new Progress<double>(value => 
@@ -232,33 +394,63 @@ namespace MyOwnGames
                     selectedLanguage = selectedItem.Content?.ToString() ?? "tchinese";
                 }
 
+                // Load existing app IDs to avoid re-fetching
+                var (existingAppIds, _) = await _dataService.LoadRetrievedAppIdsAsync();
+
                 // Use real Steam API service with selected language
-                steamService = new SteamApiService(apiKey);
-                var steamGames = await steamService.GetOwnedGamesAsync(steamId64, selectedLanguage, progress);
-
-                // Convert to GameEntry format and load images asynchronously
-                foreach (var game in steamGames)
+                _steamService = new SteamApiService(apiKey);
+                var total = await _steamService.GetOwnedGamesAsync(steamId64, selectedLanguage, async game =>
                 {
-                    var entry = new GameEntry
+                    // Check if game already exists in the UI list
+                    var existingEntry = GameItems.FirstOrDefault(g => g.AppId == game.AppId);
+                    
+                    if (existingEntry != null)
                     {
-                        AppId = game.AppId,
-                        NameEn = game.NameEn,
-                        NameLocalized = game.NameLocalized,
-                        IconUri = "ms-appx:///Assets/steam_placeholder.png" // Will be updated async
-                    };
-                    
-                    GameItems.Add(entry);
-                    
-                    // Load image asynchronously in a thread-safe way
-                    _ = LoadGameImageAsync(entry, game.AppId);
-                }
+                        // Update existing entry
+                        existingEntry.NameEn = game.NameEn;
+                        existingEntry.NameLocalized = game.NameLocalized;
+                        // Keep existing IconUri unless we need to reload the image
+                        AppendLog($"Updated existing game: {game.AppId} - {game.NameEn}");
+                        
+                        // Reload image asynchronously to get the latest version
+                        _ = LoadGameImageAsync(existingEntry, game.AppId);
+                    }
+                    else
+                    {
+                        // Create new entry
+                        var newEntry = new GameEntry
+                        {
+                            AppId = game.AppId,
+                            NameEn = game.NameEn,
+                            NameLocalized = game.NameLocalized,
+                            IconUri = "ms-appx:///Assets/steam_placeholder.png" // Will be updated async
+                        };
 
-                // Save to XML for AnSAM usage
-                await _dataService.SaveGamesToXmlAsync(steamGames, steamId64, apiKey, selectedLanguage);
+                        GameItems.Add(newEntry);
+                        AppendLog($"Added new game: {game.AppId} - {game.NameEn}");
+
+                        // Load image asynchronously in a thread-safe way
+                        _ = LoadGameImageAsync(newEntry, game.AppId);
+                    }
+
+                    await _dataService.AppendGameAsync(game, steamId64, apiKey, selectedLanguage);
+                }, progress, existingAppIds);
+
                 xmlPath = _dataService.GetXmlFilePath();
 
-                StatusText = $"Successfully loaded {GameItems.Count} games ({selectedLanguage}) and saved to {xmlPath}";
-                AppendLog($"Retrieved {GameItems.Count} games and saved to {xmlPath}");
+                // Update remaining count based on actual total vs current items
+                var currentTotalCount = GameItems.Count;
+                if (currentTotalCount < total)
+                {
+                    await _dataService.UpdateRemainingCountAsync(total - currentTotalCount);
+                }
+                else
+                {
+                    await _dataService.UpdateRemainingCountAsync(0);
+                }
+
+                StatusText = $"Successfully processed {total} games ({selectedLanguage}). Current list: {GameItems.Count} games. Saved to {xmlPath}";
+                AppendLog($"Processing complete - Total: {total}, Current display: {GameItems.Count} games, saved to {xmlPath}");
             }
             catch (Exception ex)
             {
@@ -267,7 +459,8 @@ namespace MyOwnGames
             }
             finally
             {
-                steamService?.Dispose();
+                _steamService?.Dispose();
+                _steamService = null;
                 IsLoading = false;
                 ProgressValue = 100;
                 AppendLog("Finished retrieving games.");
@@ -293,11 +486,43 @@ namespace MyOwnGames
             // Real-time search functionality could be implemented here
         }
 
-        // Clean up resources when window is closing
-        ~MainWindow()
+        private async void OnAppWindowClosing(AppWindow sender, AppWindowClosingEventArgs args)
         {
-            _imageService?.Dispose();
+            await SaveAndDisposeAsync("window closing");
+        }
+
+        public async Task SaveAndDisposeAsync(string reason)
+        {
+            if (_isShuttingDown)
+                return;
+            _isShuttingDown = true;
+
+            // Cancel any ongoing operations
+            _cancellationTokenSource?.Cancel();
+
+            try
+            {
+                AppendLog("Saving game data...");
+                await _dataService.UpdateRemainingCountAsync(0);
+                AppendLog("Game data saved.");
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"Error saving data: {ex.Message}");
+            }
+
+            _steamService?.Dispose();
+            _steamService = null;
+            
+            // Unsubscribe from events before disposing
+            if (_imageService != null)
+            {
+                _imageService.ImageDownloadCompleted -= OnImageDownloadCompleted;
+                _imageService.Dispose();
+            }
+            
             DebugLogger.OnLog -= _logHandler;
+            DebugLogger.LogDebug($"Shutdown completed ({reason})");
         }
     }
 
@@ -311,10 +536,13 @@ namespace MyOwnGames
             get => _iconUri; 
             set 
             { 
-                if (_iconUri != value) 
+                if (_iconUri != value || !string.IsNullOrEmpty(value)) // Force update if new value is not empty
                 { 
                     _iconUri = value; 
                     OnPropertyChanged(); 
+                    
+                    // Also trigger a general refresh
+                    OnPropertyChanged(nameof(IconUri));
                 } 
             } 
         }
@@ -324,7 +552,26 @@ namespace MyOwnGames
 
         public event PropertyChangedEventHandler? PropertyChanged;
         private void OnPropertyChanged([CallerMemberName] string? name = null)
-            => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        {
+            try
+            {
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+            }
+            catch (System.Runtime.InteropServices.COMException)
+            {
+                // Ignore COM exceptions during shutdown
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error in GameEntry.OnPropertyChanged: {ex.Message}");
+            }
+        }
+        
+        // Method to force UI refresh
+        public void ForceIconRefresh()
+        {
+            OnPropertyChanged(nameof(IconUri));
+        }
     }
 }
 

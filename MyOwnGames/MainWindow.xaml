@@ -7,7 +7,7 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
-    Title="List Owned Steam Games">
+    Title="AchievoLab:My Owned Steam Games">
 
     <Window.SystemBackdrop>
         <MicaBackdrop />
@@ -19,7 +19,7 @@
             <!-- Top CommandBar -->
             <RowDefinition Height="*"/>
             <!-- Center List -->
-            <RowDefinition Height="Auto" MinHeight="100"/>
+            <RowDefinition Height="Auto" MinHeight="200"/>
             <!-- Bottom StatusBar + Logs -->
         </Grid.RowDefinitions>
 
@@ -48,9 +48,11 @@
                 <AppBarElementContainer>
                     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                         <TextBlock Text="Steam API Key" VerticalAlignment="Center"/>
-                        <TextBox x:Name="ApiKeyBox"
-                                 Width="340"
-                                 PlaceholderText="Your Steam Web API Key"/>
+                        <PasswordBox x:Name="ApiKeyBox"
+                                     Width="340"
+                                     PasswordChar="*"
+                                     PlaceholderText="Your Steam Web API Key"
+                                     IsPasswordRevealButtonEnabled="True"/>
                     </StackPanel>
                 </AppBarElementContainer>
 
@@ -58,9 +60,12 @@
                 <AppBarElementContainer>
                     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                         <TextBlock Text="SteamID_64" VerticalAlignment="Center"/>
-                        <TextBox x:Name="SteamIdBox"
-                                 Width="260"
-                                 PlaceholderText="7656119xxxxxxxxxx"/>
+                        <PasswordBox x:Name="SteamIdBox"
+                                     Width="260"
+                                     PasswordChar="*"
+                                     PlaceholderText="7656119xxxxxxxxxx"
+                                     IsPasswordRevealButtonEnabled="True"
+                                     InputScope="Number"/>
                     </StackPanel>
                 </AppBarElementContainer>
 
@@ -207,7 +212,25 @@
                         <TextBlock Text="{Binding ProgressPercentText}" VerticalAlignment="Center"/>
                     </StackPanel>
                 </Grid>
-                <ListView x:Name="LogList" Grid.Row="1" ItemsSource="{Binding LogEntries}"/>
+                <ScrollViewer x:Name="LogScrollViewer" 
+                              Grid.Row="1" 
+                              MaxHeight="200" 
+                              VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled"
+                              ZoomMode="Disabled">
+                    <ListView x:Name="LogList" 
+                              ItemsSource="{Binding LogEntries}"
+                              ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                              ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding}" 
+                                           TextWrapping="Wrap"
+                                           Margin="4,2"/>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </ScrollViewer>
             </Grid>
         </Border>
 

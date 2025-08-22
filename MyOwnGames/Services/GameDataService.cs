@@ -4,6 +4,8 @@ using System.IO;
 using System.Linq;
 using System.Xml.Linq;
 using System.Threading.Tasks;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace MyOwnGames.Services
 {
@@ -13,8 +15,8 @@ namespace MyOwnGames.Services
 
         public GameDataService()
         {
-            var documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-            var appDataPath = Path.Combine(documentsPath, "MyOwnGames");
+            var basePath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            var appDataPath = Path.Combine(basePath, "AchievoLab", "cache");
             Directory.CreateDirectory(appDataPath);
             _xmlFilePath = Path.Combine(appDataPath, "steam_games.xml");
         }
@@ -25,6 +27,7 @@ namespace MyOwnGames.Services
             {
                 var root = new XElement("SteamGames",
                     new XAttribute("SteamID64", steamId64),
+                    new XAttribute("SteamIdHash", GetSteamIdHash(steamId64)),
                     new XAttribute("ExportDate", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")),
                     new XAttribute("TotalGames", games.Count),
                     new XAttribute("Language", language),
@@ -45,6 +48,66 @@ namespace MyOwnGames.Services
             catch (Exception ex)
             {
                 throw new Exception($"Error saving games to XML: {ex.Message}", ex);
+            }
+        }
+
+        public async Task AppendGameAsync(SteamGame game, string steamId64, string apiKey, string language = "tchinese")
+        {
+            try
+            {
+                XDocument doc;
+                XElement root;
+
+                if (File.Exists(_xmlFilePath))
+                {
+                    doc = await Task.Run(() => XDocument.Load(_xmlFilePath));
+                    root = doc.Root ?? new XElement("SteamGames");
+                    if (doc.Root == null)
+                        doc.Add(root);
+                }
+                else
+                {
+                    root = new XElement("SteamGames");
+                    doc = new XDocument(root);
+                }
+
+                // Update metadata
+                root.SetAttributeValue("SteamID64", steamId64);
+                root.SetAttributeValue("SteamIdHash", GetSteamIdHash(steamId64));
+                root.SetAttributeValue("ExportDate", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                root.SetAttributeValue("Language", language);
+                root.SetAttributeValue("ApiKeyHash", GetApiKeyHash(apiKey));
+
+                // Check if game already exists
+                var existing = root.Elements("Game")
+                    .FirstOrDefault(x => x.Attribute("AppID")?.Value == game.AppId.ToString());
+
+                var gameElement = new XElement("Game",
+                    new XAttribute("AppID", game.AppId),
+                    new XAttribute("PlaytimeForever", game.PlaytimeForever),
+                    new XElement("NameEN", game.NameEn ?? string.Empty),
+                    new XElement("NameLocalized", game.NameLocalized ?? string.Empty),
+                    new XElement("IconURL", game.IconUrl ?? string.Empty)
+                );
+
+                if (existing != null)
+                {
+                    existing.ReplaceWith(gameElement);
+                }
+                else
+                {
+                    root.Add(gameElement);
+                }
+
+                // Update total count
+                root.SetAttributeValue("TotalGames", root.Elements("Game").Count());
+
+                await Task.Run(() => doc.Save(_xmlFilePath));
+                DebugLogger.LogDebug($"Appended game {game.AppId} to {_xmlFilePath}");
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Error appending game to XML: {ex.Message}", ex);
             }
         }
 
@@ -77,6 +140,74 @@ namespace MyOwnGames.Services
             }
         }
 
+        public async Task<(ISet<int> AppIds, int? ExpectedTotal)> LoadRetrievedAppIdsAsync()
+        {
+            var appIds = new HashSet<int>();
+            int? expectedTotal = null;
+
+            try
+            {
+                if (!File.Exists(_xmlFilePath))
+                    return (appIds, null);
+
+                var doc = await Task.Run(() => XDocument.Load(_xmlFilePath));
+                var root = doc.Root;
+                if (root == null) return (appIds, null);
+
+                appIds = root.Elements("Game")
+                    .Select(e => int.Parse(e.Attribute("AppID")?.Value ?? "0"))
+                    .ToHashSet();
+
+                if (int.TryParse(root.Attribute("Remaining")?.Value, out var remaining))
+                {
+                    expectedTotal = appIds.Count + remaining;
+                }
+                else if (int.TryParse(root.Attribute("TotalGames")?.Value, out var total))
+                {
+                    expectedTotal = total;
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error loading retrieved app IDs: {ex.Message}");
+            }
+
+            return (appIds, expectedTotal);
+        }
+
+        public async Task UpdateRemainingCountAsync(int remaining)
+        {
+            try
+            {
+                XDocument doc;
+                XElement root;
+
+                if (File.Exists(_xmlFilePath))
+                {
+                    doc = await Task.Run(() => XDocument.Load(_xmlFilePath));
+                    root = doc.Root ?? new XElement("SteamGames");
+                    if (doc.Root == null)
+                        doc.Add(root);
+                }
+                else
+                {
+                    root = new XElement("SteamGames");
+                    doc = new XDocument(root);
+                }
+
+                if (remaining > 0)
+                    root.SetAttributeValue("Remaining", remaining);
+                else
+                    root.Attribute("Remaining")?.Remove();
+
+                await Task.Run(() => doc.Save(_xmlFilePath));
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error updating remaining count: {ex.Message}");
+            }
+        }
+
         public async Task<GameExportInfo?> GetExportInfoAsync()
         {
             try
@@ -91,6 +222,7 @@ namespace MyOwnGames.Services
                 return new GameExportInfo
                 {
                     SteamId64 = root.Attribute("SteamID64")?.Value ?? "",
+                    SteamIdHash = root.Attribute("SteamIdHash")?.Value ?? "",
                     ExportDate = DateTime.Parse(root.Attribute("ExportDate")?.Value ?? DateTime.MinValue.ToString()),
                     TotalGames = int.Parse(root.Attribute("TotalGames")?.Value ?? "0"),
                     Language = root.Attribute("Language")?.Value ?? "tchinese",
@@ -106,6 +238,29 @@ namespace MyOwnGames.Services
 
         public string GetXmlFilePath() => _xmlFilePath;
 
+        public void ClearGameData()
+        {
+            try
+            {
+                if (File.Exists(_xmlFilePath))
+                {
+                    File.Delete(_xmlFilePath);
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error clearing game data: {ex.Message}");
+            }
+        }
+
+        public string GetSteamIdHash(string steamId64)
+        {
+            using var sha = SHA256.Create();
+            var bytes = Encoding.UTF8.GetBytes(steamId64);
+            var hash = sha.ComputeHash(bytes);
+            return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
+        }
+
         private string GetApiKeyHash(string apiKey)
         {
             // Simple hash for privacy - don't store actual API key
@@ -118,6 +273,7 @@ namespace MyOwnGames.Services
     public class GameExportInfo
     {
         public string SteamId64 { get; set; } = "";
+        public string SteamIdHash { get; set; } = "";
         public DateTime ExportDate { get; set; }
         public int TotalGames { get; set; }
         public string Language { get; set; } = "tchinese";
