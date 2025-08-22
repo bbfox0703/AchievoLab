@@ -21,7 +21,7 @@ namespace MyOwnGames.Services
             _xmlFilePath = Path.Combine(appDataPath, "steam_games.xml");
         }
 
-        public async Task SaveGamesToXmlAsync(List<SteamGame> games, string steamId64, string apiKey, string language = "tchinese")
+        public async Task SaveGamesToXmlAsync(List<SteamGame> games, string steamId64, string apiKey, string language = "english")
         {
             try
             {
@@ -51,7 +51,7 @@ namespace MyOwnGames.Services
             }
         }
 
-        public async Task AppendGameAsync(SteamGame game, string steamId64, string apiKey, string language = "tchinese")
+        public async Task AppendGameAsync(SteamGame game, string steamId64, string apiKey, string language = "english")
         {
             try
             {
@@ -225,7 +225,7 @@ namespace MyOwnGames.Services
                     SteamIdHash = root.Attribute("SteamIdHash")?.Value ?? "",
                     ExportDate = DateTime.Parse(root.Attribute("ExportDate")?.Value ?? DateTime.MinValue.ToString()),
                     TotalGames = int.Parse(root.Attribute("TotalGames")?.Value ?? "0"),
-                    Language = root.Attribute("Language")?.Value ?? "tchinese",
+                    Language = root.Attribute("Language")?.Value ?? "english",
                     ApiKeyHash = root.Attribute("ApiKeyHash")?.Value ?? ""
                 };
             }
@@ -276,7 +276,7 @@ namespace MyOwnGames.Services
         public string SteamIdHash { get; set; } = "";
         public DateTime ExportDate { get; set; }
         public int TotalGames { get; set; }
-        public string Language { get; set; } = "tchinese";
+        public string Language { get; set; } = "english";
         public string ApiKeyHash { get; set; } = "";
     }
 }

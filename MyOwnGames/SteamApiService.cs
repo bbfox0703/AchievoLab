@@ -44,7 +44,7 @@ namespace MyOwnGames
                 throw new ArgumentException("Invalid SteamID64. It must be a 17-digit number starting with 7656119.", nameof(steamId64));
         }
 
-        public async Task<int> GetOwnedGamesAsync(string steamId64, string targetLanguage = "tchinese", Func<SteamGame, Task>? onGameRetrieved = null, IProgress<double>? progress = null, ISet<int>? existingAppIds = null)
+        public async Task<int> GetOwnedGamesAsync(string steamId64, string targetLanguage = "english", Func<SteamGame, Task>? onGameRetrieved = null, IProgress<double>? progress = null, ISet<int>? existingAppIds = null)
         {
             ValidateCredentials(_apiKey, steamId64);
             try
