@@ -460,6 +460,11 @@ namespace MyOwnGames
                 StatusText = $"Successfully processed {total} games ({selectedLanguage}). Current list: {GameItems.Count} games. Saved to {xmlPath}";
                 AppendLog($"Processing complete - Total: {total}, Current display: {GameItems.Count} games, saved to {xmlPath}");
             }
+            catch (ArgumentException ex)
+            {
+                StatusText = "Error: " + ex.Message;
+                AppendLog($"Validation error: {ex.Message}");
+            }
             catch (Exception ex)
             {
                 StatusText = "Error: " + ex.Message;
