@@ -45,6 +45,8 @@ namespace MyOwnGames
         private bool _isShuttingDown;
         private CancellationTokenSource? _cancellationTokenSource;
 
+        private readonly string _defaultLanguage = GetDefaultLanguage();
+
         private readonly AppWindow _appWindow;
 
         private string _statusText = "Ready.";
@@ -155,11 +157,33 @@ namespace MyOwnGames
                 // Ignore all exceptions during shutdown
             }
         }
+
+        private static string GetDefaultLanguage()
+        {
+            var culture = CultureInfo.CurrentCulture.Name;
+            if (culture.Equals("zh-TW", StringComparison.OrdinalIgnoreCase))
+                return "tchinese";
+            if (culture.StartsWith("ja", StringComparison.OrdinalIgnoreCase))
+                return "japanese";
+            if (culture.StartsWith("ko", StringComparison.OrdinalIgnoreCase))
+                return "korean";
+            if (culture.StartsWith("en", StringComparison.OrdinalIgnoreCase))
+                return "english";
+            return "english";
+        }
         public MainWindow()
         {
             InitializeComponent();
             this.ExtendsContentIntoTitleBar = true;
             this.AppWindow.Title = "My Own Steam Games";
+
+            var defaultItem = LanguageComboBox.Items
+                .OfType<ComboBoxItem>()
+                .FirstOrDefault(i => string.Equals(i.Content?.ToString(), _defaultLanguage, StringComparison.OrdinalIgnoreCase));
+            if (defaultItem != null)
+            {
+                LanguageComboBox.SelectedItem = defaultItem;
+            }
 
             _logHandler = message => DispatcherQueue.TryEnqueue(() => AppendLog(message));
             DebugLogger.OnLog += _logHandler;
@@ -396,10 +420,10 @@ namespace MyOwnGames
                 });
 
                 // Get selected language from ComboBox
-                var selectedLanguage = "tchinese"; // Default
+                var selectedLanguage = _defaultLanguage;
                 if (LanguageComboBox.SelectedItem is ComboBoxItem selectedItem)
                 {
-                    selectedLanguage = selectedItem.Content?.ToString() ?? "tchinese";
+                    selectedLanguage = selectedItem.Content?.ToString() ?? _defaultLanguage;
                 }
 
                 // Load existing app IDs to avoid re-fetching
