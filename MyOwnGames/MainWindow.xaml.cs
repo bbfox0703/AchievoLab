@@ -18,6 +18,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices.WindowsRuntime;
+using System.Threading;
 using System.Threading.Tasks;
 using Windows.Foundation;
 using Windows.Foundation.Collections;
@@ -42,6 +43,7 @@ namespace MyOwnGames
         private readonly Action<string> _logHandler;
         private SteamApiService? _steamService;
         private bool _isShuttingDown;
+        private CancellationTokenSource? _cancellationTokenSource;
 
         private readonly AppWindow _appWindow;
 
@@ -92,30 +94,66 @@ namespace MyOwnGames
 
         public event PropertyChangedEventHandler? PropertyChanged;
         private void OnPropertyChanged([CallerMemberName] string? name = null)
-            => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        {
+            try
+            {
+                if (!_isShuttingDown)
+                {
+                    PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+                }
+            }
+            catch (System.Runtime.InteropServices.COMException)
+            {
+                // Ignore COM exceptions during shutdown
+            }
+            catch (Exception ex) when (_isShuttingDown)
+            {
+                // Ignore all exceptions during shutdown
+                DebugLogger.LogDebug($"Ignored exception during shutdown in OnPropertyChanged: {ex.Message}");
+            }
+        }
 
         public void AppendLog(string message)
         {
-            var entry = $"[{DateTime.Now:HH:mm:ss}] {message}";
-            LogEntries.Add(entry);
+            if (_isShuttingDown) return; // Don't add logs during shutdown
             
-            // Auto-scroll to bottom after a short delay to ensure UI is updated
-            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+            try
             {
-                try
+                var entry = $"[{DateTime.Now:HH:mm:ss}] {message}";
+                LogEntries.Add(entry);
+                
+                // Auto-scroll to bottom after a short delay to ensure UI is updated
+                DispatcherQueue?.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
                 {
-                    LogScrollViewer?.ScrollToVerticalOffset(LogScrollViewer.ScrollableHeight);
-                }
-                catch
-                {
-                    // Fallback: scroll ListView to last item
+                    if (_isShuttingDown) return; // Double check during async execution
+                    
                     try
                     {
-                        LogList?.ScrollIntoView(LogEntries[LogEntries.Count - 1]);
+                        LogScrollViewer?.ScrollToVerticalOffset(LogScrollViewer.ScrollableHeight);
                     }
-                    catch { }
-                }
-            });
+                    catch (System.Runtime.InteropServices.COMException)
+                    {
+                        // Ignore COM exceptions during shutdown
+                    }
+                    catch
+                    {
+                        // Fallback: scroll ListView to last item
+                        try
+                        {
+                            LogList?.ScrollIntoView(LogEntries[LogEntries.Count - 1]);
+                        }
+                        catch (System.Runtime.InteropServices.COMException)
+                        {
+                            // Ignore COM exceptions during shutdown
+                        }
+                        catch { }
+                    }
+                });
+            }
+            catch (Exception) when (_isShuttingDown)
+            {
+                // Ignore all exceptions during shutdown
+            }
         }
         public MainWindow()
         {
@@ -152,9 +190,13 @@ namespace MyOwnGames
 
         private void OnImageDownloadCompleted(int appId, string? imagePath)
         {
+            if (_isShuttingDown) return; // Don't update UI during shutdown
+            
             // Find the corresponding game entry and update its image
-            this.DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.High, () =>
+            this.DispatcherQueue?.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.High, () =>
             {
+                if (_isShuttingDown) return; // Double check during async execution
+                
                 try
                 {
                     var gameEntry = GameItems.FirstOrDefault(g => g.AppId == appId);
@@ -163,26 +205,21 @@ namespace MyOwnGames
                         // Force UI refresh by changing the URI
                         var fileUri = new Uri(imagePath).AbsoluteUri;
                         
-                        if (gameEntry.IconUri != fileUri)
-                        {
-                            gameEntry.IconUri = fileUri;
-                            DebugLogger.LogDebug($"Updated UI for downloaded image {appId}: {fileUri}");
-                            AppendLog($"Image updated for {appId}");
-                        }
-                        else
-                        {
-                            // Force refresh by temporarily changing to placeholder
-                            gameEntry.IconUri = "ms-appx:///Assets/steam_placeholder.png";
-                            
-                            // Then set the actual image with a small delay
-                            this.DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, () =>
-                            {
-                                gameEntry.IconUri = fileUri;
-                                DebugLogger.LogDebug($"Force refreshed UI for downloaded image {appId}: {fileUri}");
-                                AppendLog($"Image force-updated for {appId}");
-                            });
-                        }
+                        // Always set the URI and force refresh
+                        gameEntry.IconUri = fileUri;
+                        gameEntry.ForceIconRefresh(); // Force UI refresh
+                        
+                        DebugLogger.LogDebug($"Updated UI for downloaded image {appId}: {fileUri}");
+                        AppendLog($"Image updated for {appId}");
                     }
+                }
+                catch (System.Runtime.InteropServices.COMException)
+                {
+                    // Ignore COM exceptions during shutdown
+                }
+                catch (Exception) when (_isShuttingDown)
+                {
+                    // Ignore all exceptions during shutdown
                 }
                 catch (Exception ex)
                 {
@@ -272,24 +309,11 @@ namespace MyOwnGames
                             // Force a new URI to ensure UI refresh
                             var fileUri = new Uri(imagePath).AbsoluteUri;
                             
-                            // Add timestamp to force refresh if it's the same path
-                            if (entry.IconUri == fileUri)
-                            {
-                                // Temporarily set to placeholder to force change notification
-                                entry.IconUri = "ms-appx:///Assets/steam_placeholder.png";
-                                
-                                // Use a small delay to ensure the change is processed
-                                this.DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, () =>
-                                {
-                                    entry.IconUri = fileUri;
-                                    DebugLogger.LogDebug($"Updated UI for {appId} to {fileUri}");
-                                });
-                            }
-                            else
-                            {
-                                entry.IconUri = fileUri;
-                                DebugLogger.LogDebug($"Updated UI for {appId} to {fileUri}");
-                            }
+                            // Always update and force refresh
+                            entry.IconUri = fileUri;
+                            entry.ForceIconRefresh(); // Force UI refresh
+                            
+                            DebugLogger.LogDebug($"Updated UI for {appId} to {fileUri}");
                         }
                         catch (Exception ex)
                         {
@@ -473,6 +497,9 @@ namespace MyOwnGames
                 return;
             _isShuttingDown = true;
 
+            // Cancel any ongoing operations
+            _cancellationTokenSource?.Cancel();
+
             try
             {
                 AppendLog("Saving game data...");
@@ -509,10 +536,13 @@ namespace MyOwnGames
             get => _iconUri; 
             set 
             { 
-                if (_iconUri != value) 
+                if (_iconUri != value || !string.IsNullOrEmpty(value)) // Force update if new value is not empty
                 { 
                     _iconUri = value; 
                     OnPropertyChanged(); 
+                    
+                    // Also trigger a general refresh
+                    OnPropertyChanged(nameof(IconUri));
                 } 
             } 
         }
@@ -522,7 +552,26 @@ namespace MyOwnGames
 
         public event PropertyChangedEventHandler? PropertyChanged;
         private void OnPropertyChanged([CallerMemberName] string? name = null)
-            => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        {
+            try
+            {
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+            }
+            catch (System.Runtime.InteropServices.COMException)
+            {
+                // Ignore COM exceptions during shutdown
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error in GameEntry.OnPropertyChanged: {ex.Message}");
+            }
+        }
+        
+        // Method to force UI refresh
+        public void ForceIconRefresh()
+        {
+            OnPropertyChanged(nameof(IconUri));
+        }
     }
 }
 
