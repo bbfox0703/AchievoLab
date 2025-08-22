@@ -1,51 +1,39 @@
 <img src="./docs/res/AchievoLabP.png" alt="AchievoLab" width="250"/>  
   
 # AchievoLab
-A x64 Steam achievement management GUI, built with WinUI 3 and .NET 8. under Windows 10 (1904) / 11
+A 64-bit Steam achievement management GUI built with WinUI 3 and .NET 8, compatible with Windows 10 (1904) and Windows 11.
 
 ## Features
-- Achievement management part: wraps the Steamworks API directly via `steamclient64.dll` to query ownership and metadata for installed apps.
-- Launch dedicated game achievement management interface.
-- Downloads and caches the global game list.
-- Fetches, caches and reuses cover icons for games.
-- Can launches games through GUI by right click popup menu.
-- Also can launch game from this UI by right click menu.
-- Get your game list data / localized game title name (if any) by Steam Web API
+- Directly wraps the Steamworks API via `steamclient64.dll` to query ownership and metadata of installed apps.
+- Provides a dedicated achievement management interface for each game.
+- Downloads and caches the global Steam game list.
+- Fetches, caches, and reuses cover icons for games.
+- Allows launching games directly from the GUI via right-click context menu.
+- Retrieves your owned game list and localized game titles (if available) through the Steam Web API.
 
-## Program list
-1. ./AnASM/AnASM.exe: primary GUI interface.
-2. ./RunGame/RunGame.exe: called by AnASM.exe when double click on a game title image.
-3. ./MyOwnGames/MyOwnGames.exe: This tool is designed to get your Steam account owned game data by Steam Web API. Notice: thios may take some time to complete because Steam API will block API key for certain time if query too fast.
+## Program List
+1. **./AnASM/AnASM.exe**  
+   The main GUI interface.
+2. **./RunGame/RunGame.exe**  
+   Invoked by *AnASM.exe* when a game cover is double-clicked. Used to manage achievements for the selected game.
+3. **./MyOwnGames/MyOwnGames.exe**  
+   Retrieves your owned game data from the Steam Web API.  
+   ⚠️ Note: This process may take some time. The Steam API may temporarily block your key if requests are made too frequently.
 
-## To use MyOwnGames
-1. Need a Steam API key. (Apply API key here)[https://steamcommunity.com/dev/apikey]. Please note API key is very important to your Steam account. Don't share it to anyone.
-2. Need your SteamID64 number: Several ways to get this. If you did not customize your Steam personal page URL end with ...profiles/7656119xxxxxxxx. Where 7656119xxxxxxxx is your SteamID64 number. Or you can get it from SteamDB after link logon info with Steam. Many ways to get SteamID64, select a safe one to get it.
-This tool save your game list data and will be used for main program AnSAM. 
+## Using *MyOwnGames*
+1. Obtain a Steam API key from [Steam Developer](https://steamcommunity.com/dev/apikey).  
+   ⚠️ Your API key is sensitive and tied to your Steam account. **Do not share it with anyone.**
+2. Obtain your **SteamID64**. This tool saves your game list data, which will then be used by the main program (*AnASM*).
 
-## To Compile
-1. Install the [.NET 8 SDK](https://dotnet.microsoft.com/download).
-2. Open solution from VS2022 and comiple, or:
-3. Clone the repository and restore dependencies:
-   ```bash
-   git clone https://github.com/bbfox0703/AchievoLab.git
-   cd AchievoLab
-   dotnet restore AnSAM.sln
-   ```
-4. Build the WinUI application (requires Windows 10 17763 or later):
-   ```bash
-   dotnet build AnSAM.sln -p:EnableWindowsTargeting=true
-   ```
-5. Run the application:
-   ```bash
-   dotnet run --project AnSAM.csproj -p:EnableWindowsTargeting=true
-   ```
+## How to Find Your SteamID64
+1. Log in to Steam via the client or web browser.  
+2. Go to your **Profile** by clicking your username in the top-right corner.  
+3. Select **Account details** (or **Edit Profile**).  
+4. Your 17-digit SteamID64 will be shown near the top of the page, below your username.  
 
-## Tests
-Unit tests cover some core services of AnSAM itself, such as icon caching. Run them with:
-```bash
-dotnet test AnSAM.Tests/AnSAM.Tests.csproj
-```
+> If this method no longer works, please look up an updated way to obtain your SteamID64.
 
 ## License
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.  
-Use [SteamAchievementManager](https://github.com/gibbed/SteamAchievementManager) cloud game data source, this part is Zlib license.
+This project is licensed under the [MIT License](LICENSE).  
+It also makes use of cloud game data from [SteamAchievementManager](https://github.com/gibbed/SteamAchievementManager), which is licensed under Zlib.
+

@@ -10,41 +10,70 @@ using MyOwnGames.Services;
 
 namespace MyOwnGames
 {
-    public class SteamApiService
+    public class SteamApiService : IDisposable
     {
         private readonly HttpClient _httpClient;
         private readonly string _apiKey;
         private DateTime _lastApiCall = DateTime.MinValue;
-        private readonly object _apiCallLock = new object();
+        private readonly SemaphoreSlim _apiSemaphore = new(1, 1);
+        private readonly bool _disposeHttpClient;
+        private readonly double _minDelaySeconds;
+        private readonly double _maxDelaySeconds;
+        private bool _disposed;
 
-        public SteamApiService(string apiKey)
+        public SteamApiService(string apiKey, double minDelaySeconds = 2.0, double maxDelaySeconds = 3.5)
+            : this(apiKey, new HttpClient(), true, minDelaySeconds, maxDelaySeconds)
         {
-            _apiKey = apiKey;
-            _httpClient = new HttpClient();
-            _httpClient.Timeout = TimeSpan.FromSeconds(30);
-            _httpClient.DefaultRequestHeaders.Add("User-Agent", "MyOwnGames/1.0");
         }
 
-        private Task ThrottleApiCallAsync()
+        public SteamApiService(string apiKey, HttpClient httpClient, bool disposeHttpClient = false, double minDelaySeconds = 2.0, double maxDelaySeconds = 3.5)
         {
-            return Task.Run(() =>
+            if (maxDelaySeconds < minDelaySeconds)
+                throw new ArgumentOutOfRangeException(nameof(maxDelaySeconds), "maxDelaySeconds must be greater than or equal to minDelaySeconds");
+            ValidateCredentials(apiKey);
+            _apiKey = apiKey;
+            _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+            _disposeHttpClient = disposeHttpClient;
+            _minDelaySeconds = minDelaySeconds;
+            _maxDelaySeconds = maxDelaySeconds;
+            _httpClient.Timeout = TimeSpan.FromSeconds(30);
+            if (!_httpClient.DefaultRequestHeaders.Contains("User-Agent"))
             {
-                lock (_apiCallLock)
+                _httpClient.DefaultRequestHeaders.Add("User-Agent", "MyOwnGames/1.0");
+            }
+        }
+
+        private async Task ThrottleApiCallAsync()
+        {
+            await _apiSemaphore.WaitAsync();
+            try
+            {
+                var elapsed = DateTime.UtcNow - _lastApiCall;
+                var jitterSeconds = _minDelaySeconds + Random.Shared.NextDouble() * (_maxDelaySeconds - _minDelaySeconds);
+                var minDelay = TimeSpan.FromSeconds(jitterSeconds);
+                if (elapsed < minDelay)
                 {
-                    var elapsed = DateTime.Now - _lastApiCall;
-                    var minDelay = TimeSpan.FromSeconds(2.5); // 2.5 seconds minimum between API calls
-                    if (elapsed < minDelay)
-                    {
-                        var waitTime = minDelay - elapsed;
-                        Thread.Sleep(waitTime);
-                    }
-                    _lastApiCall = DateTime.Now;
+                    await Task.Delay(minDelay - elapsed);
                 }
-            });
+                _lastApiCall = DateTime.UtcNow;
+            }
+            finally
+            {
+                _apiSemaphore.Release();
+            }
+        }
+
+        private static void ValidateCredentials(string apiKey, string? steamId64 = null)
+        {
+            if (!InputValidator.IsValidApiKey(apiKey))
+                throw new ArgumentException("Invalid Steam API Key. It must be 32 hexadecimal characters.", nameof(apiKey));
+            if (steamId64 != null && !InputValidator.IsValidSteamId64(steamId64))
+                throw new ArgumentException("Invalid SteamID64. It must be a 17-digit number starting with 7656119.", nameof(steamId64));
         }
 
         public async Task<int> GetOwnedGamesAsync(string steamId64, string targetLanguage = "tchinese", Func<SteamGame, Task>? onGameRetrieved = null, IProgress<double>? progress = null, ISet<int>? existingAppIds = null)
         {
+            ValidateCredentials(_apiKey, steamId64);
             try
             {
                 // Step 1: Get owned games with throttling
@@ -161,7 +190,18 @@ namespace MyOwnGames
 
         public void Dispose()
         {
-            _httpClient?.Dispose();
+            if (_disposed)
+            {
+                return;
+            }
+
+            if (_disposeHttpClient)
+            {
+                _httpClient.Dispose();
+            }
+
+            _disposed = true;
+            GC.SuppressFinalize(this);
         }
     }
 

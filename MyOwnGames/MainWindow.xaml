@@ -52,7 +52,8 @@
                                      Width="340"
                                      PasswordChar="*"
                                      PlaceholderText="Your Steam Web API Key"
-                                     IsPasswordRevealButtonEnabled="True"/>
+                                     IsPasswordRevealButtonEnabled="True"
+                                     PasswordChanged="InputFields_PasswordChanged"/>
                     </StackPanel>
                 </AppBarElementContainer>
 
@@ -65,7 +66,8 @@
                                      PasswordChar="*"
                                      PlaceholderText="7656119xxxxxxxxxx"
                                      IsPasswordRevealButtonEnabled="True"
-                                     InputScope="Number"/>
+                                     InputScope="Number"
+                                     PasswordChanged="InputFields_PasswordChanged"/>
                     </StackPanel>
                 </AppBarElementContainer>
 
@@ -92,7 +94,7 @@
                             <ComboBoxItem Content="hungarian"/>
                             <ComboBoxItem Content="indonesian"/>
                             <ComboBoxItem Content="italian"/>
-                            <ComboBoxItem Content="koreana"/>
+                            <ComboBoxItem Content="korean"/>
                             <ComboBoxItem Content="latam"/>
                             <ComboBoxItem Content="norwegian"/>
                             <ComboBoxItem Content="polish"/>
@@ -114,7 +116,8 @@
                 <AppBarButton x:Name="GetGamesButton"
                                    Icon="Download"
                                    Label="Get Game list"
-                                   Click="GetGamesButton_Click"/>
+                                   Click="GetGamesButton_Click"
+                                   IsEnabled="False"/>
             </CommandBar.PrimaryCommands>
         </CommandBar>
 
@@ -158,15 +161,15 @@
                         <TextBlock Grid.Column="0" Text="{x:Bind AppId}"/>
 
                         <Grid Grid.Column="1" Width="40" Height="40">
-                            <Image Source="{x:Bind IconUri}" Stretch="Uniform"/>
+                            <Image Source="{x:Bind IconUri, Mode=OneWay}" Stretch="Uniform"/>
                         </Grid>
 
                         <TextBlock Grid.Column="2"
-                                   Text="{x:Bind NameEn}"
+                                   Text="{x:Bind NameEn, Mode=OneWay}"
                                    TextTrimming="CharacterEllipsis"/>
 
                         <TextBlock Grid.Column="3"
-                                   Text="{x:Bind NameLocalized}"
+                                   Text="{x:Bind NameLocalized, Mode=OneWay}"
                                    TextTrimming="CharacterEllipsis"/>
                     </Grid>
                 </DataTemplate>
