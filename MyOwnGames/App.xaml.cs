@@ -36,7 +36,7 @@ namespace MyOwnGames
         public App()
         {
             InitializeComponent();
-            Suspending += OnSuspending;
+            EnteredBackground += OnEnteredBackground;
             UnhandledException += OnUnhandledException;
         }
 
@@ -50,15 +50,15 @@ namespace MyOwnGames
             _window.Activate();
         }
 
-        private async void OnSuspending(object sender, SuspendingEventArgs e)
+        private async void OnEnteredBackground(object sender, EnteredBackgroundEventArgs e)
         {
-            var deferral = e.SuspendingOperation.GetDeferral();
+            var deferral = e.GetDeferral();
             try
             {
-                DebugLogger.LogDebug("App suspending");
+                DebugLogger.LogDebug("App entered background");
                 if (_window is MainWindow mw)
                 {
-                    await mw.SaveAndDisposeAsync("suspending");
+                    await mw.SaveAndDisposeAsync("entered background");
                 }
             }
             finally
