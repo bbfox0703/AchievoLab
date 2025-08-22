@@ -11,6 +11,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices.WindowsRuntime;
+using System.Runtime.CompilerServices;
 using Windows.ApplicationModel;
 using Windows.ApplicationModel.Activation;
 using Windows.Foundation;
@@ -36,7 +37,7 @@ namespace MyOwnGames
         public App()
         {
             InitializeComponent();
-            EnteredBackground += OnEnteredBackground;
+            AppDomain.CurrentDomain.ProcessExit += OnProcessExit;
             UnhandledException += OnUnhandledException;
         }
 
@@ -50,20 +51,12 @@ namespace MyOwnGames
             _window.Activate();
         }
 
-        private async void OnEnteredBackground(object sender, EnteredBackgroundEventArgs e)
+        private void OnProcessExit(object? sender, EventArgs e)
         {
-            var deferral = e.GetDeferral();
-            try
+            if (_window is MainWindow mw)
             {
-                DebugLogger.LogDebug("App entered background");
-                if (_window is MainWindow mw)
-                {
-                    await mw.SaveAndDisposeAsync("entered background");
-                }
-            }
-            finally
-            {
-                deferral.Complete();
+                DebugLogger.LogDebug("Process exiting");
+                mw.SaveAndDisposeAsync("process exit").GetAwaiter().GetResult();
             }
         }
 
