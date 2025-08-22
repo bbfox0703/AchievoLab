@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Net;
 using System.Net.Http;
 using System.Threading.Tasks;
 using Microsoft.UI.Dispatching;
@@ -16,9 +17,10 @@ namespace MyOwnGames.Services
 
         public GameImageService()
         {
+            // Configure HttpClient with timeout and retry settings like steam-friend-history
             _httpClient = new HttpClient();
             _httpClient.DefaultRequestHeaders.Add("User-Agent", "MyOwnGames/1.0");
-            _httpClient.Timeout = TimeSpan.FromSeconds(30);
+            _httpClient.Timeout = TimeSpan.FromSeconds(10); // Shorter timeout like steam-friend-history
             
             // Create cache directory
             _cacheDirectory = Path.Combine(
@@ -62,36 +64,28 @@ namespace MyOwnGames.Services
         {
             try
             {
-                // Use the same URL pattern as AnSAM GameImageUrlResolver
-                // Priority order: small_capsule -> logo -> library_600x900 -> header_image
+                // Based on steam-friend-history analysis: header_image is the primary source
+                // Priority order inspired by steam-friend-history fetch_game_info()
                 var urls = new[]
                 {
+                    // 1. Steam Store API header_image (highest priority - like steam-friend-history)
+                    await GetHeaderImageFromStoreApiAsync(appId),
+                    // 2. Fallback CDN URLs for header images
                     $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg",
-                    $"https://cdn.steamstatic.com/steam/apps/{appId}/header.jpg",
-                    $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg"
+                    $"https://cdn.steamstatic.com/steam/apps/{appId}/header.jpg", 
+                    $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg",
+                    // 3. Alternative image formats as last resort
+                    $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/logo.png",
+                    $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/capsule_231x87.jpg"
                 };
 
                 foreach (var url in urls)
                 {
-                    try
+                    if (string.IsNullOrEmpty(url)) continue;
+                    
+                    if (await TryDownloadWithRetryAsync(url, filePath))
                     {
-                        var response = await _httpClient.GetAsync(url);
-                        if (response.IsSuccessStatusCode)
-                        {
-                            var content = await response.Content.ReadAsByteArrayAsync();
-                            if (content.Length > 0)
-                            {
-                                // Ensure thread-safe file write
-                                await Task.Run(() => File.WriteAllBytes(filePath, content));
-                                DebugLogger.LogDebug($"Downloaded game image: {url} -> {filePath}");
-                                return;
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        DebugLogger.LogDebug($"Failed to download from {url}: {ex.Message}");
-                        continue;
+                        return;
                     }
                 }
             }
@@ -99,6 +93,47 @@ namespace MyOwnGames.Services
             {
                 DebugLogger.LogDebug($"Error downloading game image for {appId}: {ex.Message}");
             }
+        }
+
+        private async Task<string?> GetHeaderImageFromStoreApiAsync(int appId)
+        {
+            try
+            {
+                // Similar to steam-friend-history's fetch_game_info() function
+                var storeApiUrl = $"https://store.steampowered.com/api/appdetails?appids={appId}&l=english";
+                using var response = await _httpClient.GetAsync(storeApiUrl);
+                
+                if (response.IsSuccessStatusCode)
+                {
+                    var jsonContent = await response.Content.ReadAsStringAsync();
+                    
+                    // Simple JSON parsing to extract header_image
+                    var headerImageStart = jsonContent.IndexOf("\"header_image\":\"");
+                    if (headerImageStart >= 0)
+                    {
+                        headerImageStart += 16; // Length of "header_image":"
+                        var headerImageEnd = jsonContent.IndexOf("\"", headerImageStart);
+                        if (headerImageEnd > headerImageStart)
+                        {
+                            var headerImageUrl = jsonContent.Substring(headerImageStart, headerImageEnd - headerImageStart);
+                            if (!string.IsNullOrEmpty(headerImageUrl))
+                            {
+                                DebugLogger.LogDebug($"Found header_image from Store API: {headerImageUrl}");
+                                return headerImageUrl;
+                            }
+                        }
+                    }
+                }
+                
+                // Add delay like steam-friend-history
+                await Task.Delay(1000);
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Failed to get header image from Store API for {appId}: {ex.Message}");
+            }
+            
+            return null;
         }
 
         public void ClearCache()
@@ -116,6 +151,65 @@ namespace MyOwnGames.Services
             {
                 DebugLogger.LogDebug($"Error clearing image cache: {ex.Message}");
             }
+        }
+
+        private async Task<bool> TryDownloadWithRetryAsync(string url, string filePath)
+        {
+            const int maxRetries = 3;
+            const int backoffTimeSeconds = 30;
+            
+            for (int attempt = 1; attempt <= maxRetries; attempt++)
+            {
+                try
+                {
+                    DebugLogger.LogDebug($"Downloading image from: {url} (attempt {attempt})");
+                    using var response = await _httpClient.GetAsync(url);
+                    
+                    if (response.StatusCode == HttpStatusCode.TooManyRequests)
+                    {
+                        DebugLogger.LogDebug($"429 Too Many Requests - retrying in {backoffTimeSeconds} sec...");
+                        await Task.Delay(TimeSpan.FromSeconds(backoffTimeSeconds));
+                        continue;
+                    }
+                    
+                    if (response.IsSuccessStatusCode)
+                    {
+                        using var fileStream = File.Create(filePath);
+                        await response.Content.CopyToAsync(fileStream);
+                        DebugLogger.LogDebug($"Successfully downloaded image to: {filePath}");
+                        return true;
+                    }
+                    
+                    DebugLogger.LogDebug($"Failed to download from {url}: {response.StatusCode}");
+                    await Task.Delay(1000); // Short delay between attempts
+                }
+                catch (HttpRequestException ex)
+                {
+                    DebugLogger.LogDebug($"HTTP error downloading from {url} (attempt {attempt}): {ex.Message}");
+                    if (attempt < maxRetries)
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(10)); // Longer delay for HTTP errors
+                    }
+                }
+                catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+                {
+                    DebugLogger.LogDebug($"Timeout downloading from {url} (attempt {attempt})");
+                    if (attempt < maxRetries)
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(5)); // Medium delay for timeouts
+                    }
+                }
+                catch (Exception ex)
+                {
+                    DebugLogger.LogDebug($"Unexpected error downloading from {url} (attempt {attempt}): {ex.Message}");
+                    if (attempt < maxRetries)
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(10));
+                    }
+                }
+            }
+            
+            return false;
         }
 
         public void Dispose()
