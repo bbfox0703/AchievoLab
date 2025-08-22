@@ -11,10 +11,12 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices.WindowsRuntime;
+using System.Runtime.CompilerServices;
 using Windows.ApplicationModel;
 using Windows.ApplicationModel.Activation;
 using Windows.Foundation;
 using Windows.Foundation.Collections;
+using MyOwnGames.Services;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -35,6 +37,8 @@ namespace MyOwnGames
         public App()
         {
             InitializeComponent();
+            AppDomain.CurrentDomain.ProcessExit += OnProcessExit;
+            UnhandledException += OnUnhandledException;
         }
 
         /// <summary>
@@ -45,6 +49,24 @@ namespace MyOwnGames
         {
             _window = new MainWindow();
             _window.Activate();
+        }
+
+        private void OnProcessExit(object? sender, EventArgs e)
+        {
+            if (_window is MainWindow mw)
+            {
+                DebugLogger.LogDebug("Process exiting");
+                mw.SaveAndDisposeAsync("process exit").GetAwaiter().GetResult();
+            }
+        }
+
+        private async void OnUnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
+        {
+            DebugLogger.LogDebug($"Unhandled exception: {e.Exception.Message}");
+            if (_window is MainWindow mw)
+            {
+                await mw.SaveAndDisposeAsync("unhandled exception");
+            }
         }
     }
 }
