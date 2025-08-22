@@ -48,4 +48,4 @@ dotnet test AnSAM.Tests/AnSAM.Tests.csproj
 
 ## License
 This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.  
-Use origin SteamAchievementManager cloud game data source, this part is Zlib license.
+Use [SteamAchievementManager](https://github.com/gibbed/SteamAchievementManager) cloud game data source, this part is Zlib license.
