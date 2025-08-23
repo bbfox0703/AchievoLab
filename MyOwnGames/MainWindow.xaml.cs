@@ -529,7 +529,7 @@ namespace MyOwnGames
 
         private void KeywordBox_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
         {
-            if (args.Reason == AutoSuggestBoxTextChangeReason.UserInput)
+            if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput)
             {
                 FilterGameItems(sender.Text?.Trim());
             }
