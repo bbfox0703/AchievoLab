@@ -274,7 +274,7 @@ namespace MyOwnGames
             {
                 await Task.Run(() =>
                 {
-                    var imageFailureService = new ImageFailureTrackingService();
+                    var imageFailureService = new CommonUtilities.ImageFailureTrackingService();
                     // Cleanup happens automatically when the service is created
                 });
             }

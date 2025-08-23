@@ -16,7 +16,7 @@ namespace MyOwnGames.Services
         private readonly string _baseCacheDirectory;
         private readonly Dictionary<string, string> _imageCache = new(); // Changed key to string for language support
         private readonly DispatcherQueue _dispatcherQueue;
-        private readonly ImageFailureTrackingService _imageFailureService;
+        private readonly CommonUtilities.ImageFailureTrackingService _imageFailureService;
         private string _currentLanguage = "english";
         
         // Event to notify when an image download completes
@@ -53,7 +53,7 @@ namespace MyOwnGames.Services
 
             // Get current UI dispatcher for thread-safe operations
             _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
-            _imageFailureService = new ImageFailureTrackingService();
+            _imageFailureService = new CommonUtilities.ImageFailureTrackingService();
         }
 
         public async Task<string?> GetGameImageAsync(int appId, string? language = null)
