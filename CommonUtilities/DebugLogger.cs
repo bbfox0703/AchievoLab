@@ -2,17 +2,18 @@ using System;
 using System.Diagnostics;
 using System.IO;
 
-namespace RunGame.Services
+namespace CommonUtilities
 {
     public static class DebugLogger
     {
+        public static event Action<string>? OnLog;
         private static readonly string LogFilePath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "AchievoLab", "debug.log");
+        private static readonly object _logLock = new();
 
         static DebugLogger()
         {
-            // 確保日誌目錄存在
             var logDir = Path.GetDirectoryName(LogFilePath);
             if (!string.IsNullOrEmpty(logDir) && !Directory.Exists(logDir))
             {
@@ -20,52 +21,37 @@ namespace RunGame.Services
             }
         }
 
-        /// <summary>
-        /// 記錄調試信息（僅在 Debug 模式下輸出）
-        /// </summary>
         public static void LogDebug(string message)
         {
 #if DEBUG
             var timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
             var logMessage = $"[{timestamp}] DEBUG: {message}";
-            
-            // 輸出到控制台
+
+            OnLog?.Invoke(logMessage);
+
             try
             {
                 Debug.WriteLine(logMessage);
             }
-            catch
-            {
-                // 忽略調試輸出錯誤
-            }
+            catch { }
 
             if (Environment.UserInteractive || Debugger.IsAttached)
             {
-                try
-                {
-                    Console.WriteLine(logMessage);
-                }
-                catch (IOException)
-                {
-                    // 忽略控制台輸出錯誤
-                }
+                try { Console.WriteLine(logMessage); }
+                catch { }
             }
-            
-            // 寫入到日誌文件
+
             try
             {
-                File.AppendAllText(LogFilePath, logMessage + Environment.NewLine);
+                lock (_logLock)
+                {
+                    File.AppendAllText(LogFilePath, logMessage + Environment.NewLine);
+                }
             }
-            catch
-            {
-                // 忽略日誌寫入錯誤
-            }
+            catch { }
 #endif
         }
 
-        /// <summary>
-        /// 記錄成就設置操作
-        /// </summary>
         public static void LogAchievementSet(string achievementId, bool achieved, bool isDebugMode)
         {
             if (isDebugMode)
@@ -78,9 +64,6 @@ namespace RunGame.Services
             }
         }
 
-        /// <summary>
-        /// 記錄統計設置操作
-        /// </summary>
         public static void LogStatSet(string statId, object value, bool isDebugMode)
         {
             if (isDebugMode)
@@ -93,9 +76,6 @@ namespace RunGame.Services
             }
         }
 
-        /// <summary>
-        /// 記錄存儲操作
-        /// </summary>
         public static void LogStoreStats(bool isDebugMode)
         {
             if (isDebugMode)
@@ -108,9 +88,6 @@ namespace RunGame.Services
             }
         }
 
-        /// <summary>
-        /// 記錄重置操作
-        /// </summary>
         public static void LogResetAllStats(bool achievementsToo, bool isDebugMode)
         {
             if (isDebugMode)
@@ -123,9 +100,6 @@ namespace RunGame.Services
             }
         }
 
-        /// <summary>
-        /// 清除日誌文件
-        /// </summary>
         public static void ClearLog()
         {
 #if DEBUG
@@ -136,16 +110,10 @@ namespace RunGame.Services
                     File.WriteAllText(LogFilePath, string.Empty);
                 }
             }
-            catch
-            {
-                // 忽略清除錯誤
-            }
+            catch { }
 #endif
         }
 
-        /// <summary>
-        /// 檢查是否為 Debug 模式
-        /// </summary>
         public static bool IsDebugMode
         {
             get

@@ -7,6 +7,7 @@ using System;
 using Windows.UI;
 using Windows.UI.ViewManagement;
 using WinRT.Interop;
+using CommonUtilities;
 
 namespace RunGame.Services
 {

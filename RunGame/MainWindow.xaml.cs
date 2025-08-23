@@ -22,6 +22,7 @@ using Windows.UI;
 using Windows.UI.ViewManagement;
 using Windows.UI.WindowManagement;
 using WinRT.Interop;
+using CommonUtilities;
 
 namespace RunGame
 {

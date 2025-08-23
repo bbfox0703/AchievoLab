@@ -24,6 +24,7 @@ using WinRT.Interop;
 using Windows.Storage;
 using Windows.UI;
 using Windows.UI.ViewManagement;
+using CommonUtilities;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
