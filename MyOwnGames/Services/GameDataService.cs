@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Xml.Linq;
 using System.Threading.Tasks;
+using System.Threading;
 using System.Security.Cryptography;
 using System.Text;
 using CommonUtilities;
@@ -13,6 +14,7 @@ namespace MyOwnGames.Services
     public class GameDataService
     {
         private readonly string _xmlFilePath;
+        private readonly SemaphoreSlim _fileLock = new(1, 1);
 
         public GameDataService()
         {
@@ -24,6 +26,7 @@ namespace MyOwnGames.Services
 
         public async Task SaveGamesToXmlAsync(List<SteamGame> games, string steamId64, string apiKey, string language = "english")
         {
+            await _fileLock.WaitAsync();
             try
             {
                 var root = new XElement("SteamGames",
@@ -33,7 +36,7 @@ namespace MyOwnGames.Services
                     new XAttribute("TotalGames", games.Count),
                     new XAttribute("Language", language),
                     new XAttribute("ApiKeyHash", GetApiKeyHash(apiKey)),
-                    
+
                     games.Select(game => new XElement("Game",
                         new XAttribute("AppID", game.AppId),
                         new XAttribute("PlaytimeForever", game.PlaytimeForever),
@@ -50,10 +53,15 @@ namespace MyOwnGames.Services
             {
                 throw new Exception($"Error saving games to XML: {ex.Message}", ex);
             }
+            finally
+            {
+                _fileLock.Release();
+            }
         }
 
         public async Task AppendGameAsync(SteamGame game, string steamId64, string apiKey, string language = "english")
         {
+            await _fileLock.WaitAsync();
             try
             {
                 XDocument doc;
@@ -87,14 +95,14 @@ namespace MyOwnGames.Services
                 {
                     // Update existing game with new language data
                     existing.SetAttributeValue("PlaytimeForever", game.PlaytimeForever);
-                    
+
                     // Update or add English name
                     var nameEnElement = existing.Element("NameEN");
                     if (nameEnElement != null)
                         nameEnElement.Value = game.NameEn ?? string.Empty;
                     else
                         existing.Add(new XElement("NameEN", game.NameEn ?? string.Empty));
-                    
+
                     // Update or add language-specific name
                     var langElementName = $"Name_{language}";
                     var langElement = existing.Element(langElementName);
@@ -102,7 +110,7 @@ namespace MyOwnGames.Services
                         langElement.Value = game.NameLocalized ?? string.Empty;
                     else
                         existing.Add(new XElement(langElementName, game.NameLocalized ?? string.Empty));
-                    
+
                     // Update or add icon URL
                     var iconElement = existing.Element("IconURL");
                     if (iconElement != null)
@@ -120,7 +128,7 @@ namespace MyOwnGames.Services
                         new XElement($"Name_{language}", game.NameLocalized ?? string.Empty),
                         new XElement("IconURL", game.IconUrl ?? string.Empty)
                     );
-                    
+
                     root.Add(gameElement);
                 }
 
@@ -134,10 +142,15 @@ namespace MyOwnGames.Services
             {
                 throw new Exception($"Error appending game to XML: {ex.Message}", ex);
             }
+            finally
+            {
+                _fileLock.Release();
+            }
         }
 
         public async Task<List<SteamGame>> LoadGamesFromXmlAsync()
         {
+            await _fileLock.WaitAsync();
             try
             {
                 if (!File.Exists(_xmlFilePath))
@@ -151,7 +164,7 @@ namespace MyOwnGames.Services
                         PlaytimeForever = int.Parse(element.Attribute("PlaytimeForever")?.Value ?? "0"),
                         NameEn = element.Element("NameEN")?.Value ?? "",
                         // Legacy fallback - try NameLocalized first, then use English
-                        NameLocalized = element.Element("NameLocalized")?.Value ?? 
+                        NameLocalized = element.Element("NameLocalized")?.Value ??
                                       element.Element("NameEN")?.Value ?? "",
                         IconUrl = element.Element("IconURL")?.Value ?? ""
                     })
@@ -165,6 +178,10 @@ namespace MyOwnGames.Services
                 DebugLogger.LogDebug($"Error loading games from XML: {ex.Message}");
                 return new List<SteamGame>();
             }
+            finally
+            {
+                _fileLock.Release();
+            }
         }
 
         /// <summary>
@@ -172,6 +189,7 @@ namespace MyOwnGames.Services
         /// </summary>
         public async Task<List<MultiLanguageGameData>> LoadGamesWithLanguagesAsync()
         {
+            await _fileLock.WaitAsync();
             try
             {
                 if (!File.Exists(_xmlFilePath))
@@ -216,10 +234,15 @@ namespace MyOwnGames.Services
                 DebugLogger.LogDebug($"Error loading multi-language games from XML: {ex.Message}");
                 return new List<MultiLanguageGameData>();
             }
+            finally
+            {
+                _fileLock.Release();
+            }
         }
 
         public async Task<(ISet<int> AppIds, int? ExpectedTotal)> LoadRetrievedAppIdsAsync()
         {
+            await _fileLock.WaitAsync();
             var appIds = new HashSet<int>();
             int? expectedTotal = null;
 
@@ -249,12 +272,17 @@ namespace MyOwnGames.Services
             {
                 DebugLogger.LogDebug($"Error loading retrieved app IDs: {ex.Message}");
             }
+            finally
+            {
+                _fileLock.Release();
+            }
 
             return (appIds, expectedTotal);
         }
 
         public async Task UpdateRemainingCountAsync(int remaining)
         {
+            await _fileLock.WaitAsync();
             try
             {
                 XDocument doc;
@@ -284,10 +312,15 @@ namespace MyOwnGames.Services
             {
                 DebugLogger.LogDebug($"Error updating remaining count: {ex.Message}");
             }
+            finally
+            {
+                _fileLock.Release();
+            }
         }
 
         public async Task<GameExportInfo?> GetExportInfoAsync()
         {
+            await _fileLock.WaitAsync();
             try
             {
                 if (!File.Exists(_xmlFilePath))
@@ -311,6 +344,10 @@ namespace MyOwnGames.Services
             {
                 DebugLogger.LogDebug($"Error getting export info: {ex.Message}");
                 return null;
+            }
+            finally
+            {
+                _fileLock.Release();
             }
         }
 
