@@ -10,13 +10,23 @@ using CommonUtilities;
 namespace AnSAM.Services
 {
     /// <summary>
-    /// Downloads and caches game cover images under the <c>appcache</c> directory.
+    /// Downloads and caches game cover images under the <c>ImageCache</c> directory,
+    /// organised by Steam language.
     /// Requests are queued and limited to a small number of concurrent downloads.
     /// </summary>
     public static class IconCache
     {
         public readonly record struct IconPathResult(string Path, bool Downloaded);
-        private static readonly string CacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab", "appcache");
+        private static readonly string BaseCacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab", "ImageCache");
+        private static string CacheDir
+        {
+            get
+            {
+                var dir = Path.Combine(BaseCacheDir, SteamLanguageResolver.GetSteamLanguage());
+                Directory.CreateDirectory(dir);
+                return dir;
+            }
+        }
         private static readonly HttpClient Http = new();
         private static readonly SemaphoreSlim Concurrency = new(4);
         private static readonly ConcurrentDictionary<string, Task<IconPathResult>> InFlight = new();
@@ -36,6 +46,31 @@ namespace AnSAM.Services
 
         private static int _totalRequests;
         private static int _completed;
+
+        static IconCache()
+        {
+            try
+            {
+                Directory.CreateDirectory(BaseCacheDir);
+                var oldDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab", "appcache");
+                if (Directory.Exists(oldDir))
+                {
+                    var englishDir = Path.Combine(BaseCacheDir, "english");
+                    Directory.CreateDirectory(englishDir);
+                    foreach (var file in Directory.EnumerateFiles(oldDir))
+                    {
+                        try
+                        {
+                            var dest = Path.Combine(englishDir, Path.GetFileName(file));
+                            File.Move(file, dest, true);
+                        }
+                        catch { }
+                    }
+                    try { Directory.Delete(oldDir, true); } catch { }
+                }
+            }
+            catch { }
+        }
 
         /// <summary>
         /// Raised whenever icon download progress changes. Parameters are the
@@ -101,9 +136,8 @@ namespace AnSAM.Services
         /// <param name="uri">Remote URI for the cover image.</param>
         public static Task<IconPathResult> GetIconPathAsync(int id, Uri uri)
         {
-            Directory.CreateDirectory(CacheDir);
-
-            var basePath = Path.Combine(CacheDir, id.ToString());
+            var cacheDir = CacheDir;
+            var basePath = Path.Combine(cacheDir, id.ToString());
 
             if (InFlight.TryGetValue(basePath, out var existing))
             {
@@ -137,7 +171,15 @@ namespace AnSAM.Services
             {
                 Interlocked.Increment(ref _totalRequests);
                 ReportProgress();
-                return DownloadAsync(uri, basePath, ext);
+                return DownloadAsync(uri, basePath, ext).ContinueWith(t =>
+                {
+                    if (t.Status == TaskStatus.RanToCompletion)
+                    {
+                        return t.Result;
+                    }
+
+                    return new IconPathResult(string.Empty, false);
+                }, TaskScheduler.Default);
             });
         }
 
@@ -148,16 +190,17 @@ namespace AnSAM.Services
         /// <returns>The local <see cref="Uri"/> of the cached icon if available; otherwise <c>null</c>.</returns>
         public static Uri? TryGetCachedIconUri(int id)
         {
+            string cacheDir;
             try
             {
-                Directory.CreateDirectory(CacheDir);
+                cacheDir = CacheDir;
             }
             catch
             {
                 return null;
             }
 
-            var basePath = Path.Combine(CacheDir, id.ToString());
+            var basePath = Path.Combine(cacheDir, id.ToString());
 
             foreach (var candidateExt in new HashSet<string>(MimeToExtension.Values))
             {
@@ -188,15 +231,10 @@ namespace AnSAM.Services
             {
                 if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
                 {
-                    try
+                    var result = await GetIconPathAsync(id, uri).ConfigureAwait(false);
+                    if (!string.IsNullOrEmpty(result.Path))
                     {
-                        return await GetIconPathAsync(id, uri).ConfigureAwait(false);
-                    }
-                    catch (HttpRequestException ex)
-                    {
-#if DEBUG
-                        DebugLogger.LogDebug($"Icon download failed for {id}: {ex.Message}");
-#endif
+                        return result;
                     }
                 }
             }

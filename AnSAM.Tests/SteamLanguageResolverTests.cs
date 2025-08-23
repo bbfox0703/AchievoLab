@@ -54,6 +54,7 @@ public class SteamLanguageResolverTests
     [Fact]
     public void GetSteamLanguage_UsesCurrentUICulture()
     {
+        SteamLanguageResolver.OverrideLanguage = null;
         var original = CultureInfo.CurrentUICulture;
         try
         {

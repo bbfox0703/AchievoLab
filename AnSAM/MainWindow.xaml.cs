@@ -528,7 +528,7 @@ namespace AnSAM
             try
             {
                 var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab");
-                var iconDir = Path.Combine(baseDir, "appcache");
+                var iconDir = Path.Combine(baseDir, "ImageCache");
                 var cacheDir = Path.Combine(baseDir, "cache");
                 var gameListPath = Path.Combine(cacheDir, "games.xml");
 
