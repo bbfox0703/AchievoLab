@@ -62,7 +62,6 @@ namespace MyOwnGames.Services
             }
 
             var languageSpecificUrlMap = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-            var englishUrlMap = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 
             static void AddUrl(Dictionary<string, List<string>> map, string url)
             {
@@ -104,19 +103,6 @@ namespace MyOwnGames.Services
             if (!string.IsNullOrEmpty(header))
             {
                 AddUrl(languageSpecificUrlMap, header);
-                if (string.Equals(language, "english", StringComparison.OrdinalIgnoreCase))
-                {
-                    AddUrl(englishUrlMap, header);
-                }
-            }
-
-            if (!string.Equals(language, "english", StringComparison.OrdinalIgnoreCase))
-            {
-                var englishHeader = await GetHeaderImageFromStoreApiAsync(appId, "english");
-                if (!string.IsNullOrEmpty(englishHeader))
-                {
-                    AddUrl(englishUrlMap, englishHeader);
-                }
             }
 
             // Fastly CDN (will be blocked if access too many times)
@@ -124,25 +110,19 @@ namespace MyOwnGames.Services
             //{
             //    AddUrl(languageSpecificUrlMap, $"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/{appId}/header_{language}.jpg");
             //}
-            //AddUrl(englishUrlMap, $"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg");
 
             // Cloudflare CDN
             AddUrl(languageSpecificUrlMap, $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/header_{language}.jpg");
-            AddUrl(englishUrlMap, $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg");
 
             // Steam CDN
             AddUrl(languageSpecificUrlMap, $"https://cdn.steamstatic.com/steam/apps/{appId}/header_{language}.jpg");
-            AddUrl(englishUrlMap, $"https://cdn.steamstatic.com/steam/apps/{appId}/header.jpg");
 
             // Akamai CDN
             AddUrl(languageSpecificUrlMap, $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/header_{language}.jpg");
-            AddUrl(englishUrlMap, $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg");
 
             // Additional assets
             AddUrl(languageSpecificUrlMap, $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/logo_{language}.png");
-            AddUrl(englishUrlMap, $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/logo.png");
             var languageUrls = RoundRobin(languageSpecificUrlMap);
-            var englishUrls = RoundRobin(englishUrlMap);
 
             var result = await _cache.GetImagePathAsync(appId.ToString(), languageUrls, language, appId);
             if (!string.IsNullOrEmpty(result?.Path) && IsValidImage(result.Value.Path))
@@ -160,22 +140,47 @@ namespace MyOwnGames.Services
                 try { File.Delete(result.Value.Path); } catch { }
             }
 
-            result = await _cache.GetImagePathAsync(appId.ToString(), englishUrls, language, appId);
-            if (!string.IsNullOrEmpty(result?.Path) && IsValidImage(result.Value.Path))
+            if (!string.Equals(language, "english", StringComparison.OrdinalIgnoreCase))
             {
-                _imageCache[cacheKey] = result.Value.Path;
-                if (result.Value.Downloaded)
+                var englishUrlMap = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+                var englishHeader = await GetHeaderImageFromStoreApiAsync(appId, "english");
+                if (!string.IsNullOrEmpty(englishHeader))
                 {
-                    ImageDownloadCompleted?.Invoke(appId, result.Value.Path);
+                    AddUrl(englishUrlMap, englishHeader);
                 }
-                return result.Value.Path;
+
+                // Cloudflare CDN
+                AddUrl(englishUrlMap, $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg");
+
+                // Steam CDN
+                AddUrl(englishUrlMap, $"https://cdn.steamstatic.com/steam/apps/{appId}/header.jpg");
+
+                // Akamai CDN
+                AddUrl(englishUrlMap, $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg");
+
+                // Additional assets
+                AddUrl(englishUrlMap, $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/logo.png");
+
+                var englishUrls = RoundRobin(englishUrlMap);
+
+                result = await _cache.GetImagePathAsync(appId.ToString(), englishUrls, language, appId);
+                if (!string.IsNullOrEmpty(result?.Path) && IsValidImage(result.Value.Path))
+                {
+                    _imageCache[cacheKey] = result.Value.Path;
+                    if (result.Value.Downloaded)
+                    {
+                        ImageDownloadCompleted?.Invoke(appId, result.Value.Path);
+                    }
+                    return result.Value.Path;
+                }
+
+                if (!string.IsNullOrEmpty(result?.Path))
+                {
+                    try { File.Delete(result.Value.Path); } catch { }
+                }
             }
 
-            if (!string.IsNullOrEmpty(result?.Path))
-            {
-                try { File.Delete(result.Value.Path); } catch { }
-                _failureTracker.RecordFailedDownload(appId, language);
-            }
+            _failureTracker.RecordFailedDownload(appId, language);
 
             var noIconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "no_icon.png");
             if (File.Exists(noIconPath))
