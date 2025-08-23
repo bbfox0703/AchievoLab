@@ -523,7 +523,7 @@ namespace MyOwnGames
                     }
 
                     // Always save/update game data in XML for current language
-                    await _dataService.AppendGameAsync(game, steamId64, apiKey, selectedLanguage);
+                    await _dataService.AppendGameAsync(game, steamId64!, apiKey!, selectedLanguage);
                 }, progress, null); // Pass null to process ALL games, not just missing ones
 
                 xmlPath = _dataService.GetXmlFilePath();
