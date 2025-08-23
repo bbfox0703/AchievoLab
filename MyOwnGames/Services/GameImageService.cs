@@ -13,6 +13,7 @@ namespace MyOwnGames.Services
     {
         private readonly HttpClient _httpClient;
         private readonly GameImageCache _cache;
+        private readonly ImageFailureTrackingService _failureTracker;
         private readonly Dictionary<string, string> _imageCache = new();
         private string _currentLanguage = "english";
 
@@ -27,7 +28,8 @@ namespace MyOwnGames.Services
             // Configure the local cache for storing image files.
             var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "AchievoLab", "ImageCache");
-            _cache = new GameImageCache(baseDir, new ImageFailureTrackingService());
+            _failureTracker = new ImageFailureTrackingService();
+            _cache = new GameImageCache(baseDir, _failureTracker);
         }
 
         public void SetLanguage(string language)
@@ -48,7 +50,14 @@ namespace MyOwnGames.Services
 
             if (_imageCache.TryGetValue(cacheKey, out var cached))
             {
-                return cached;
+                if (IsValidImage(cached))
+                {
+                    return cached;
+                }
+
+                try { File.Delete(cached); } catch { }
+                _imageCache.Remove(cacheKey);
+                _failureTracker.RecordFailedDownload(appId, language);
             }
 
             var urls = new List<string>();
@@ -64,7 +73,7 @@ namespace MyOwnGames.Services
             urls.Add($"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg");
 
             var result = await _cache.GetImagePathAsync(appId.ToString(), urls, language, appId);
-            if (!string.IsNullOrEmpty(result?.Path))
+            if (!string.IsNullOrEmpty(result?.Path) && IsValidImage(result.Value.Path))
             {
                 _imageCache[cacheKey] = result.Value.Path;
                 if (result.Value.Downloaded)
@@ -72,6 +81,12 @@ namespace MyOwnGames.Services
                     ImageDownloadCompleted?.Invoke(appId, result.Value.Path);
                 }
                 return result.Value.Path;
+            }
+
+            if (!string.IsNullOrEmpty(result?.Path))
+            {
+                try { File.Delete(result.Value.Path); } catch { }
+                _failureTracker.RecordFailedDownload(appId, language);
             }
 
             var noIconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "no_icon.png");
@@ -158,6 +173,48 @@ namespace MyOwnGames.Services
         {
             _httpClient.Dispose();
             _imageCache.Clear();
+        }
+
+        private static bool IsValidImage(string path)
+        {
+            try
+            {
+                var info = new FileInfo(path);
+                if (!info.Exists || info.Length == 0)
+                {
+                    return false;
+                }
+
+                if (DateTime.UtcNow - info.LastWriteTimeUtc > TimeSpan.FromDays(30))
+                {
+                    return false;
+                }
+
+                Span<byte> header = stackalloc byte[12];
+                using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                int read = fs.Read(header);
+                if (read >= 4)
+                {
+                    if (header[0] == 0x89 && header[1] == 0x50 && header[2] == 0x4E && header[3] == 0x47)
+                        return true; // PNG
+                    if (header[0] == 0xFF && header[1] == 0xD8)
+                        return true; // JPEG
+                    if (header[0] == 0x47 && header[1] == 0x49 && header[2] == 0x46)
+                        return true; // GIF
+                    if (header[0] == 0x42 && header[1] == 0x4D)
+                        return true; // BMP
+                    if (header[0] == 0x00 && header[1] == 0x00 && header[2] == 0x01 && header[3] == 0x00)
+                        return true; // ICO
+                    if (read >= 12 && header[4] == 0x66 && header[5] == 0x74 && header[6] == 0x79 && header[7] == 0x70 &&
+                        header[8] == 0x61 && header[9] == 0x76 && header[10] == 0x69 && header[11] == 0x66)
+                        return true; // AVIF
+                    if (read >= 12 && header[0] == 0x52 && header[1] == 0x49 && header[2] == 0x46 && header[3] == 0x46 &&
+                        header[8] == 0x57 && header[9] == 0x45 && header[10] == 0x42 && header[11] == 0x50)
+                        return true; // WEBP
+                }
+            }
+            catch { }
+            return false;
         }
     }
 
