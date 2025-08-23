@@ -12,6 +12,7 @@ using Xunit;
 
 public class IconCacheTests
 {
+    private const string TestLanguage = "english";
     public static IEnumerable<object[]> ValidHeaders()
     {
         yield return new object[] { "bmp", new byte[] { 0x42, 0x4D, 0, 0, 0, 0 } };
@@ -24,10 +25,10 @@ public class IconCacheTests
     public async Task ValidCachedIconIsUsed(string ext, byte[] data)
     {
         var id = Random.Shared.Next(100000, 200000);
-        SteamLanguageResolver.OverrideLanguage = "english";
+        SteamLanguageResolver.OverrideLanguage = TestLanguage;
         try
         {
-            var cacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab", "ImageCache", "english");
+            var cacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab", "ImageCache", TestLanguage);
             Directory.CreateDirectory(cacheDir);
             foreach (var file in Directory.EnumerateFiles(cacheDir, $"{id}.*"))
             {
@@ -56,8 +57,8 @@ public class IconCacheTests
         IconCache.ProgressChanged += Handler;
         try
         {
-            SteamLanguageResolver.OverrideLanguage = "english";
-            var cacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab", "ImageCache", "english");
+            SteamLanguageResolver.OverrideLanguage = TestLanguage;
+            var cacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab", "ImageCache", TestLanguage);
             Directory.CreateDirectory(cacheDir);
 
             var cachedId = Random.Shared.Next(200001, 300000);
@@ -128,11 +129,11 @@ public class IconCacheTests
     [Fact]
     public async Task InvalidDownloadIsIgnored()
     {
-        SteamLanguageResolver.OverrideLanguage = "english";
+        SteamLanguageResolver.OverrideLanguage = TestLanguage;
         var id = Random.Shared.Next(300001, 400000);
         try
         {
-            var cacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab", "ImageCache", "english");
+            var cacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab", "ImageCache", TestLanguage);
             Directory.CreateDirectory(cacheDir);
             foreach (var file in Directory.EnumerateFiles(cacheDir, $"{id}.*"))
             {
@@ -168,7 +169,7 @@ public class IconCacheTests
         }
         finally
         {
-            new ImageFailureTrackingService().RemoveFailedRecord(id, "english");
+            new ImageFailureTrackingService().RemoveFailedRecord(id, TestLanguage);
             SteamLanguageResolver.OverrideLanguage = null;
         }
     }
@@ -176,11 +177,11 @@ public class IconCacheTests
     [Fact]
     public async Task FailedDownloadReturnsEmptyPath()
     {
-        SteamLanguageResolver.OverrideLanguage = "english";
+        SteamLanguageResolver.OverrideLanguage = TestLanguage;
         var id = Random.Shared.Next(400001, 500000);
         try
         {
-            var cacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab", "ImageCache", "english");
+            var cacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab", "ImageCache", TestLanguage);
             Directory.CreateDirectory(cacheDir);
             foreach (var file in Directory.EnumerateFiles(cacheDir, $"{id}.*"))
             {
@@ -214,7 +215,7 @@ public class IconCacheTests
         }
         finally
         {
-            new ImageFailureTrackingService().RemoveFailedRecord(id, "english");
+            new ImageFailureTrackingService().RemoveFailedRecord(id, TestLanguage);
             SteamLanguageResolver.OverrideLanguage = null;
         }
     }
@@ -222,19 +223,19 @@ public class IconCacheTests
     [Fact]
     public async Task SkipsAndRetriesBasedOnFailureLog()
     {
-        SteamLanguageResolver.OverrideLanguage = "english";
+        SteamLanguageResolver.OverrideLanguage = TestLanguage;
         var tracker = new ImageFailureTrackingService();
         var id = Random.Shared.Next(500001, 600000);
         try
         {
-            var cacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab", "ImageCache", "english");
+            var cacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab", "ImageCache", TestLanguage);
             Directory.CreateDirectory(cacheDir);
             foreach (var file in Directory.EnumerateFiles(cacheDir, $"{id}.*"))
             {
                 try { File.Delete(file); } catch { }
             }
 
-            tracker.RecordFailedDownload(id, "english");
+            tracker.RecordFailedDownload(id, TestLanguage);
 
             int port;
             using (var l = new TcpListener(IPAddress.Loopback, 0))
@@ -255,7 +256,7 @@ public class IconCacheTests
 
             var doc = XDocument.Load(tracker.GetXmlFilePath());
             var game = doc.Root?.Elements("Game").FirstOrDefault(g => (int?)g.Attribute("AppId") == id);
-            var lang = game?.Elements("Language").FirstOrDefault(l => l.Attribute("Code")?.Value == "english");
+            var lang = game?.Elements("Language").FirstOrDefault(l => l.Attribute("Code")?.Value == TestLanguage);
             lang?.SetAttributeValue("LastFailed", DateTime.Now.AddDays(-20).ToString("yyyy-MM-dd HH:mm:ss"));
             doc.Save(tracker.GetXmlFilePath());
 
@@ -276,11 +277,54 @@ public class IconCacheTests
             var retryResult = await IconCache.GetIconPathAsync(id, new Uri(prefix + "icon.png"));
             await serverTask;
             Assert.True(retryResult.Downloaded);
-            Assert.False(tracker.ShouldSkipDownload(id, "english"));
+            Assert.False(tracker.ShouldSkipDownload(id, TestLanguage));
         }
         finally
         {
-            tracker.RemoveFailedRecord(id, "english");
+            tracker.RemoveFailedRecord(id, TestLanguage);
+            SteamLanguageResolver.OverrideLanguage = null;
+        }
+    }
+
+    [Fact]
+    public void CreatesLanguageSpecificDirectory()
+    {
+        SteamLanguageResolver.OverrideLanguage = TestLanguage;
+        try
+        {
+            var cacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab", "ImageCache", TestLanguage);
+            if (Directory.Exists(cacheDir))
+            {
+                Directory.Delete(cacheDir, true);
+            }
+
+            IconCache.TryGetCachedPath(Random.Shared.Next(600001, 700000), TestLanguage);
+
+            Assert.True(Directory.Exists(cacheDir));
+        }
+        finally
+        {
+            SteamLanguageResolver.OverrideLanguage = null;
+        }
+    }
+
+    [Fact]
+    public void ReusesLanguageSpecificDirectory()
+    {
+        SteamLanguageResolver.OverrideLanguage = TestLanguage;
+        try
+        {
+            var cacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab", "ImageCache", TestLanguage);
+            Directory.CreateDirectory(cacheDir);
+            var sentinel = Path.Combine(cacheDir, "sentinel.txt");
+            File.WriteAllText(sentinel, "sentinel");
+
+            IconCache.TryGetCachedPath(Random.Shared.Next(700001, 800000), TestLanguage);
+
+            Assert.True(File.Exists(sentinel));
+        }
+        finally
+        {
             SteamLanguageResolver.OverrideLanguage = null;
         }
     }
