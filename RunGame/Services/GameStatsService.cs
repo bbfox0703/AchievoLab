@@ -342,7 +342,7 @@ namespace RunGame.Services
         
         public string GetCurrentGameLanguage()
         {
-            return _steamClient.GetCurrentGameLanguage() ?? "english";
+            return _steamClient.GetCurrentGameLanguage();
         }
 
         public List<AchievementInfo> GetAchievements()
