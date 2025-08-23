@@ -13,14 +13,14 @@ namespace RunGame.Services
 {
     public class GameStatsService
     {
-        private readonly SteamGameClient _steamClient;
+        private readonly ISteamUserStats _steamClient;
         private readonly long _gameId;
         private readonly List<AchievementDefinition> _achievementDefinitions = new();
         private readonly List<StatDefinition> _statDefinitions = new();
 
         public event EventHandler<UserStatsReceivedEventArgs>? UserStatsReceived;
 
-        public GameStatsService(SteamGameClient steamClient, long gameId)
+        public GameStatsService(ISteamUserStats steamClient, long gameId)
         {
             _steamClient = steamClient;
             _gameId = gameId;

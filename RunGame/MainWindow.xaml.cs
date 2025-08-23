@@ -29,7 +29,7 @@ namespace RunGame
     public sealed partial class MainWindow : Window
     {
         private readonly long _gameId;
-        private readonly SteamGameClient _steamClient;
+        private readonly ISteamUserStats _steamClient;
         private readonly GameStatsService _gameStatsService;
         private readonly DispatcherTimer _callbackTimer;
         private readonly DispatcherTimer _timeTimer;
@@ -74,12 +74,18 @@ namespace RunGame
             Environment.SetEnvironmentVariable("SteamAppId", gameId.ToString());
             DebugLogger.LogDebug($"Set SteamAppId environment variable to {gameId}");
             
-            _steamClient = new SteamGameClient(gameId);
+            // Try modern Steam client first, fallback to legacy if needed
+            _steamClient = CreateSteamClient(gameId);
+            
             _gameStatsService = new GameStatsService(_steamClient, gameId);
             
             // Initialize timers
             _callbackTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
-            _callbackTimer.Tick += (_, _) => _steamClient.RunCallbacks();
+            _callbackTimer.Tick += (_, _) => 
+            {
+                // Run callbacks for both legacy and modern Steam clients
+                _steamClient.RunCallbacks();
+            };
             _callbackTimer.Start();
             
             _timeTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
@@ -1458,6 +1464,62 @@ namespace RunGame
             {
                 StatusLabel.Text = status;
             });
+        }
+
+        /// <summary>
+        /// Creates a Steam client, prioritizing Legacy SteamGameClient for game execution simulation
+        /// </summary>
+        private ISteamUserStats CreateSteamClient(long gameId)
+        {
+            // Legacy SteamGameClient is required for core functionality:
+            // - Simulates game execution to Steam client
+            // - Enables achievement data retrieval 
+            // - Works without game installation
+            try
+            {
+                DebugLogger.LogDebug("Using Legacy SteamGameClient for Steam execution simulation...");
+                var legacyClient = new SteamGameClient(gameId);
+                
+                if (legacyClient.Initialized)
+                {
+                    DebugLogger.LogDebug("Legacy SteamGameClient initialized successfully - can simulate game execution");
+                    return legacyClient;
+                }
+                else
+                {
+                    DebugLogger.LogDebug("Legacy SteamGameClient failed to initialize");
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Legacy SteamGameClient creation failed: {ex.Message}");
+            }
+            
+            // Fallback to Modern client (for future use when Steam API supports execution simulation)
+            try
+            {
+                DebugLogger.LogDebug("Falling back to ModernSteamClient (limited functionality)...");
+                var modernClient = new ModernSteamClient(gameId);
+                
+                if (modernClient.Initialized)
+                {
+                    DebugLogger.LogDebug("ModernSteamClient initialized successfully (but cannot simulate game execution)");
+                    return modernClient;
+                }
+                else
+                {
+                    DebugLogger.LogDebug("ModernSteamClient failed to initialize, disposing...");
+                    modernClient.Dispose();
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"ModernSteamClient creation failed: {ex.Message}");
+            }
+            
+            // If both fail, create a non-functional modern client for interface compatibility
+            DebugLogger.LogDebug("Both Steam clients failed, creating non-functional ModernSteamClient for compatibility");
+            return new ModernSteamClient(gameId);
         }
     }
 
