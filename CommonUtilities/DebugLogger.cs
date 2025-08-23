@@ -27,7 +27,14 @@ namespace CommonUtilities
             var timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
             var logMessage = $"[{timestamp}] DEBUG: {message}";
 
-            OnLog?.Invoke(logMessage);
+            try
+            {
+                OnLog?.Invoke(logMessage);
+            }
+            catch
+            {
+                // Swallow exceptions from log handlers to avoid recursive failures
+            }
 
             try
             {
