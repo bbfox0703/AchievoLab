@@ -42,6 +42,7 @@ namespace AnSAM
         private readonly AppWindow _appWindow;
 
         private bool _autoLoaded;
+        private bool _languageInitialized;
         private ScrollViewer? _gamesScrollViewer;
         private readonly UISettings _uiSettings = new();
 
@@ -51,6 +52,8 @@ namespace AnSAM
             InitializeComponent();
 
             _uiSettings.ColorValuesChanged += UiSettings_ColorValuesChanged;
+
+            InitializeLanguageComboBox();
 
             // 取得 AppWindow
             var hwnd = WindowNative.GetWindowHandle(this);
@@ -80,6 +83,41 @@ namespace AnSAM
             GameListService.ProgressChanged += OnGameListProgressChanged;
             IconCache.ProgressChanged += OnIconProgressChanged;
             Activated += OnWindowActivated;
+        }
+
+        private void InitializeLanguageComboBox()
+        {
+            var languages = SteamLanguageResolver.SupportedLanguages;
+
+            var osLanguage = SteamLanguageResolver.GetSteamLanguage();
+            if (!languages.Contains(osLanguage, StringComparer.OrdinalIgnoreCase))
+            {
+                osLanguage = "english";
+            }
+
+            var ordered = languages.Where(l => !string.Equals(l, osLanguage, StringComparison.OrdinalIgnoreCase) &&
+                                               !string.Equals(l, "english", StringComparison.OrdinalIgnoreCase))
+                                   .OrderBy(l => l)
+                                   .ToList();
+
+            ordered.Insert(0, "english");
+            if (!string.Equals(osLanguage, "english", StringComparison.OrdinalIgnoreCase))
+            {
+                ordered.Insert(0, osLanguage);
+            }
+
+            foreach (var lang in ordered)
+            {
+                LanguageComboBox.Items.Add(lang);
+            }
+
+            var settings = ApplicationData.Current.LocalSettings;
+            var saved = settings.Values["Language"] as string;
+            string initial = ordered.Contains(saved, StringComparer.OrdinalIgnoreCase) ? saved! : osLanguage;
+
+            LanguageComboBox.SelectedItem = initial;
+            SteamLanguageResolver.OverrideLanguage = initial;
+            _languageInitialized = true;
         }
         private void ApplyTheme(ElementTheme theme, bool save = true)
         {
@@ -116,6 +154,31 @@ namespace AnSAM
         private void Theme_Default_Click(object sender, RoutedEventArgs e) => ApplyTheme(ElementTheme.Default);
         private void Theme_Light_Click(object sender, RoutedEventArgs e) => ApplyTheme(ElementTheme.Light);
         private void Theme_Dark_Click(object sender, RoutedEventArgs e) => ApplyTheme(ElementTheme.Dark);
+
+        private async void LanguageComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (!_languageInitialized)
+            {
+                return;
+            }
+
+            if (LanguageComboBox.SelectedItem is string lang)
+            {
+                SteamLanguageResolver.OverrideLanguage = lang;
+
+                try
+                {
+                    var settings = ApplicationData.Current.LocalSettings;
+                    settings.Values["Language"] = lang;
+                }
+                catch (InvalidOperationException)
+                {
+                    // Ignore inability to persist settings
+                }
+
+                await RefreshAsync();
+            }
+        }
 
         private void UpdateTitleBar(ElementTheme theme)
         {

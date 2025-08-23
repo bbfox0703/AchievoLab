@@ -1,10 +1,28 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 
 namespace AnSAM.Services
 {
     public static class SteamLanguageResolver
     {
+        private static string? _overrideLanguage;
+
+        public static readonly IReadOnlyList<string> SupportedLanguages = new[]
+        {
+            "arabic", "brazilian", "bulgarian", "czech", "danish", "dutch",
+            "english", "finnish", "french", "german", "greek", "hungarian",
+            "indonesian", "italian", "japanese", "koreana", "latam", "norwegian",
+            "polish", "portuguese", "romanian", "russian", "schinese", "spanish",
+            "swedish", "thai", "turkish", "ukrainian", "vietnamese", "tchinese"
+        };
+
+        public static string? OverrideLanguage
+        {
+            get => _overrideLanguage;
+            set => _overrideLanguage = string.IsNullOrWhiteSpace(value) ? null : value;
+        }
+
         public static string GetSteamLanguage(CultureInfo culture)
         {
             return culture.Name switch
@@ -46,6 +64,14 @@ namespace AnSAM.Services
             };
         }
 
-        public static string GetSteamLanguage() => GetSteamLanguage(CultureInfo.CurrentUICulture);
+        public static string GetSteamLanguage()
+        {
+            if (!string.IsNullOrEmpty(OverrideLanguage))
+            {
+                return OverrideLanguage;
+            }
+
+            return GetSteamLanguage(CultureInfo.CurrentUICulture);
+        }
     }
 }
