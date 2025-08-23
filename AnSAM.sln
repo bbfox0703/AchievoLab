@@ -11,6 +11,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RunGame", "RunGame\RunGame.
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MyOwnGames", "MyOwnGames\MyOwnGames.csproj", "{1064C046-D0DB-4DB8-80AE-1BC8C606E659}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CommonUtilities", "CommonUtilities\CommonUtilities.csproj", "{B7810BFE-602D-41D1-AF6D-A2229C3B63F2}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -38,6 +40,10 @@ Global
 		{1064C046-D0DB-4DB8-80AE-1BC8C606E659}.Debug|x64.Deploy.0 = Debug|x64
 		{1064C046-D0DB-4DB8-80AE-1BC8C606E659}.Release|x64.ActiveCfg = Release|x64
 		{1064C046-D0DB-4DB8-80AE-1BC8C606E659}.Release|x64.Build.0 = Release|x64
+                {B7810BFE-602D-41D1-AF6D-A2229C3B63F2}.Debug|x64.ActiveCfg = Debug|Any CPU
+                {B7810BFE-602D-41D1-AF6D-A2229C3B63F2}.Debug|x64.Build.0 = Debug|Any CPU
+                {B7810BFE-602D-41D1-AF6D-A2229C3B63F2}.Release|x64.ActiveCfg = Release|Any CPU
+                {B7810BFE-602D-41D1-AF6D-A2229C3B63F2}.Release|x64.Build.0 = Release|Any CPU
 		{1064C046-D0DB-4DB8-80AE-1BC8C606E659}.Release|x64.Deploy.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution

@@ -30,6 +30,10 @@
     <PackageReference Include="Microsoft.Win32.SystemEvents" Version="8.0.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\CommonUtilities\CommonUtilities.csproj" />
+  </ItemGroup>
+
   <PropertyGroup Condition="'$(DisableHasPackageAndPublishMenuAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
     <HasPackageAndPublishMenu>true</HasPackageAndPublishMenu>
   </PropertyGroup>
