@@ -4,16 +4,18 @@
     <IsPackable>false</IsPackable>
     <Nullable>enable</Nullable>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)'=='Release'">
+    <PublishReadyToRun>false</PublishReadyToRun>
+  </PropertyGroup>
   <ItemGroup>
     <Compile Include="../AnSAM/Services/IconCache.cs" Link="IconCache.cs" />
     <Compile Include="../AnSAM/Services/GameCacheService.cs" Link="GameCacheService.cs" />
     <Compile Include="../AnSAM/Services/GameListService.cs" Link="GameListService.cs" />
-    <Compile Include="../AnSAM/Services/DebugLogger.cs" Link="DebugLogger.cs" />
+    <Compile Include="../AnSAM/Services/SteamLanguageResolver.cs" Link="SteamLanguageResolver.cs" />
     <Compile Include="../AnSAM/SteamAppData.cs" Link="SteamAppData.cs" />
     <Compile Include="../AnSAM/Steam/ISteamClient.cs" Link="ISteamClient.cs" />
     <Compile Include="../MyOwnGames/InputValidator.cs" Link="InputValidator.cs" />
     <Compile Include="../MyOwnGames/SteamApiService.cs" Link="SteamApiService.cs" />
-    <Compile Include="../MyOwnGames/Services/DebugLogger.cs" Link="MyOwnGames.DebugLogger.cs" />
     <Compile Include="../MyOwnGames/Services/RateLimiterService.cs" Link="RateLimiterService.cs" />
   </ItemGroup>
   <ItemGroup>
@@ -25,5 +27,8 @@
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="8.0.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="8.0.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="8.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../CommonUtilities/CommonUtilities.csproj" />
   </ItemGroup>
 </Project>

@@ -53,6 +53,10 @@
     <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="8.0.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\CommonUtilities\CommonUtilities.csproj" />
+  </ItemGroup>
+
   <!--
     Defining the "HasPackageAndPublishMenuAddedByProject" property here allows the Solution
     Explorer "Package and Publish" context menu entry to be enabled for this project even if
@@ -65,7 +69,7 @@
   <!-- Publish Properties -->
   <PropertyGroup>
     <PublishReadyToRun Condition="'$(Configuration)' == 'Debug'">False</PublishReadyToRun>
-    <PublishReadyToRun Condition="'$(Configuration)' != 'Debug'">True</PublishReadyToRun>
+    <PublishReadyToRun Condition="'$(Configuration)' == 'Release'">False</PublishReadyToRun>
     <PublishTrimmed Condition="'$(Configuration)' == 'Debug'">False</PublishTrimmed>
     <PublishTrimmed Condition="'$(Configuration)' != 'Debug'">True</PublishTrimmed>
     <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
@@ -92,6 +96,8 @@
     <OutputPath>..\output\Release\$(Platform)\$(TargetFramework)\MyOwnGames\</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+    <SelfContained>false</SelfContained>
+    <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
   </PropertyGroup>
 
 </Project>

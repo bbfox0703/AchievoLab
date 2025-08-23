@@ -22,6 +22,7 @@ using Windows.UI;
 using Windows.UI.ViewManagement;
 using Windows.UI.WindowManagement;
 using WinRT.Interop;
+using CommonUtilities;
 
 namespace RunGame
 {
@@ -232,18 +233,26 @@ namespace RunGame
 
         private void InitializeLanguageComboBox()
         {
-            var languages = new[] 
-            { 
-                "english", "spanish", "french", "german", "italian", "portuguese", 
-                "russian", "japanese", "korean", "schinese", "tchinese" 
-            };
-            
-            foreach (var lang in languages)
+            var languages = SteamLanguageResolver.SupportedLanguages.ToList();
+            var osLanguage = SteamLanguageResolver.GetSteamLanguage(CultureInfo.CurrentUICulture);
+
+            var orderedLanguages = new List<string> { osLanguage };
+            if (!string.Equals(osLanguage, "english", StringComparison.OrdinalIgnoreCase))
+            {
+                orderedLanguages.Add("english");
+            }
+
+            orderedLanguages.AddRange(
+                languages.Where(l => l != osLanguage && l != "english")
+                         .OrderBy(l => l));
+
+            foreach (var lang in orderedLanguages)
             {
                 LanguageComboBox.Items.Add(lang);
             }
-            
-            LanguageComboBox.SelectedItem = "english";
+
+            var selected = languages.Contains(osLanguage) ? osLanguage : "english";
+            LanguageComboBox.SelectedItem = selected;
         }
 
         private void InitializeColumnLayoutComboBox()
@@ -800,10 +809,44 @@ namespace RunGame
 
         private async void OnLanguageChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (_gameStatsService != null)
+            if (_gameStatsService == null)
+                return;
+
+            string currentLanguage = LanguageComboBox.SelectedItem as string ?? "english";
+
+            LoadingRing.IsActive = true;
+
+            foreach (var achievement in _allAchievements)
             {
-                await LoadStatsAsync();
+                achievement.PropertyChanged -= OnAchievementPropertyChanged;
             }
+
+            if (!_gameStatsService.LoadUserGameStatsSchema(currentLanguage))
+            {
+                StatusLabel.Text = "Failed to load game schema";
+                LoadingRing.IsActive = false;
+                return;
+            }
+
+            _allAchievements = _gameStatsService.GetAchievements().ToList();
+
+            foreach (var achievement in _allAchievements)
+            {
+                if (_achievementCounters.TryGetValue(achievement.Id, out int counter))
+                {
+                    achievement.Counter = counter;
+                }
+                achievement.OriginalIsAchieved = achievement.IsAchieved;
+                achievement.PropertyChanged += OnAchievementPropertyChanged;
+            }
+
+            await LoadAchievements();
+            LoadStatistics();
+            UpdateScheduledTimesDisplay();
+            await LoadAchievementIconsAsync();
+            _achievementTimerService?.NotifyStatsReloaded();
+
+            LoadingRing.IsActive = false;
         }
 
         private void OnColumnLayoutChanged(object sender, SelectionChangedEventArgs e)

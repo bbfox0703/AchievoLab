@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using RunGame.Models;
 using RunGame.Steam;
 using RunGame.Utils;
+using CommonUtilities;
 
 namespace RunGame.Services
 {
@@ -341,7 +342,7 @@ namespace RunGame.Services
         
         public string GetCurrentGameLanguage()
         {
-            return _steamClient.GetCurrentGameLanguage() ?? "english";
+            return _steamClient.GetCurrentGameLanguage();
         }
 
         public List<AchievementInfo> GetAchievements()

@@ -8,7 +8,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using Microsoft.Win32;
-using RunGame.Services;
+using CommonUtilities;
 
 namespace RunGame.Steam
 {
@@ -55,6 +55,7 @@ namespace RunGame.Steam
 
         // ISteamUtils delegates
         private readonly GetAppIdDelegate? _getAppId;
+        private readonly GetSteamUILanguageDelegate? _getSteamUILanguage;
         private readonly IntPtr _utils;
 
         private readonly List<Action<UserStatsReceived>> _userStatsCallbacks = new();
@@ -66,9 +67,27 @@ namespace RunGame.Steam
 
         public bool Initialized { get; }
         
-        public string? GetCurrentGameLanguage()
+        public string GetCurrentGameLanguage()
         {
             // Default to English if we can't determine the language
+            try
+            {
+                if (Initialized && _getSteamUILanguage != null && _utils != IntPtr.Zero)
+                {
+                    var ptr = _getSteamUILanguage(_utils);
+                    if (ptr != IntPtr.Zero)
+                    {
+                        var lang = Marshal.PtrToStringAnsi(ptr);
+                        if (!string.IsNullOrEmpty(lang))
+                            return lang;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error getting Steam UI language: {ex.Message}");
+            }
+
             return "english";
         }
 
@@ -197,7 +216,9 @@ namespace RunGame.Steam
                                 {
                                     IntPtr utilsVTable = Marshal.ReadIntPtr(_utils);
                                     _getAppId = Marshal.GetDelegateForFunctionPointer<GetAppIdDelegate>(Marshal.ReadIntPtr(utilsVTable + IntPtr.Size * 9));
+                                    _getSteamUILanguage = Marshal.GetDelegateForFunctionPointer<GetSteamUILanguageDelegate>(Marshal.ReadIntPtr(utilsVTable + IntPtr.Size * 22));
                                     DebugLogger.LogDebug($"ISteamUtils005 GetAppId delegate initialized");
+                                    DebugLogger.LogDebug($"ISteamUtils005 GetSteamUILanguage delegate initialized");
                                 }
 
                                 // Check if we can get Steam ID to verify user is logged in
@@ -808,5 +829,8 @@ namespace RunGame.Steam
 
         [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
         private delegate uint GetAppIdDelegate(IntPtr self);
+
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
+        private delegate IntPtr GetSteamUILanguageDelegate(IntPtr self);
     }
 }

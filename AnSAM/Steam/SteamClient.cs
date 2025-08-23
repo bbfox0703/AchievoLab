@@ -6,7 +6,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using Microsoft.Win32;
-using AnSAM.Services;
+using CommonUtilities;
 
 namespace AnSAM.Steam
 {
