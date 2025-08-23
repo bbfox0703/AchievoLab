@@ -188,7 +188,11 @@ namespace MyOwnGames
                 LanguageComboBox.SelectedItem = defaultItem;
             }
 
-            _logHandler = message => DispatcherQueue.TryEnqueue(() => AppendLog(message));
+            _logHandler = msg =>
+            {
+                var queue = DispatcherQueue;
+                queue?.TryEnqueue(() => AppendLog(msg));
+            };
             DebugLogger.OnLog += _logHandler;
             
             // Subscribe to image download completion events
@@ -274,7 +278,7 @@ namespace MyOwnGames
             {
                 await Task.Run(() =>
                 {
-                    var imageFailureService = new ImageFailureTrackingService();
+                    var imageFailureService = new CommonUtilities.ImageFailureTrackingService();
                     // Cleanup happens automatically when the service is created
                 });
             }
@@ -317,7 +321,7 @@ namespace MyOwnGames
                             IconUri = "ms-appx:///Assets/no_icon.png" // Will be updated async
                         };
 
-                        DispatcherQueue.TryEnqueue(() =>
+                        DispatcherQueue?.TryEnqueue(() =>
                         {
                             GameItems.Add(entry);
                             AllGameItems.Add(entry);
@@ -365,7 +369,7 @@ namespace MyOwnGames
                     DebugLogger.LogDebug($"Image found for {appId}: {imagePath}");
                     
                     // Thread-safe UI update using DispatcherQueue with immediate priority
-                    this.DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.High, () =>
+                    this.DispatcherQueue?.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.High, () =>
                     {
                         try
                         {
@@ -776,6 +780,7 @@ namespace MyOwnGames
             if (_isShuttingDown)
                 return;
             _isShuttingDown = true;
+            DebugLogger.OnLog -= _logHandler;
 
             // Cancel any ongoing operations
             _cancellationTokenSource?.Cancel();
@@ -818,8 +823,7 @@ namespace MyOwnGames
             {
                 DebugLogger.LogDebug($"Error disposing cancellation token source: {ex.Message}");
             }
-            
-            DebugLogger.OnLog -= _logHandler;
+
             DebugLogger.LogDebug($"Shutdown completed ({reason})");
         }
 

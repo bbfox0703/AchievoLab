@@ -10,17 +10,25 @@ using CommonUtilities;
 namespace AnSAM.Services
 {
     /// <summary>
-    /// Downloads and caches game cover images under the <c>appcache</c> directory.
+    /// Downloads and caches game cover images under the <c>ImageCache</c> directory,
+    /// organised by Steam language.
     /// Requests are queued and limited to a small number of concurrent downloads.
     /// </summary>
     public static class IconCache
     {
         public readonly record struct IconPathResult(string Path, bool Downloaded);
-        private static readonly string CacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab", "appcache");
+        private static readonly string BaseCacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab", "ImageCache");
+        private static string GetCacheDir(string language)
+        {
+            var dir = Path.Combine(BaseCacheDir, language);
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
         private static readonly HttpClient Http = new();
         private static readonly SemaphoreSlim Concurrency = new(4);
         private static readonly ConcurrentDictionary<string, Task<IconPathResult>> InFlight = new();
         private static readonly TimeSpan CacheDuration = TimeSpan.FromDays(30);
+        private static readonly ImageFailureTrackingService FailureTracker = new();
         private static readonly Dictionary<string, string> MimeToExtension = new(StringComparer.OrdinalIgnoreCase)
         {
             ["image/jpeg"] = ".jpg",
@@ -36,6 +44,31 @@ namespace AnSAM.Services
 
         private static int _totalRequests;
         private static int _completed;
+
+        static IconCache()
+        {
+            try
+            {
+                Directory.CreateDirectory(BaseCacheDir);
+                var oldDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab", "appcache");
+                if (Directory.Exists(oldDir))
+                {
+                    var englishDir = Path.Combine(BaseCacheDir, "english");
+                    Directory.CreateDirectory(englishDir);
+                    foreach (var file in Directory.EnumerateFiles(oldDir))
+                    {
+                        try
+                        {
+                            var dest = Path.Combine(englishDir, Path.GetFileName(file));
+                            File.Move(file, dest, true);
+                        }
+                        catch { }
+                    }
+                    try { Directory.Delete(oldDir, true); } catch { }
+                }
+            }
+            catch { }
+        }
 
         /// <summary>
         /// Raised whenever icon download progress changes. Parameters are the
@@ -70,25 +103,44 @@ namespace AnSAM.Services
         /// </summary>
         /// <param name="id">Steam application identifier used to name the file.</param>
         /// <returns>The cached file path if present and valid; otherwise <c>null</c>.</returns>
-        public static string? TryGetCachedPath(int id)
+        public static string? TryGetCachedPath(int id, string? language = null, bool checkEnglishFallback = true)
         {
-            var basePath = Path.Combine(CacheDir, id.ToString());
+            language ??= SteamLanguageResolver.GetSteamLanguage();
 
-            foreach (var candidateExt in new HashSet<string>(MimeToExtension.Values))
+            static string? Check(string basePath)
             {
-                var path = basePath + candidateExt;
-                if (File.Exists(path))
+                foreach (var candidateExt in new HashSet<string>(MimeToExtension.Values))
                 {
-                    if (IsCacheValid(path))
+                    var path = basePath + candidateExt;
+                    if (File.Exists(path))
                     {
+                        if (IsCacheValid(path))
+                        {
 #if DEBUG
-                        DebugLogger.LogDebug($"Using cached icon for {id} at {path}");
+                            DebugLogger.LogDebug($"Using cached icon for {basePath} at {path}");
 #endif
-                        return path;
-                    }
+                            return path;
+                        }
 
-                    try { File.Delete(path); } catch { }
+                        try { File.Delete(path); } catch { }
+                    }
                 }
+
+                return null;
+            }
+
+            var cacheDir = GetCacheDir(language);
+            var basePath = Path.Combine(cacheDir, id.ToString());
+            var result = Check(basePath);
+            if (result != null)
+            {
+                return result;
+            }
+
+            if (checkEnglishFallback && !string.Equals(language, "english", StringComparison.OrdinalIgnoreCase))
+            {
+                var englishBase = Path.Combine(GetCacheDir("english"), id.ToString());
+                return Check(englishBase);
             }
 
             return null;
@@ -99,32 +151,33 @@ namespace AnSAM.Services
         /// </summary>
         /// <param name="id">Steam application identifier used to name the file.</param>
         /// <param name="uri">Remote URI for the cover image.</param>
-        public static Task<IconPathResult> GetIconPathAsync(int id, Uri uri)
+        public static Task<IconPathResult> GetIconPathAsync(int id, Uri uri, string? language = null)
         {
-            Directory.CreateDirectory(CacheDir);
-
-            var basePath = Path.Combine(CacheDir, id.ToString());
+            language ??= SteamLanguageResolver.GetSteamLanguage();
+            var cacheDir = GetCacheDir(language);
+            var basePath = Path.Combine(cacheDir, id.ToString());
 
             if (InFlight.TryGetValue(basePath, out var existing))
             {
                 return existing;
             }
 
-            foreach (var candidateExt in new HashSet<string>(MimeToExtension.Values))
+            var cached = TryGetCachedPath(id, language);
+            if (cached != null)
             {
-                var path = basePath + candidateExt;
-                if (File.Exists(path))
-                {
-                    if (IsCacheValid(path))
-                    {
-                        Interlocked.Increment(ref _totalRequests);
-                        Interlocked.Increment(ref _completed);
-                        ReportProgress();
-                        return Task.FromResult(new IconPathResult(path, false));
-                    }
+                Interlocked.Increment(ref _totalRequests);
+                Interlocked.Increment(ref _completed);
+                ReportProgress();
+                FailureTracker.RemoveFailedRecord(id, language);
+                return Task.FromResult(new IconPathResult(cached, false));
+            }
 
-                    try { File.Delete(path); } catch { }
-                }
+            if (FailureTracker.ShouldSkipDownload(id, language))
+            {
+                Interlocked.Increment(ref _totalRequests);
+                Interlocked.Increment(ref _completed);
+                ReportProgress();
+                return Task.FromResult(new IconPathResult(string.Empty, false));
             }
 
             var ext = Path.GetExtension(uri.AbsolutePath);
@@ -137,7 +190,7 @@ namespace AnSAM.Services
             {
                 Interlocked.Increment(ref _totalRequests);
                 ReportProgress();
-                return DownloadAsync(uri, basePath, ext);
+                return DownloadAsync(id, language, uri, basePath, ext);
             });
         }
 
@@ -146,57 +199,27 @@ namespace AnSAM.Services
         /// </summary>
         /// <param name="id">Steam application identifier used to name the file.</param>
         /// <returns>The local <see cref="Uri"/> of the cached icon if available; otherwise <c>null</c>.</returns>
-        public static Uri? TryGetCachedIconUri(int id)
+        public static Uri? TryGetCachedIconUri(int id, string? language = null, bool checkEnglishFallback = true)
         {
-            try
+            var path = TryGetCachedPath(id, language, checkEnglishFallback);
+            if (path != null && Uri.TryCreate(path, UriKind.Absolute, out var uri))
             {
-                Directory.CreateDirectory(CacheDir);
-            }
-            catch
-            {
-                return null;
-            }
-
-            var basePath = Path.Combine(CacheDir, id.ToString());
-
-            foreach (var candidateExt in new HashSet<string>(MimeToExtension.Values))
-            {
-                var path = basePath + candidateExt;
-                if (File.Exists(path))
-                {
-                    if (IsCacheValid(path))
-                    {
-#if DEBUG
-                        DebugLogger.LogDebug($"Using cached icon for {id} at {path}");
-#endif
-                        if (Uri.TryCreate(path, UriKind.Absolute, out var uri))
-                        {
-                            return uri;
-                        }
-                    }
-
-                    try { File.Delete(path); } catch { }
-                }
+                return uri;
             }
 
             return null;
         }
 
-        public static async Task<IconPathResult?> GetIconPathAsync(int id, IEnumerable<string> uris)
+        public static async Task<IconPathResult?> GetIconPathAsync(int id, IEnumerable<string> uris, string? language = null)
         {
             foreach (var url in uris)
             {
                 if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
                 {
-                    try
+                    var result = await GetIconPathAsync(id, uri, language).ConfigureAwait(false);
+                    if (!string.IsNullOrEmpty(result.Path))
                     {
-                        return await GetIconPathAsync(id, uri).ConfigureAwait(false);
-                    }
-                    catch (HttpRequestException ex)
-                    {
-#if DEBUG
-                        DebugLogger.LogDebug($"Icon download failed for {id}: {ex.Message}");
-#endif
+                        return result;
                     }
                 }
             }
@@ -204,7 +227,7 @@ namespace AnSAM.Services
             return null;
         }
 
-        private static async Task<IconPathResult> DownloadAsync(Uri uri, string basePath, string defaultExt)
+        private static async Task<IconPathResult> DownloadAsync(int id, string language, Uri uri, string basePath, string defaultExt)
         {
             await Concurrency.WaitAsync().ConfigureAwait(false);
             try
@@ -234,6 +257,7 @@ namespace AnSAM.Services
                     throw new InvalidDataException("Invalid image file");
                 }
 
+                FailureTracker.RemoveFailedRecord(id, language);
                 return new IconPathResult(path, true);
             }
             catch (Exception ex)
@@ -241,7 +265,8 @@ namespace AnSAM.Services
 #if DEBUG
                 DebugLogger.LogDebug($"Icon download failed: {ex.Message}");
 #endif
-                throw;
+                FailureTracker.RecordFailedDownload(id, language);
+                return new IconPathResult(string.Empty, false);
             }
             finally
             {
@@ -315,7 +340,25 @@ namespace AnSAM.Services
         {
             var total = Volatile.Read(ref _totalRequests);
             var completed = Volatile.Read(ref _completed);
-            ProgressChanged?.Invoke(completed, total);
+            var handlers = ProgressChanged;
+            if (handlers == null)
+            {
+                return;
+            }
+
+            foreach (Action<int, int> handler in handlers.GetInvocationList())
+            {
+                try
+                {
+                    handler(completed, total);
+                }
+                catch (Exception ex)
+                {
+#if DEBUG
+                    DebugLogger.LogDebug($"ProgressChanged handler threw: {ex.Message}");
+#endif
+                }
+            }
         }
     }
 }

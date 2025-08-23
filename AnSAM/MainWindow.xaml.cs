@@ -528,7 +528,7 @@ namespace AnSAM
             try
             {
                 var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab");
-                var iconDir = Path.Combine(baseDir, "appcache");
+                var iconDir = Path.Combine(baseDir, "ImageCache");
                 var cacheDir = Path.Combine(baseDir, "cache");
                 var gameListPath = Path.Combine(cacheDir, "games.xml");
 
@@ -756,7 +756,9 @@ namespace AnSAM
 
             try
             {
-                var cached = IconCache.TryGetCachedIconUri(ID);
+                string language = SteamLanguageResolver.GetSteamLanguage();
+
+                var cached = IconCache.TryGetCachedIconUri(ID, language);
                 if (cached != null)
                 {
                     coverAssigned = true;
@@ -771,13 +773,11 @@ namespace AnSAM
                     return;
                 }
 
-                string language = SteamLanguageResolver.GetSteamLanguage();
-
                 var url = GameImageUrlResolver.GetGameImageUrl(client, (uint)ID, language);
 
                 if (Uri.TryCreate(url, UriKind.Absolute, out var remoteUri))
                 {
-                    var result = await IconCache.GetIconPathAsync(ID, remoteUri).ConfigureAwait(false);
+                    var result = await IconCache.GetIconPathAsync(ID, remoteUri, language).ConfigureAwait(false);
                     if (Uri.TryCreate(result.Path, UriKind.Absolute, out var localUri))
                     {
                         coverAssigned = true;
