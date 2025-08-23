@@ -111,9 +111,20 @@ namespace AnSAM
                 LanguageComboBox.Items.Add(lang);
             }
 
-            var settings = ApplicationData.Current.LocalSettings;
-            var saved = settings.Values["Language"] as string;
-            string initial = ordered.Contains(saved, StringComparer.OrdinalIgnoreCase) ? saved! : osLanguage;
+            string? saved = null;
+            try
+            {
+                var settings = ApplicationData.Current.LocalSettings;
+                saved = settings.Values["Language"] as string;
+            }
+            catch (InvalidOperationException)
+            {
+                // Ignore inability to persist settings
+            }
+            string initial = saved is not null &&
+                               ordered.Contains(saved, StringComparer.OrdinalIgnoreCase)
+                               ? saved
+                               : osLanguage;
 
             LanguageComboBox.SelectedItem = initial;
             SteamLanguageResolver.OverrideLanguage = initial;
