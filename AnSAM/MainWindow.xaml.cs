@@ -692,7 +692,7 @@ namespace AnSAM
                     "ru" => "russian",
                     "ja" => "japanese",
                     "ko" => "korean",
-                    "zh" => "schinese",
+                    "zh" => "tchinese",
                     _ => "english"
                 };
 
