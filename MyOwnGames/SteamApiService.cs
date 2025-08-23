@@ -89,7 +89,7 @@ namespace MyOwnGames
                         AppId = game.appid,
                         NameEn = game.name,
                         NameLocalized = localizedName,
-                        IconUrl = GetGameImageUrl(game.appid),
+                        IconUrl = GetGameImageUrl(game.appid, targetLanguage),
                         PlaytimeForever = game.playtime_forever
                     };
 
@@ -142,10 +142,16 @@ namespace MyOwnGames
             return englishName; // Return English name as fallback
         }
 
-        private string GetGameImageUrl(int appId)
+        private string GetGameImageUrl(int appId, string language = "english")
         {
-            // Use the same pattern as AnSAM GameImageUrlResolver
-            // Priority: small_capsule -> logo -> library_600x900 -> header_image
+            // Language-aware image URL selection
+            // Priority: header image -> small capsule -> logo
+            if (language != "english")
+            {
+                // For non-English languages, try localized Store API first, then fallback to universal images
+                return $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg";
+            }
+            
             return $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg";
         }
 

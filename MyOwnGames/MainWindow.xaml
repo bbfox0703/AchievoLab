@@ -76,7 +76,8 @@
                     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                         <TextBlock Text="Language" VerticalAlignment="Center"/>
                         <ComboBox x:Name="LanguageComboBox"
-                                  Width="120">
+                                  Width="120"
+                                  SelectionChanged="LanguageComboBox_SelectionChanged">
                             <ComboBoxItem Content="english"/>
                             <ComboBoxItem Content="tchinese"/>
                             <ComboBoxItem Content="japanese"/>
@@ -120,74 +121,91 @@
             </CommandBar.PrimaryCommands>
         </CommandBar>
 
-        <!-- Center: ListView (Details-like) -->
-        <ListView Grid.Row="1"
-                  x:Name="GamesListView"
+        <!-- Center: GridView (Tile-based like AnSAM) -->
+        <GridView Grid.Row="1"
+                  x:Name="GamesGridView"
                   ItemsSource="{Binding GameItems}"
-                  SelectionMode="None">
-            <!-- Header row (column titles) -->
-            <ListView.Header>
-                <Grid Padding="8,6" ColumnSpacing="12">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="110"/>
-                        <!-- AppID -->
-                        <ColumnDefinition Width="56"/>
-                        <!-- Icon -->
-                        <ColumnDefinition Width="3*"/>
-                        <!-- English name -->
-                        <ColumnDefinition Width="3*"/>
-                        <!-- OS locale name -->
-                    </Grid.ColumnDefinitions>
-
-                    <TextBlock Grid.Column="0" Text="AppID" FontWeight="SemiBold"/>
-                    <TextBlock Grid.Column="1" Text="Game icon" FontWeight="SemiBold"/>
-                    <TextBlock Grid.Column="2" Text="English game name" FontWeight="SemiBold"/>
-                    <TextBlock Grid.Column="3" Text="OS Locale game name" FontWeight="SemiBold"/>
-                </Grid>
-            </ListView.Header>
-
-            <!-- Item row -->
-            <ListView.ItemTemplate>
+                  SelectionMode="None"
+                  IsItemClickEnabled="False"
+                  DoubleTapped="GamesGridView_DoubleTapped"
+                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                  ScrollViewer.HorizontalScrollMode="Disabled">
+            
+            <!-- Tile template -->
+            <GridView.ItemTemplate>
                 <DataTemplate x:DataType="local:GameEntry">
-                    <Grid Padding="8,6" ColumnSpacing="12">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="110"/>
-                            <ColumnDefinition Width="56"/>
-                            <ColumnDefinition Width="3*"/>
-                            <ColumnDefinition Width="3*"/>
-                        </Grid.ColumnDefinitions>
-
-                        <TextBlock Grid.Column="0" Text="{x:Bind AppId}"/>
-
-                        <Grid Grid.Column="1" Width="40" Height="40">
-                            <Image Source="{x:Bind IconUri, Mode=OneWay}" Stretch="Uniform"/>
+                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="4"
+                            Padding="8"
+                            Width="180"
+                            Height="180">
+                        <ToolTipService.ToolTip>
+                            <TextBlock Text="{x:Bind NameEn, Mode=OneWay}" TextWrapping="Wrap"/>
+                        </ToolTipService.ToolTip>
+                        
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="80"/>
+                                <!-- Image area -->
+                                <RowDefinition Height="*"/>
+                                <!-- Text area (now has more space) -->
+                            </Grid.RowDefinitions>
+                            
+                            <!-- Game image -->
+                            <Border Grid.Row="0" 
+                                    Background="{ThemeResource SystemControlBackgroundBaseLowBrush}"
+                                    CornerRadius="2">
+                                <Image Source="{x:Bind IconUri, Mode=OneWay}" 
+                                       Stretch="UniformToFill"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"/>
+                            </Border>
+                            
+                            <!-- Game info -->
+                            <StackPanel Grid.Row="1" 
+                                        Margin="0,4,0,0"
+                                        Spacing="2">
+                                <!-- Game ID -->
+                                <TextBlock Text="{x:Bind AppId}" 
+                                           FontSize="10"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           HorizontalAlignment="Left"/>
+                                
+                                <!-- Game name (localized, 2-4 lines) -->
+                                <TextBlock Text="{x:Bind DisplayName, Mode=OneWay}" 
+                                           FontSize="12"
+                                           FontWeight="Medium"
+                                           TextWrapping="Wrap"
+                                           MaxLines="3"
+                                           LineHeight="14"
+                                           TextTrimming="CharacterEllipsis"
+                                           VerticalAlignment="Top"/>
+                            </StackPanel>
                         </Grid>
-
-                        <TextBlock Grid.Column="2"
-                                   Text="{x:Bind NameEn, Mode=OneWay}"
-                                   TextTrimming="CharacterEllipsis"/>
-
-                        <TextBlock Grid.Column="3"
-                                   Text="{x:Bind NameLocalized, Mode=OneWay}"
-                                   TextTrimming="CharacterEllipsis"/>
-                    </Grid>
+                    </Border>
                 </DataTemplate>
-            </ListView.ItemTemplate>
-
-            <!-- Simple row styling -->
-            <ListView.ItemContainerStyle>
-                <Style TargetType="ListViewItem">
+            </GridView.ItemTemplate>
+            
+            <!-- Tile container styling -->
+            <GridView.ItemContainerStyle>
+                <Style TargetType="GridViewItem">
+                    <Setter Property="Margin" Value="4"/>
                     <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                    <Setter Property="VerticalContentAlignment" Value="Stretch"/>
                 </Style>
-            </ListView.ItemContainerStyle>
-
-            <!-- Virtualization -->
-            <ListView.ItemsPanel>
+            </GridView.ItemContainerStyle>
+            
+            <!-- Responsive wrapping panel -->
+            <GridView.ItemsPanel>
                 <ItemsPanelTemplate>
-                    <ItemsStackPanel/>
+                    <ItemsWrapGrid Orientation="Horizontal" 
+                                   ItemWidth="188" 
+                                   ItemHeight="188"/>
                 </ItemsPanelTemplate>
-            </ListView.ItemsPanel>
-        </ListView>
+            </GridView.ItemsPanel>
+        </GridView>
 
         <!-- Bottom: StatusBar and Log -->
         <Border Grid.Row="2" Padding="10,6" BorderThickness="1,1,0,0" CornerRadius="6"

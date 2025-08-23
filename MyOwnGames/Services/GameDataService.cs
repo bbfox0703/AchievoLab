@@ -37,7 +37,7 @@ namespace MyOwnGames.Services
                         new XAttribute("AppID", game.AppId),
                         new XAttribute("PlaytimeForever", game.PlaytimeForever),
                         new XElement("NameEN", game.NameEn ?? ""),
-                        new XElement("NameLocalized", game.NameLocalized ?? ""),
+                        new XElement($"Name_{language}", game.NameLocalized ?? ""), // Language-specific name
                         new XElement("IconURL", game.IconUrl ?? "")
                     ))
                 );
@@ -82,20 +82,44 @@ namespace MyOwnGames.Services
                 var existing = root.Elements("Game")
                     .FirstOrDefault(x => x.Attribute("AppID")?.Value == game.AppId.ToString());
 
-                var gameElement = new XElement("Game",
-                    new XAttribute("AppID", game.AppId),
-                    new XAttribute("PlaytimeForever", game.PlaytimeForever),
-                    new XElement("NameEN", game.NameEn ?? string.Empty),
-                    new XElement("NameLocalized", game.NameLocalized ?? string.Empty),
-                    new XElement("IconURL", game.IconUrl ?? string.Empty)
-                );
-
                 if (existing != null)
                 {
-                    existing.ReplaceWith(gameElement);
+                    // Update existing game with new language data
+                    existing.SetAttributeValue("PlaytimeForever", game.PlaytimeForever);
+                    
+                    // Update or add English name
+                    var nameEnElement = existing.Element("NameEN");
+                    if (nameEnElement != null)
+                        nameEnElement.Value = game.NameEn ?? string.Empty;
+                    else
+                        existing.Add(new XElement("NameEN", game.NameEn ?? string.Empty));
+                    
+                    // Update or add language-specific name
+                    var langElementName = $"Name_{language}";
+                    var langElement = existing.Element(langElementName);
+                    if (langElement != null)
+                        langElement.Value = game.NameLocalized ?? string.Empty;
+                    else
+                        existing.Add(new XElement(langElementName, game.NameLocalized ?? string.Empty));
+                    
+                    // Update or add icon URL
+                    var iconElement = existing.Element("IconURL");
+                    if (iconElement != null)
+                        iconElement.Value = game.IconUrl ?? string.Empty;
+                    else
+                        existing.Add(new XElement("IconURL", game.IconUrl ?? string.Empty));
                 }
                 else
                 {
+                    // Create new game element
+                    var gameElement = new XElement("Game",
+                        new XAttribute("AppID", game.AppId),
+                        new XAttribute("PlaytimeForever", game.PlaytimeForever),
+                        new XElement("NameEN", game.NameEn ?? string.Empty),
+                        new XElement($"Name_{language}", game.NameLocalized ?? string.Empty),
+                        new XElement("IconURL", game.IconUrl ?? string.Empty)
+                    );
+                    
                     root.Add(gameElement);
                 }
 
@@ -125,7 +149,9 @@ namespace MyOwnGames.Services
                         AppId = int.Parse(element.Attribute("AppID")?.Value ?? "0"),
                         PlaytimeForever = int.Parse(element.Attribute("PlaytimeForever")?.Value ?? "0"),
                         NameEn = element.Element("NameEN")?.Value ?? "",
-                        NameLocalized = element.Element("NameLocalized")?.Value ?? "",
+                        // Legacy fallback - try NameLocalized first, then use English
+                        NameLocalized = element.Element("NameLocalized")?.Value ?? 
+                                      element.Element("NameEN")?.Value ?? "",
                         IconUrl = element.Element("IconURL")?.Value ?? ""
                     })
                     .ToList() ?? new List<SteamGame>();
@@ -137,6 +163,57 @@ namespace MyOwnGames.Services
             {
                 DebugLogger.LogDebug($"Error loading games from XML: {ex.Message}");
                 return new List<SteamGame>();
+            }
+        }
+
+        /// <summary>
+        /// Loads games with multi-language support
+        /// </summary>
+        public async Task<List<MultiLanguageGameData>> LoadGamesWithLanguagesAsync()
+        {
+            try
+            {
+                if (!File.Exists(_xmlFilePath))
+                    return new List<MultiLanguageGameData>();
+
+                var doc = await Task.Run(() => XDocument.Load(_xmlFilePath));
+                var games = doc.Root?.Elements("Game")
+                    .Select(element =>
+                    {
+                        var gameData = new MultiLanguageGameData
+                        {
+                            AppId = int.Parse(element.Attribute("AppID")?.Value ?? "0"),
+                            PlaytimeForever = int.Parse(element.Attribute("PlaytimeForever")?.Value ?? "0"),
+                            NameEn = element.Element("NameEN")?.Value ?? "",
+                            IconUrl = element.Element("IconURL")?.Value ?? "",
+                            LocalizedNames = new Dictionary<string, string>()
+                        };
+
+                        // Load all language-specific names
+                        foreach (var nameElement in element.Elements().Where(e => e.Name.LocalName.StartsWith("Name_")))
+                        {
+                            var language = nameElement.Name.LocalName.Substring(5); // Remove "Name_" prefix
+                            gameData.LocalizedNames[language] = nameElement.Value;
+                        }
+
+                        // Legacy support - if NameLocalized exists, treat as unknown language
+                        var legacyLocalized = element.Element("NameLocalized")?.Value;
+                        if (!string.IsNullOrEmpty(legacyLocalized))
+                        {
+                            gameData.LocalizedNames["legacy"] = legacyLocalized;
+                        }
+
+                        return gameData;
+                    })
+                    .ToList() ?? new List<MultiLanguageGameData>();
+
+                DebugLogger.LogDebug($"Loaded {games.Count} games with multi-language support from {_xmlFilePath}");
+                return games;
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error loading multi-language games from XML: {ex.Message}");
+                return new List<MultiLanguageGameData>();
             }
         }
 
