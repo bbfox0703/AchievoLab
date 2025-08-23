@@ -67,29 +67,38 @@ namespace MyOwnGames.Services
                 urls.Add(header);
             }
 
-            if (!string.Equals(language, "english", StringComparison.OrdinalIgnoreCase))
-            {
-                urls.Add($"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/{appId}/header_{language}.jpg");
-            }
-            urls.Add($"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg");
+            // Fastly CDN (will be blocked if access too many times)
+            //if (!string.Equals(language, "english", StringComparison.OrdinalIgnoreCase))
+            //{
+            //    urls.Add($"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/{appId}/header_{language}.jpg");
+            //}
+            //urls.Add($"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg");
 
             // Cloudflare CDN
-            urls.Add($"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/header_{language}.jpg?l={language}");
-            urls.Add($"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg?l={language}");
+            // other language (not english) 
+            urls.Add($"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/header_{language}.jpg");
+            // english
+            urls.Add($"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg");
 
             // Steam CDN
-            urls.Add($"https://cdn.steamstatic.com/steam/apps/{appId}/header_{language}.jpg?l={language}");
-            urls.Add($"https://cdn.steamstatic.com/steam/apps/{appId}/header.jpg?l={language}");
+            // other language (not english)
+            urls.Add($"https://cdn.steamstatic.com/steam/apps/{appId}/header_{language}.jpg");
+            // english
+            urls.Add($"https://cdn.steamstatic.com/steam/apps/{appId}/header.jpg");
 
-            // Additional assets
-            urls.Add($"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/capsule_sm_120_{language}.jpg?l={language}");
-            urls.Add($"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/capsule_sm_120.jpg?l={language}");
-            urls.Add($"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/logo_{language}.png?l={language}");
-            urls.Add($"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/logo.png?l={language}");
 
             // Akamai CDN
-            urls.Add($"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/header_{language}.jpg?l={language}");
-            urls.Add($"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg?l={language}");
+            // other language (not english)
+            urls.Add($"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/header_{language}.jpg");
+            // english
+            urls.Add($"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg");
+
+            // Additional assets
+            // other language (not english)
+            urls.Add($"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/logo_{language}.png");
+            // english
+            urls.Add($"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/logo.png");
+
 
             var result = await _cache.GetImagePathAsync(appId.ToString(), urls, language, appId);
             if (!string.IsNullOrEmpty(result?.Path) && IsValidImage(result.Value.Path))
