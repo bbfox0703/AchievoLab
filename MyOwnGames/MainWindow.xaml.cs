@@ -122,42 +122,60 @@ namespace MyOwnGames
         public void AppendLog(string message)
         {
             if (_isShuttingDown) return; // Don't add logs during shutdown
-            
+
             try
             {
                 var entry = $"[{DateTime.Now:HH:mm:ss}] {message}";
-                LogEntries.Add(entry);
-                
-                // Auto-scroll to bottom after a short delay to ensure UI is updated
-                DispatcherQueue?.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+
+                void addEntry()
                 {
-                    if (_isShuttingDown) return; // Double check during async execution
-                    
-                    try
+                    if (_isShuttingDown) return;
+                    LogEntries.Add(entry);
+
+                    // Auto-scroll to bottom after a short delay to ensure UI is updated
+                    DispatcherQueue?.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
                     {
-                        LogScrollViewer?.ScrollToVerticalOffset(LogScrollViewer.ScrollableHeight);
-                    }
-                    catch (System.Runtime.InteropServices.COMException)
-                    {
-                        // Ignore COM exceptions during shutdown
-                    }
-                    catch
-                    {
-                        // Fallback: scroll ListView to last item
+                        if (_isShuttingDown) return; // Double check during async execution
+
                         try
                         {
-                            LogList?.ScrollIntoView(LogEntries[LogEntries.Count - 1]);
+                            LogScrollViewer?.ScrollToVerticalOffset(LogScrollViewer.ScrollableHeight);
                         }
                         catch (System.Runtime.InteropServices.COMException)
                         {
                             // Ignore COM exceptions during shutdown
                         }
-                        catch { }
-                    }
-                });
+                        catch
+                        {
+                            // Fallback: scroll ListView to last item
+                            try
+                            {
+                                LogList?.ScrollIntoView(LogEntries[LogEntries.Count - 1]);
+                            }
+                            catch (System.Runtime.InteropServices.COMException)
+                            {
+                                // Ignore COM exceptions during shutdown
+                            }
+                            catch { }
+                        }
+                    });
+                }
+
+                if (DispatcherQueue?.HasThreadAccess == false)
+                {
+                    DispatcherQueue?.TryEnqueue(addEntry);
+                }
+                else
+                {
+                    addEntry();
+                }
             }
-            catch (Exception) when (_isShuttingDown)
+            catch (Exception ex)
             {
+                if (!_isShuttingDown)
+                {
+                    DebugLogger.LogDebug($"Exception in AppendLog: {ex.Message}");
+                }
                 // Ignore all exceptions during shutdown
             }
         }
