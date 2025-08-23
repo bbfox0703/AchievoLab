@@ -87,7 +87,8 @@ namespace CommonUtilities
         /// <param name="appId">The Steam App ID</param>
         /// <param name="language">Language code</param>
         /// <param name="gameName">Optional game name for reference</param>
-        public void RecordFailedDownload(int appId, string language = "english", string? gameName = null)
+        /// <param name="failedAt">Optional timestamp of when the failure occurred</param>
+        public void RecordFailedDownload(int appId, string language = "english", string? gameName = null, DateTime? failedAt = null)
         {
             lock (_lockObject)
             {
@@ -132,17 +133,19 @@ namespace CommonUtilities
                     var languageElement = gameElement.Elements("Language")
                         .FirstOrDefault(l => l.Attribute("Code")?.Value == language);
 
+                    var timestamp = (failedAt ?? DateTime.Now).ToString("yyyy-MM-dd HH:mm:ss");
+
                     if (languageElement == null)
                     {
                         languageElement = new XElement("Language",
                             new XAttribute("Code", language),
-                            new XAttribute("LastFailed", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")));
+                            new XAttribute("LastFailed", timestamp));
                         gameElement.Add(languageElement);
                     }
                     else
                     {
                         // Update existing record
-                        languageElement.SetAttributeValue("LastFailed", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                        languageElement.SetAttributeValue("LastFailed", timestamp);
                     }
 
                     // Save with backup mechanism
@@ -336,13 +339,8 @@ namespace CommonUtilities
 
                     if (appId.HasValue && DateTime.TryParse(lastFailedStr, out var lastFailed))
                     {
-                        // Migrate as English (default) language record
-                        // Temporarily set the timestamp to migrate properly
-                        var tempElement = new XElement("Language",
-                            new XAttribute("Code", "english"),
-                            new XAttribute("LastFailed", lastFailedStr));
-
-                        RecordFailedDownload(appId.Value, "english", gameName);
+                        // Migrate as English (default) language record using original timestamp
+                        RecordFailedDownload(appId.Value, "english", gameName, lastFailed);
                         migratedCount++;
                     }
                 }
