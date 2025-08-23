@@ -104,4 +104,52 @@ public class IconCacheTests
 
         Assert.Equal(new (int completed, int total)[] { (1, 1), (1, 2), (2, 2) }, events.ToArray());
     }
+
+    [Fact]
+    public async Task InvalidDownloadIsIgnored()
+    {
+        SteamLanguageResolver.OverrideLanguage = "english";
+        try
+        {
+            var cacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab", "ImageCache", "english");
+            Directory.CreateDirectory(cacheDir);
+
+            var id = Random.Shared.Next(300001, 400000);
+            foreach (var file in Directory.EnumerateFiles(cacheDir, $"{id}.*"))
+            {
+                try { File.Delete(file); } catch { }
+            }
+
+            int port;
+            using (var l = new TcpListener(IPAddress.Loopback, 0))
+            {
+                l.Start();
+                port = ((IPEndPoint)l.LocalEndpoint).Port;
+            }
+            var prefix = $"http://localhost:{port}/";
+            using var listener = new HttpListener();
+            listener.Prefixes.Add(prefix);
+            listener.Start();
+            var serverTask = Task.Run(async () =>
+            {
+                var ctx = await listener.GetContextAsync();
+                var data = new byte[] { 1, 2, 3, 4 };
+                ctx.Response.ContentType = "text/plain";
+                ctx.Response.ContentLength64 = data.Length;
+                await ctx.Response.OutputStream.WriteAsync(data);
+                ctx.Response.Close();
+                listener.Stop();
+            });
+
+            var result = await IconCache.GetIconPathAsync(id, new[] { prefix + "bad.png" });
+            await serverTask;
+
+            Assert.Null(result);
+            Assert.False(File.Exists(Path.Combine(cacheDir, $"{id}.png")));
+        }
+        finally
+        {
+            SteamLanguageResolver.OverrideLanguage = null;
+        }
+    }
 }

@@ -136,9 +136,8 @@ namespace AnSAM.Services
         /// <param name="uri">Remote URI for the cover image.</param>
         public static Task<IconPathResult> GetIconPathAsync(int id, Uri uri)
         {
-            Directory.CreateDirectory(CacheDir);
-
-            var basePath = Path.Combine(CacheDir, id.ToString());
+            var cacheDir = CacheDir;
+            var basePath = Path.Combine(cacheDir, id.ToString());
 
             if (InFlight.TryGetValue(basePath, out var existing))
             {
@@ -183,16 +182,17 @@ namespace AnSAM.Services
         /// <returns>The local <see cref="Uri"/> of the cached icon if available; otherwise <c>null</c>.</returns>
         public static Uri? TryGetCachedIconUri(int id)
         {
+            string cacheDir;
             try
             {
-                Directory.CreateDirectory(CacheDir);
+                cacheDir = CacheDir;
             }
             catch
             {
                 return null;
             }
 
-            var basePath = Path.Combine(CacheDir, id.ToString());
+            var basePath = Path.Combine(cacheDir, id.ToString());
 
             foreach (var candidateExt in new HashSet<string>(MimeToExtension.Values))
             {
@@ -227,7 +227,7 @@ namespace AnSAM.Services
                     {
                         return await GetIconPathAsync(id, uri).ConfigureAwait(false);
                     }
-                    catch (HttpRequestException ex)
+                    catch (Exception ex) when (ex is HttpRequestException or InvalidDataException)
                     {
 #if DEBUG
                         DebugLogger.LogDebug($"Icon download failed for {id}: {ex.Message}");
