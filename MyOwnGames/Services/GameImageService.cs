@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Threading.Tasks;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Linq;
 using CommonUtilities;
 
 namespace MyOwnGames.Services
@@ -60,16 +61,52 @@ namespace MyOwnGames.Services
                 _failureTracker.RecordFailedDownload(appId, language);
             }
 
-            var languageSpecificUrls = new List<string>();
-            var englishUrls = new List<string>();
+            var languageSpecificUrlMap = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            var englishUrlMap = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+
+            static void AddUrl(Dictionary<string, List<string>> map, string url)
+            {
+                if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+                {
+                    var domain = uri.Host;
+                    if (!map.TryGetValue(domain, out var list))
+                    {
+                        list = new List<string>();
+                        map[domain] = list;
+                    }
+                    list.Add(url);
+                }
+            }
+
+            static List<string> RoundRobin(Dictionary<string, List<string>> map)
+            {
+                var domainQueues = map.ToDictionary(kv => kv.Key, kv => new Queue<string>(kv.Value));
+                var keys = domainQueues.Keys.ToList();
+                var result = new List<string>();
+                bool added;
+                do
+                {
+                    added = false;
+                    foreach (var key in keys)
+                    {
+                        var queue = domainQueues[key];
+                        if (queue.Count > 0)
+                        {
+                            result.Add(queue.Dequeue());
+                            added = true;
+                        }
+                    }
+                } while (added);
+                return result;
+            }
 
             var header = await GetHeaderImageFromStoreApiAsync(appId, language);
             if (!string.IsNullOrEmpty(header))
             {
-                languageSpecificUrls.Add(header);
+                AddUrl(languageSpecificUrlMap, header);
                 if (string.Equals(language, "english", StringComparison.OrdinalIgnoreCase))
                 {
-                    englishUrls.Add(header);
+                    AddUrl(englishUrlMap, header);
                 }
             }
 
@@ -78,34 +115,36 @@ namespace MyOwnGames.Services
                 var englishHeader = await GetHeaderImageFromStoreApiAsync(appId, "english");
                 if (!string.IsNullOrEmpty(englishHeader))
                 {
-                    englishUrls.Add(englishHeader);
+                    AddUrl(englishUrlMap, englishHeader);
                 }
             }
 
             // Fastly CDN (will be blocked if access too many times)
             //if (!string.Equals(language, "english", StringComparison.OrdinalIgnoreCase))
             //{
-            //    languageSpecificUrls.Add($"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/{appId}/header_{language}.jpg");
+            //    AddUrl(languageSpecificUrlMap, $"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/{appId}/header_{language}.jpg");
             //}
-            //englishUrls.Add($"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg");
+            //AddUrl(englishUrlMap, $"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg");
 
             // Cloudflare CDN
-            languageSpecificUrls.Add($"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/header_{language}.jpg");
-            englishUrls.Add($"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg");
+            AddUrl(languageSpecificUrlMap, $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/header_{language}.jpg");
+            AddUrl(englishUrlMap, $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg");
 
             // Steam CDN
-            languageSpecificUrls.Add($"https://cdn.steamstatic.com/steam/apps/{appId}/header_{language}.jpg");
-            englishUrls.Add($"https://cdn.steamstatic.com/steam/apps/{appId}/header.jpg");
+            AddUrl(languageSpecificUrlMap, $"https://cdn.steamstatic.com/steam/apps/{appId}/header_{language}.jpg");
+            AddUrl(englishUrlMap, $"https://cdn.steamstatic.com/steam/apps/{appId}/header.jpg");
 
             // Akamai CDN
-            languageSpecificUrls.Add($"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/header_{language}.jpg");
-            englishUrls.Add($"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg");
+            AddUrl(languageSpecificUrlMap, $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/header_{language}.jpg");
+            AddUrl(englishUrlMap, $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg");
 
             // Additional assets
-            languageSpecificUrls.Add($"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/logo_{language}.png");
-            englishUrls.Add($"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/logo.png");
+            AddUrl(languageSpecificUrlMap, $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/logo_{language}.png");
+            AddUrl(englishUrlMap, $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/logo.png");
+            var languageUrls = RoundRobin(languageSpecificUrlMap);
+            var englishUrls = RoundRobin(englishUrlMap);
 
-            var result = await _cache.GetImagePathAsync(appId.ToString(), languageSpecificUrls, language, appId);
+            var result = await _cache.GetImagePathAsync(appId.ToString(), languageUrls, language, appId);
             if (!string.IsNullOrEmpty(result?.Path) && IsValidImage(result.Value.Path))
             {
                 _imageCache[cacheKey] = result.Value.Path;
