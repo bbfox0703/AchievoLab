@@ -206,13 +206,19 @@ namespace MyOwnGames
             // Set DataContext for binding
             RootGrid.DataContext = this;
 
-            // Load saved games on startup
-            _ = LoadSavedGamesAsync();
+            // Load saved games after window is displayed
+            Loaded += MainWindow_Loaded;
 
             // Clean up old failed download records on startup
             _ = CleanupOldFailedRecordsAsync();
 
             UpdateGetGamesButtonState();
+        }
+
+        private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
+        {
+            Loaded -= MainWindow_Loaded;
+            await LoadSavedGamesAsync();
         }
 
         private void OnImageDownloadCompleted(int appId, string? imagePath)
@@ -277,6 +283,7 @@ namespace MyOwnGames
 
         private async Task LoadSavedGamesAsync()
         {
+            IsLoading = true;
             try
             {
                 AppendLog("Loading saved games...");
@@ -293,24 +300,31 @@ namespace MyOwnGames
 
                 GameItems.Clear();
                 AllGameItems.Clear();
-                foreach (var game in savedGamesWithLanguages)
+
+                await Task.Run(() =>
                 {
-                    var entry = new GameEntry
+                    foreach (var game in savedGamesWithLanguages)
                     {
-                        AppId = game.AppId,
-                        NameEn = game.NameEn,
-                        LocalizedNames = new Dictionary<string, string>(game.LocalizedNames),
-                        CurrentLanguage = currentLanguage,
-                        IconUri = "ms-appx:///Assets/no_icon.png" // Will be updated async
-                    };
+                        var entry = new GameEntry
+                        {
+                            AppId = game.AppId,
+                            NameEn = game.NameEn,
+                            LocalizedNames = new Dictionary<string, string>(game.LocalizedNames),
+                            CurrentLanguage = currentLanguage,
+                            IconUri = "ms-appx:///Assets/no_icon.png" // Will be updated async
+                        };
 
-                    GameItems.Add(entry);
-                    AllGameItems.Add(entry);
+                        DispatcherQueue.TryEnqueue(() =>
+                        {
+                            GameItems.Add(entry);
+                            AllGameItems.Add(entry);
+                        });
 
-                    // Load image asynchronously in a thread-safe way with language
-                    _ = LoadGameImageAsync(entry, game.AppId, currentLanguage);
-                }
-                
+                        // Load image asynchronously in a thread-safe way with language
+                        _ = LoadGameImageAsync(entry, game.AppId, currentLanguage);
+                    }
+                });
+
                 var exportInfo = await _dataService.GetExportInfoAsync();
                 if (exportInfo != null)
                 {
@@ -327,6 +341,10 @@ namespace MyOwnGames
             {
                 StatusText = $"Error loading saved games: {ex.Message}";
                 AppendLog($"Error loading saved games: {ex.Message}");
+            }
+            finally
+            {
+                IsLoading = false;
             }
         }
 
