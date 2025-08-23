@@ -437,7 +437,7 @@ namespace MyOwnGames
                 return;
             }
 
-            await EnsureSteamIdHashConsistencyAsync(steamId64);
+            await EnsureSteamIdHashConsistencyAsync(steamId64!);
 
             string? xmlPath = null;
             
@@ -474,8 +474,8 @@ namespace MyOwnGames
                 var existingGamesData = await _dataService.LoadGamesWithLanguagesAsync();
                 
                 // Use real Steam API service with selected language
-                _steamService = new SteamApiService(apiKey);
-                var total = await _steamService.GetOwnedGamesAsync(steamId64, selectedLanguage, async game =>
+                _steamService = new SteamApiService(apiKey!);
+                var total = await _steamService.GetOwnedGamesAsync(steamId64!, selectedLanguage, async game =>
                 {
                     // Check if this game has data for the current language
                     var existingGameData = existingGamesData.FirstOrDefault(g => g.AppId == game.AppId);
