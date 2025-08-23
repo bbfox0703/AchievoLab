@@ -4,6 +4,9 @@
     <IsPackable>false</IsPackable>
     <Nullable>enable</Nullable>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)'=='Release'">
+    <PublishReadyToRun>false</PublishReadyToRun>
+  </PropertyGroup>
   <ItemGroup>
     <Compile Include="../AnSAM/Services/IconCache.cs" Link="IconCache.cs" />
     <Compile Include="../AnSAM/Services/GameCacheService.cs" Link="GameCacheService.cs" />
