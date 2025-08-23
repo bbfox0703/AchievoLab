@@ -10,6 +10,18 @@ A 64-bit Steam achievement management GUI built with WinUI 3 and .NET 8, compati
 - Fetches, caches, and reuses cover icons for games.
 - Allows launching games directly from the GUI via right-click context menu.
 - Retrieves your owned game list and localized game titles (if available) through the Steam Web API.
+ 
+## Prerequisites
+These apps use framework-dependent deployments. Ensure the target machine has the following runtimes installed:
+
+- [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/en-us/download/dotnet/8.0)
+- [Windows App SDK 1.7 Runtime](https://learn.microsoft.com/windows/apps/windows-app-sdk/)
+
+You can install them via [winget](https://learn.microsoft.com/windows/package-manager/winget/):
+
+```powershell
+winget install Microsoft.DotNet.DesktopRuntime.8 Microsoft.WindowsAppSDK.1.7
+```
 
 ## Program List
 1. **./AnASM/AnASM.exe**  

@@ -69,6 +69,8 @@
     <OutputPath>..\output\Release\$(Platform)\$(TargetFramework)\RunGame\</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+    <SelfContained>false</SelfContained>
+    <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
   </PropertyGroup>
   
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x86'">
