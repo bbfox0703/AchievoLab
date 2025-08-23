@@ -18,9 +18,11 @@ namespace MyOwnGames.Services
 
         public GameImageService()
         {
+            // Initialize the HTTP client used for downloading images.
             _httpClient = new HttpClient();
             _httpClient.DefaultRequestHeaders.Add("User-Agent", "MyOwnGames/1.0");
 
+            // Configure the local cache for storing image files.
             var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "AchievoLab", "ImageCache");
             _cache = new GameImageCache(baseDir, new ImageFailureTrackingService());
