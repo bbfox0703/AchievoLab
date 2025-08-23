@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Threading.Tasks;
@@ -11,99 +12,147 @@ namespace MyOwnGames.Services
     public class GameImageService : IDisposable
     {
         private readonly HttpClient _httpClient;
-        private readonly string _cacheDirectory;
-        private readonly Dictionary<int, string> _imageCache = new();
+        private readonly string _baseCacheDirectory;
+        private readonly Dictionary<string, string> _imageCache = new(); // Changed key to string for language support
         private readonly DispatcherQueue _dispatcherQueue;
-        private readonly FailedDownloadService _failedDownloadService;
+        private readonly ImageFailureTrackingService _imageFailureService;
+        private string _currentLanguage = "english";
         
         // Event to notify when an image download completes
         public event Action<int, string?>? ImageDownloadCompleted;
+        
+        public void SetLanguage(string language)
+        {
+            if (_currentLanguage != language)
+            {
+                _currentLanguage = language;
+                _imageCache.Clear(); // Clear memory cache when language changes
+            }
+        }
+        
+        private string GetLanguageCacheDirectory(string language)
+        {
+            var langDir = Path.Combine(_baseCacheDirectory, language);
+            Directory.CreateDirectory(langDir);
+            return langDir;
+        }
 
         public GameImageService()
         {
-            // Configure HttpClient with timeout and retry settings like steam-friend-history
+            // Configure HttpClient with timeout and retry settings
             _httpClient = new HttpClient();
             _httpClient.DefaultRequestHeaders.Add("User-Agent", "MyOwnGames/1.0");
-            _httpClient.Timeout = TimeSpan.FromSeconds(10); // Shorter timeout like steam-friend-history
+            _httpClient.Timeout = TimeSpan.FromSeconds(8); // Reduced timeout for faster failure detection
             
-            // Create cache directory
-            _cacheDirectory = Path.Combine(
+            // Create base cache directory
+            _baseCacheDirectory = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "AchievoLab", "ImageCache");
-            Directory.CreateDirectory(_cacheDirectory);
+            Directory.CreateDirectory(_baseCacheDirectory);
 
             // Get current UI dispatcher for thread-safe operations
             _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
-            _failedDownloadService = new FailedDownloadService();
+            _imageFailureService = new ImageFailureTrackingService();
         }
 
-        public async Task<string?> GetGameImageAsync(int appId)
+        public async Task<string?> GetGameImageAsync(int appId, string? language = null)
         {
+            language ??= _currentLanguage;
+            var cacheKey = $"{appId}_{language}";
+            
             // Check memory cache first
-            if (_imageCache.TryGetValue(appId, out var cachedPath))
+            if (_imageCache.TryGetValue(cacheKey, out var cachedPath))
             {
                 return cachedPath;
             }
 
-            // Check disk cache
-            string fileName = $"{appId}_header.jpg";
-            string filePath = Path.Combine(_cacheDirectory, fileName);
+            // 1. Check language-specific cache directory first
+            var langCacheDir = GetLanguageCacheDirectory(language);
+            string fileName = $"{appId}.jpg";
+            string langFilePath = Path.Combine(langCacheDir, fileName);
             
-            if (!File.Exists(filePath))
+            if (File.Exists(langFilePath))
             {
-                // Check if we should skip download due to recent failures
-                if (_failedDownloadService.ShouldSkipDownload(appId))
-                {
-                    return null;
-                }
+                _imageCache[cacheKey] = langFilePath;
+                return langFilePath;
+            }
 
-                // Download image
-                var downloadSuccess = await DownloadGameImageAsync(appId, filePath);
+            // 2. Check general cache directory (fallback)
+            string generalFilePath = Path.Combine(_baseCacheDirectory, fileName);
+            if (File.Exists(generalFilePath))
+            {
+                _imageCache[cacheKey] = generalFilePath;
+                return generalFilePath;
+            }
+
+            // 3. Try to download language-specific image
+            if (!_imageFailureService.ShouldSkipDownload(appId, language))
+            {
+                var downloadSuccess = await DownloadGameImageAsync(appId, langFilePath, language);
                 
-                if (!downloadSuccess || !File.Exists(filePath))
+                if (downloadSuccess && File.Exists(langFilePath))
                 {
-                    // Record failed download
-                    _failedDownloadService.RecordFailedDownload(appId);
-                    // Notify that download failed
-                    ImageDownloadCompleted?.Invoke(appId, null);
-                    return null;
+                    // Language-specific download succeeded
+                    _imageFailureService.RemoveFailedRecord(appId, language);
+                    _imageCache[cacheKey] = langFilePath;
+                    ImageDownloadCompleted?.Invoke(appId, langFilePath);
+                    return langFilePath;
                 }
                 else
                 {
-                    // Remove any previous failed record since download succeeded
-                    _failedDownloadService.RemoveFailedRecord(appId);
-                    // Notify that download completed successfully
-                    ImageDownloadCompleted?.Invoke(appId, filePath);
+                    // Language-specific download failed, record it
+                    _imageFailureService.RecordFailedDownload(appId, language);
                 }
             }
 
-            if (File.Exists(filePath))
+            // 4. Fallback: Try to download general image (english/universal)
+            if (!_imageFailureService.ShouldSkipDownload(appId, "english"))
             {
-                // Cache the path
-                _imageCache[appId] = filePath;
-                return filePath;
+                var fallbackSuccess = await DownloadGameImageAsync(appId, generalFilePath, "english");
+                
+                if (fallbackSuccess && File.Exists(generalFilePath))
+                {
+                    // Fallback download succeeded, save to general cache
+                    _imageFailureService.RemoveFailedRecord(appId, "english");
+                    _imageCache[cacheKey] = generalFilePath;
+                    ImageDownloadCompleted?.Invoke(appId, generalFilePath);
+                    return generalFilePath;
+                }
+                else
+                {
+                    // Fallback download also failed
+                    _imageFailureService.RecordFailedDownload(appId, "english");
+                }
             }
 
+            // 5. No image available, return no_icon.png path
+            var noIconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "no_icon.png");
+            if (File.Exists(noIconPath))
+            {
+                return noIconPath;
+            }
+
+            // 6. Final fallback - return null if even no_icon.png doesn't exist
+            ImageDownloadCompleted?.Invoke(appId, null);
             return null;
         }
 
-        private async Task<bool> DownloadGameImageAsync(int appId, string filePath)
+        private async Task<bool> DownloadGameImageAsync(int appId, string filePath, string language = "english")
         {
             try
             {
-                // Phase 1: Steam-friend-history style rules (Store API based)
-                DebugLogger.LogDebug($"Phase 1: Trying steam-friend-history style download for {appId}");
-                var steamFriendHistoryUrls = new[]
+                // Phase 1: Language-aware Store API based download
+                DebugLogger.LogDebug($"Phase 1: Trying language-aware download for {appId} (language: {language})");
+                var storeApiUrls = new[]
                 {
-                    // 1. Steam Store API header_image (highest priority - like steam-friend-history)
-                    await GetHeaderImageFromStoreApiAsync(appId),
-                    // 2. Fallback CDN URLs for header images
+                    // 1. Steam Store API header_image with language parameter
+                    await GetHeaderImageFromStoreApiAsync(appId, language),
+                    // 2. Fallback CDN URLs for header images - still universal
                     $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg",
-                    $"https://cdn.steamstatic.com/steam/apps/{appId}/header.jpg", 
-                    $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg"
+                    $"https://cdn.steamstatic.com/steam/apps/{appId}/header.jpg"
                 };
 
-                foreach (var url in steamFriendHistoryUrls)
+                foreach (var url in storeApiUrls)
                 {
                     if (string.IsNullOrEmpty(url)) continue;
                     
@@ -114,35 +163,20 @@ namespace MyOwnGames.Services
                     }
                 }
 
-                // Phase 2: AnSAM style rules (SteamClient API based) - fallback
-                DebugLogger.LogDebug($"Phase 1 failed, Phase 2: Trying AnSAM style download for {appId}");
-                var ansamUrls = await GetAnsamStyleUrlsAsync(appId);
-                
-                foreach (var url in ansamUrls)
+                // Phase 2: Reduced retry fallback URLs
+                DebugLogger.LogDebug($"Phase 1 failed, Phase 2: Trying essential fallback URLs for {appId}");
+                var fallbackUrls = new[]
                 {
-                    if (string.IsNullOrEmpty(url)) continue;
-                    
+                    $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/capsule_sm_120.jpg",
+                    $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/logo.png",
+                    $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg"
+                };
+                
+                foreach (var url in fallbackUrls)
+                {
                     if (await TryDownloadWithRetryAsync(url, filePath))
                     {
                         DebugLogger.LogDebug($"Phase 2 success: Downloaded {appId} from {url}");
-                        return true;
-                    }
-                }
-
-                // Phase 3: Last resort - additional fallback URLs
-                DebugLogger.LogDebug($"Phase 2 failed, Phase 3: Trying additional fallback URLs for {appId}");
-                var lastResortUrls = new[]
-                {
-                    $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/logo.png",
-                    $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/capsule_231x87.jpg",
-                    $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg"
-                };
-
-                foreach (var url in lastResortUrls)
-                {
-                    if (await TryDownloadWithRetryAsync(url, filePath))
-                    {
-                        DebugLogger.LogDebug($"Phase 3 success: Downloaded {appId} from {url}");
                         return true;
                     }
                 }
@@ -157,12 +191,12 @@ namespace MyOwnGames.Services
             }
         }
 
-        private async Task<string?> GetHeaderImageFromStoreApiAsync(int appId)
+        private async Task<string?> GetHeaderImageFromStoreApiAsync(int appId, string language = "english")
         {
             try
             {
-                // Similar to steam-friend-history's fetch_game_info() function
-                var storeApiUrl = $"https://store.steampowered.com/api/appdetails?appids={appId}&l=english";
+                // Language-aware Store API call
+                var storeApiUrl = $"https://store.steampowered.com/api/appdetails?appids={appId}&l={language}";
                 using var response = await _httpClient.GetAsync(storeApiUrl);
                 
                 if (response.IsSuccessStatusCode)
@@ -189,8 +223,8 @@ namespace MyOwnGames.Services
                     }
                 }
                 
-                // Add delay like steam-friend-history
-                await Task.Delay(1000);
+                // Reduced delay for faster processing
+                await Task.Delay(500);
             }
             catch (Exception ex)
             {
@@ -200,126 +234,38 @@ namespace MyOwnGames.Services
             return null;
         }
 
-        private async Task<string[]> GetAnsamStyleUrlsAsync(int appId)
-        {
-            var urls = new List<string>();
-            
-            try
-            {
-                // Try to get app details from Steam Store API to extract image metadata
-                var storeApiUrl = $"https://store.steampowered.com/api/appdetails?appids={appId}&l=english";
-                using var response = await _httpClient.GetAsync(storeApiUrl);
-                
-                if (response.IsSuccessStatusCode)
-                {
-                    var jsonContent = await response.Content.ReadAsStringAsync();
-                    
-                    // Extract various image types similar to AnSAM's GameImageUrlResolver
-                    // Look for small_capsule, logo, library images, etc.
-                    
-                    // Small capsule (highest priority in AnSAM)
-                    var capsuleMatch = ExtractJsonValue(jsonContent, "capsule_image");
-                    if (!string.IsNullOrEmpty(capsuleMatch))
-                    {
-                        urls.Add(capsuleMatch.Replace("\\/", "/"));
-                    }
-                    
-                    // Header image
-                    var headerMatch = ExtractJsonValue(jsonContent, "header_image");
-                    if (!string.IsNullOrEmpty(headerMatch))
-                    {
-                        urls.Add(headerMatch.Replace("\\/", "/"));
-                    }
-                    
-                    // Logo
-                    var logoMatch = ExtractJsonValue(jsonContent, "logo");
-                    if (!string.IsNullOrEmpty(logoMatch))
-                    {
-                        urls.Add(logoMatch.Replace("\\/", "/"));
-                    }
-                    
-                    // Screenshots (first one)
-                    var screenshotMatch = ExtractFirstScreenshot(jsonContent);
-                    if (!string.IsNullOrEmpty(screenshotMatch))
-                    {
-                        urls.Add(screenshotMatch.Replace("\\/", "/"));
-                    }
-                }
-                
-                // Add AnSAM-style constructed URLs as fallback
-                urls.AddRange(new[]
-                {
-                    // Small capsule patterns (AnSAM style)
-                    $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/capsule_sm_120.jpg",
-                    $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/capsule_184x69.jpg",
-                    // Logo patterns
-                    $"https://cdn.steamstatic.com/steamcommunity/public/images/apps/{appId}/logo.jpg",
-                    // Library patterns  
-                    $"https://shared.cloudflare.steamstatic.com/steam/apps/{appId}/library_600x900.jpg",
-                    $"https://shared.cloudflare.steamstatic.com/steam/apps/{appId}/library_hero.jpg"
-                });
-            }
-            catch (Exception ex)
-            {
-                DebugLogger.LogDebug($"Error getting AnSAM style URLs for {appId}: {ex.Message}");
-                
-                // Fallback to constructed URLs only
-                urls.AddRange(new[]
-                {
-                    $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/capsule_sm_120.jpg",
-                    $"https://cdn.steamstatic.com/steamcommunity/public/images/apps/{appId}/logo.jpg",
-                    $"https://shared.cloudflare.steamstatic.com/steam/apps/{appId}/library_600x900.jpg"
-                });
-            }
-            
-            return urls.ToArray();
-        }
 
-        private string? ExtractJsonValue(string json, string key)
-        {
-            var searchKey = $"\"{key}\":\"";
-            var startIndex = json.IndexOf(searchKey);
-            if (startIndex >= 0)
-            {
-                startIndex += searchKey.Length;
-                var endIndex = json.IndexOf("\"", startIndex);
-                if (endIndex > startIndex)
-                {
-                    return json.Substring(startIndex, endIndex - startIndex);
-                }
-            }
-            return null;
-        }
-
-        private string? ExtractFirstScreenshot(string json)
-        {
-            // Look for first screenshot in screenshots array
-            var screenshotsStart = json.IndexOf("\"screenshots\":");
-            if (screenshotsStart >= 0)
-            {
-                var pathFullStart = json.IndexOf("\"path_full\":\"", screenshotsStart);
-                if (pathFullStart >= 0)
-                {
-                    pathFullStart += 13; // Length of "path_full":"
-                    var pathFullEnd = json.IndexOf("\"", pathFullStart);
-                    if (pathFullEnd > pathFullStart)
-                    {
-                        return json.Substring(pathFullStart, pathFullEnd - pathFullStart);
-                    }
-                }
-            }
-            return null;
-        }
-
-        public void ClearCache()
+        public void ClearCache(string? specificLanguage = null)
         {
             try
             {
-                _imageCache.Clear();
-                if (Directory.Exists(_cacheDirectory))
+                if (specificLanguage != null)
                 {
-                    Directory.Delete(_cacheDirectory, true);
-                    Directory.CreateDirectory(_cacheDirectory);
+                    // Clear cache for specific language only
+                    var langCacheDir = GetLanguageCacheDirectory(specificLanguage);
+                    if (Directory.Exists(langCacheDir))
+                    {
+                        Directory.Delete(langCacheDir, true);
+                        Directory.CreateDirectory(langCacheDir);
+                    }
+                    // Clear memory cache entries for this language
+                    var keysToRemove = _imageCache.Keys.Where(k => k.EndsWith($"_{specificLanguage}")).ToList();
+                    foreach (var key in keysToRemove)
+                    {
+                        _imageCache.Remove(key);
+                    }
+                    DebugLogger.LogDebug($"Cleared cache for language: {specificLanguage}");
+                }
+                else
+                {
+                    // Clear all caches (both general and language-specific)
+                    _imageCache.Clear();
+                    if (Directory.Exists(_baseCacheDirectory))
+                    {
+                        Directory.Delete(_baseCacheDirectory, true);
+                        Directory.CreateDirectory(_baseCacheDirectory); // Recreate base directory
+                    }
+                    DebugLogger.LogDebug("Cleared all image caches");
                 }
             }
             catch (Exception ex)
@@ -327,11 +273,47 @@ namespace MyOwnGames.Services
                 DebugLogger.LogDebug($"Error clearing image cache: {ex.Message}");
             }
         }
+        
+        /// <summary>
+        /// Clear only general cache directory (preserve language-specific caches)
+        /// </summary>
+        public void ClearGeneralCache()
+        {
+            try
+            {
+                // Only clear files directly in the base cache directory, not subdirectories
+                var files = Directory.GetFiles(_baseCacheDirectory, "*.jpg");
+                foreach (var file in files)
+                {
+                    File.Delete(file);
+                }
+                
+                // Clear memory cache entries that point to general cache
+                var keysToRemove = new List<string>();
+                foreach (var kvp in _imageCache)
+                {
+                    if (kvp.Value.StartsWith(_baseCacheDirectory) && !kvp.Value.Contains(Path.DirectorySeparatorChar + "english" + Path.DirectorySeparatorChar))
+                    {
+                        keysToRemove.Add(kvp.Key);
+                    }
+                }
+                foreach (var key in keysToRemove)
+                {
+                    _imageCache.Remove(key);
+                }
+                
+                DebugLogger.LogDebug("Cleared general image cache");
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error clearing general image cache: {ex.Message}");
+            }
+        }
 
         private async Task<bool> TryDownloadWithRetryAsync(string url, string filePath)
         {
-            const int maxRetries = 3;
-            const int backoffTimeSeconds = 30;
+            const int maxRetries = 2; // Reduced retries
+            const int backoffTimeSeconds = 15; // Reduced backoff time
             
             for (int attempt = 1; attempt <= maxRetries; attempt++)
             {
@@ -363,7 +345,7 @@ namespace MyOwnGames.Services
                     DebugLogger.LogDebug($"HTTP error downloading from {url} (attempt {attempt}): {ex.Message}");
                     if (attempt < maxRetries)
                     {
-                        await Task.Delay(TimeSpan.FromSeconds(10)); // Longer delay for HTTP errors
+                        await Task.Delay(TimeSpan.FromSeconds(5)); // Reduced delay for HTTP errors
                     }
                 }
                 catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
@@ -371,7 +353,7 @@ namespace MyOwnGames.Services
                     DebugLogger.LogDebug($"Timeout downloading from {url} (attempt {attempt})");
                     if (attempt < maxRetries)
                     {
-                        await Task.Delay(TimeSpan.FromSeconds(5)); // Medium delay for timeouts
+                        await Task.Delay(TimeSpan.FromSeconds(3)); // Reduced delay for timeouts
                     }
                 }
                 catch (Exception ex)
@@ -379,7 +361,7 @@ namespace MyOwnGames.Services
                     DebugLogger.LogDebug($"Unexpected error downloading from {url} (attempt {attempt}): {ex.Message}");
                     if (attempt < maxRetries)
                     {
-                        await Task.Delay(TimeSpan.FromSeconds(10));
+                        await Task.Delay(TimeSpan.FromSeconds(5)); // Reduced delay for other errors
                     }
                 }
             }

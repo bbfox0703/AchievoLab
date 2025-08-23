@@ -37,13 +37,15 @@ namespace MyOwnGames
     public sealed partial class MainWindow : Window, INotifyPropertyChanged
     {
         public ObservableCollection<GameEntry> GameItems { get; } = new();
+        private List<GameEntry> AllGameItems { get; } = new();
         public ObservableCollection<string> LogEntries { get; } = new();
         private readonly GameImageService _imageService = new();
         private readonly GameDataService _dataService = new();
         private readonly Action<string> _logHandler;
         private SteamApiService? _steamService;
-        private bool _isShuttingDown;
+        private bool _isShuttingDown = false;
         private CancellationTokenSource? _cancellationTokenSource;
+        private ScrollViewer? _gamesScrollViewer;
 
         private readonly string _defaultLanguage = GetDefaultLanguage();
 
@@ -204,14 +206,21 @@ namespace MyOwnGames
 
             // Set DataContext for binding
             RootGrid.DataContext = this;
+            RootGrid.KeyDown += OnWindowKeyDown;
 
-            // Load saved games on startup
-            _ = LoadSavedGamesAsync();
+            // Load saved games after window is displayed
+            RootGrid.Loaded += MainWindow_Loaded;
 
             // Clean up old failed download records on startup
             _ = CleanupOldFailedRecordsAsync();
 
             UpdateGetGamesButtonState();
+        }
+
+        private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
+        {
+            RootGrid.Loaded -= MainWindow_Loaded;
+            await LoadSavedGamesAsync();
         }
 
         private void OnImageDownloadCompleted(int appId, string? imagePath)
@@ -225,12 +234,12 @@ namespace MyOwnGames
                 
                 try
                 {
-                    var gameEntry = GameItems.FirstOrDefault(g => g.AppId == appId);
+                    var gameEntry = AllGameItems.FirstOrDefault(g => g.AppId == appId);
                     if (gameEntry != null && !string.IsNullOrEmpty(imagePath) && File.Exists(imagePath))
                     {
                         // Force UI refresh by changing the URI
                         var fileUri = new Uri(imagePath).AbsoluteUri;
-                        
+
                         // Always set the URI and force refresh
                         gameEntry.IconUri = fileUri;
                         gameEntry.ForceIconRefresh(); // Force UI refresh
@@ -239,9 +248,13 @@ namespace MyOwnGames
                         AppendLog($"Image updated for {appId}");
                     }
                 }
-                catch (System.Runtime.InteropServices.COMException)
+                catch (System.Runtime.InteropServices.COMException) when (_isShuttingDown)
                 {
                     // Ignore COM exceptions during shutdown
+                }
+                catch (ObjectDisposedException) when (_isShuttingDown)
+                {
+                    // Ignore object disposed exceptions during shutdown
                 }
                 catch (Exception) when (_isShuttingDown)
                 {
@@ -260,8 +273,8 @@ namespace MyOwnGames
             {
                 await Task.Run(() =>
                 {
-                    var failedDownloadService = new FailedDownloadService();
-                    failedDownloadService.CleanupOldRecords();
+                    var imageFailureService = new ImageFailureTrackingService();
+                    // Cleanup happens automatically when the service is created
                 });
             }
             catch (Exception ex)
@@ -272,56 +285,79 @@ namespace MyOwnGames
 
         private async Task LoadSavedGamesAsync()
         {
+            IsLoading = true;
             try
             {
                 AppendLog("Loading saved games...");
                 StatusText = "Loading saved games...";
                 var enteredId = SteamIdBox.Password?.Trim() ?? string.Empty;
                 await EnsureSteamIdHashConsistencyAsync(enteredId);
-                var savedGames = await _dataService.LoadGamesFromXmlAsync();
-                
+
+                // Load games with multi-language support
+                var savedGamesWithLanguages = await _dataService.LoadGamesWithLanguagesAsync();
+                var currentLanguage = GetCurrentLanguage();
+
+                // Update image service language
+                _imageService.SetLanguage(currentLanguage);
+
                 GameItems.Clear();
-                foreach (var game in savedGames) // Load all saved games
+                AllGameItems.Clear();
+
+                await Task.Run(() =>
                 {
-                    var entry = new GameEntry
+                    foreach (var game in savedGamesWithLanguages)
                     {
-                        AppId = game.AppId,
-                        NameEn = game.NameEn,
-                        NameLocalized = game.NameLocalized,
-                        IconUri = "ms-appx:///Assets/steam_placeholder.png" // Will be updated async
-                    };
-                    
-                    GameItems.Add(entry);
-                    
-                    // Load image asynchronously in a thread-safe way
-                    _ = LoadGameImageAsync(entry, game.AppId);
-                }
-                
+                        var entry = new GameEntry
+                        {
+                            AppId = game.AppId,
+                            NameEn = game.NameEn,
+                            LocalizedNames = new Dictionary<string, string>(game.LocalizedNames),
+                            CurrentLanguage = currentLanguage,
+                            IconUri = "ms-appx:///Assets/no_icon.png" // Will be updated async
+                        };
+
+                        DispatcherQueue.TryEnqueue(() =>
+                        {
+                            GameItems.Add(entry);
+                            AllGameItems.Add(entry);
+                        });
+
+                        // Load image asynchronously in a thread-safe way with language
+                        _ = LoadGameImageAsync(entry, game.AppId, currentLanguage);
+                    }
+                });
+
                 var exportInfo = await _dataService.GetExportInfoAsync();
                 if (exportInfo != null)
                 {
-                    StatusText = $"Loaded {savedGames.Count} saved games (exported: {exportInfo.ExportDate:yyyy-MM-dd}, language: {exportInfo.Language})";
+                    StatusText = $"Loaded {savedGamesWithLanguages.Count} saved games (exported: {exportInfo.ExportDate:yyyy-MM-dd}, language: {exportInfo.Language})";
                 }
                 else
                 {
                     StatusText = "Ready. Enter Steam API Key and SteamID to fetch your games.";
                 }
 
-                AppendLog($"Loaded {savedGames.Count} saved games from {_dataService.GetXmlFilePath()}");
+                AppendLog($"Loaded {savedGamesWithLanguages.Count} saved games from {_dataService.GetXmlFilePath()}");
             }
             catch (Exception ex)
             {
                 StatusText = $"Error loading saved games: {ex.Message}";
                 AppendLog($"Error loading saved games: {ex.Message}");
             }
+            finally
+            {
+                IsLoading = false;
+            }
         }
 
-        private async Task LoadGameImageAsync(GameEntry entry, int appId)
+        private async Task LoadGameImageAsync(GameEntry entry, int appId, string? language = null)
         {
+            if (_isShuttingDown) return; // Don't start new image loads during shutdown
+            
             try
             {
-                DebugLogger.LogDebug($"Starting image load for {appId}");
-                var imagePath = await _imageService.GetGameImageAsync(appId);
+                DebugLogger.LogDebug($"Starting image load for {appId} (language: {language})");
+                var imagePath = await _imageService.GetGameImageAsync(appId, language);
                 
                 if (!string.IsNullOrEmpty(imagePath) && File.Exists(imagePath))
                 {
@@ -378,6 +414,7 @@ namespace MyOwnGames
                     _dataService.ClearGameData();
                     _imageService.ClearCache();
                     GameItems.Clear();
+                    AllGameItems.Clear();
                     AppendLog("SteamID changed, cleared previous data and image cache.");
                 }
             }
@@ -400,18 +437,32 @@ namespace MyOwnGames
                 return;
             }
 
-            await EnsureSteamIdHashConsistencyAsync(steamId64);
+            await EnsureSteamIdHashConsistencyAsync(steamId64!);
 
             string? xmlPath = null;
+            
+            // Create cancellation token source for this operation
+            _cancellationTokenSource?.Cancel();
+            _cancellationTokenSource?.Dispose();
+            _cancellationTokenSource = new CancellationTokenSource();
+            var cancellationToken = _cancellationTokenSource.Token;
+            
             try
             {
-                AppendLog("Starting game retrieval...");
+                // Get selected language from ComboBox first
+                var selectedLanguage = _defaultLanguage;
+                if (LanguageComboBox.SelectedItem is ComboBoxItem selectedItem)
+                {
+                    selectedLanguage = selectedItem.Content?.ToString() ?? _defaultLanguage;
+                }
+
+                AppendLog($"Starting complete game scan for language: {selectedLanguage}...");
                 IsLoading = true;
-                StatusText = "Fetching game list from Steam Web API...";
+                StatusText = $"Scanning all games for {selectedLanguage} language data...";
                 ProgressValue = 0;
 
-                // Don't clear existing items - we'll use upsert logic instead
-                AppendLog($"Current games in list: {GameItems.Count}");
+                // Don't clear existing items - we'll update them with current language
+                AppendLog($"Current games in list: {GameItems.Count}. Checking all games for {selectedLanguage} data.");
 
                 // Create progress reporter
                 var progress = new Progress<double>(value => 
@@ -419,54 +470,61 @@ namespace MyOwnGames
                     ProgressValue = value;
                 });
 
-                // Get selected language from ComboBox
-                var selectedLanguage = _defaultLanguage;
-                if (LanguageComboBox.SelectedItem is ComboBoxItem selectedItem)
-                {
-                    selectedLanguage = selectedItem.Content?.ToString() ?? _defaultLanguage;
-                }
-
-                // Load existing app IDs to avoid re-fetching
-                var (existingAppIds, _) = await _dataService.LoadRetrievedAppIdsAsync();
-
+                // Load existing games to check current language data status
+                var existingGamesData = await _dataService.LoadGamesWithLanguagesAsync();
+                
                 // Use real Steam API service with selected language
-                _steamService = new SteamApiService(apiKey);
-                var total = await _steamService.GetOwnedGamesAsync(steamId64, selectedLanguage, async game =>
+                _steamService = new SteamApiService(apiKey!);
+                var total = await _steamService.GetOwnedGamesAsync(steamId64!, selectedLanguage, async game =>
                 {
-                    // Check if game already exists in the UI list
-                    var existingEntry = GameItems.FirstOrDefault(g => g.AppId == game.AppId);
+                    // Check if this game has data for the current language
+                    var existingGameData = existingGamesData.FirstOrDefault(g => g.AppId == game.AppId);
+                    var hasLanguageData = existingGameData?.LocalizedNames?.ContainsKey(selectedLanguage) == true && 
+                                         !string.IsNullOrEmpty(existingGameData.LocalizedNames[selectedLanguage]);
                     
+                    // Always process the game to ensure XML consistency for current language
+                    AppendLog($"Processing game {game.AppId} - {game.NameEn} ({selectedLanguage}){(hasLanguageData ? " [updating]" : " [new data]")}");
+
+                    // Check if game already exists in the UI list
+                    var existingEntry = AllGameItems.FirstOrDefault(g => g.AppId == game.AppId);
+
                     if (existingEntry != null)
                     {
-                        // Update existing entry
+                        // Update existing UI entry
                         existingEntry.NameEn = game.NameEn;
-                        existingEntry.NameLocalized = game.NameLocalized;
-                        // Keep existing IconUri unless we need to reload the image
-                        AppendLog($"Updated existing game: {game.AppId} - {game.NameEn}");
+                        existingEntry.SetLocalizedName(selectedLanguage, game.NameLocalized);
+                        existingEntry.CurrentLanguage = selectedLanguage; // Update display language
                         
-                        // Reload image asynchronously to get the latest version
-                        _ = LoadGameImageAsync(existingEntry, game.AppId);
+                        AppendLog($"Updated UI entry: {game.AppId} - {game.NameEn}");
+
+                        // Always reload image for current language to ensure consistency
+                        _ = LoadGameImageAsync(existingEntry, game.AppId, selectedLanguage);
                     }
                     else
                     {
-                        // Create new entry
+                        // Create new UI entry
                         var newEntry = new GameEntry
                         {
                             AppId = game.AppId,
                             NameEn = game.NameEn,
-                            NameLocalized = game.NameLocalized,
-                            IconUri = "ms-appx:///Assets/steam_placeholder.png" // Will be updated async
+                            CurrentLanguage = selectedLanguage,
+                            IconUri = "ms-appx:///Assets/no_icon.png" // Will be updated async
                         };
+                        
+                        // Set localized name for current language
+                        newEntry.SetLocalizedName(selectedLanguage, game.NameLocalized);
 
                         GameItems.Add(newEntry);
-                        AppendLog($"Added new game: {game.AppId} - {game.NameEn}");
+                        AllGameItems.Add(newEntry);
+                        AppendLog($"Added new game: {game.AppId} - {game.NameEn} ({selectedLanguage})");
 
-                        // Load image asynchronously in a thread-safe way
-                        _ = LoadGameImageAsync(newEntry, game.AppId);
+                        // Load image asynchronously for current language
+                        _ = LoadGameImageAsync(newEntry, game.AppId, selectedLanguage);
                     }
 
-                    await _dataService.AppendGameAsync(game, steamId64, apiKey, selectedLanguage);
-                }, progress, existingAppIds);
+                    // Always save/update game data in XML for current language
+                    await _dataService.AppendGameAsync(game, steamId64!, apiKey!, selectedLanguage);
+                }, progress, null); // Pass null to process ALL games, not just missing ones
 
                 xmlPath = _dataService.GetXmlFilePath();
 
@@ -481,8 +539,13 @@ namespace MyOwnGames
                     await _dataService.UpdateRemainingCountAsync(0);
                 }
 
-                StatusText = $"Successfully processed {total} games ({selectedLanguage}). Current list: {GameItems.Count} games. Saved to {xmlPath}";
-                AppendLog($"Processing complete - Total: {total}, Current display: {GameItems.Count} games, saved to {xmlPath}");
+                StatusText = $"Completed full scan: {total} games processed with {selectedLanguage} data. Current list: {GameItems.Count} games. Saved to {xmlPath}";
+                AppendLog($"Full language scan complete - Total games: {total}, All games now have {selectedLanguage} data, Current display: {GameItems.Count} games, saved to {xmlPath}");
+            }
+            catch (OperationCanceledException)
+            {
+                StatusText = "Operation was cancelled.";
+                AppendLog("Game retrieval was cancelled.");
             }
             catch (ArgumentException ex)
             {
@@ -496,11 +559,24 @@ namespace MyOwnGames
             }
             finally
             {
-                _steamService?.Dispose();
-                _steamService = null;
+                try
+                {
+                    _steamService?.Dispose();
+                    _steamService = null;
+                }
+                catch (Exception ex) when (_isShuttingDown)
+                {
+                    // Ignore exceptions during shutdown
+                    DebugLogger.LogDebug($"Ignored exception during shutdown: {ex.Message}");
+                }
+                
                 IsLoading = false;
                 ProgressValue = 100;
-                AppendLog("Finished retrieving games.");
+                
+                if (!_isShuttingDown)
+                {
+                    AppendLog("Finished retrieving games.");
+                }
             }
         }
 
@@ -519,20 +595,174 @@ namespace MyOwnGames
         private void KeywordBox_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
         {
             var keyword = args.QueryText?.Trim();
-            if (string.IsNullOrEmpty(keyword))
-            {
-                StatusText = "Please enter search keywords.";
-                return;
-            }
-
-            // Here you can use keyword for client-side filtering, or call the search API again
-            StatusText = $"Searching for: {keyword}";
-            // TODO: Filter GameItems or perform server-side search
+            FilterGameItems(keyword);
         }
 
         private void KeywordBox_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
         {
-            // Real-time search functionality could be implemented here
+            if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput)
+            {
+                FilterGameItems(sender.Text?.Trim());
+            }
+        }
+
+        private void FilterGameItems(string? keyword)
+        {
+            if (string.IsNullOrWhiteSpace(keyword))
+            {
+                GameItems.Clear();
+                foreach (var item in AllGameItems)
+                    GameItems.Add(item);
+
+                StatusText = $"Showing {AllGameItems.Count} game(s).";
+                return;
+            }
+
+            var filtered = AllGameItems.Where(g =>
+                (!string.IsNullOrEmpty(g.NameLocalized) && g.NameLocalized.Contains(keyword, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrEmpty(g.NameEn) && g.NameEn.Contains(keyword, StringComparison.OrdinalIgnoreCase)) ||
+                g.AppId.ToString().Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            GameItems.Clear();
+            foreach (var item in filtered)
+                GameItems.Add(item);
+
+            StatusText = filtered.Count > 0
+                ? $"Found {filtered.Count} result(s) for \"{keyword}\"."
+                : $"No results found for \"{keyword}\".";
+        }
+
+        private void OnWindowKeyDown(object sender, KeyRoutedEventArgs e)
+        {
+            if (e.Key != Windows.System.VirtualKey.PageDown &&
+                e.Key != Windows.System.VirtualKey.PageUp &&
+                e.Key != Windows.System.VirtualKey.Down &&
+                e.Key != Windows.System.VirtualKey.Up)
+                return;
+
+            var sv = _gamesScrollViewer ??= FindScrollViewer(GamesGridView);
+            if (sv == null)
+                return;
+
+            double offset = sv.VerticalOffset;
+            double delta = e.Key switch
+            {
+                Windows.System.VirtualKey.PageDown => sv.ViewportHeight,
+                Windows.System.VirtualKey.PageUp => -sv.ViewportHeight,
+                Windows.System.VirtualKey.Down => 100,
+                Windows.System.VirtualKey.Up => -100,
+                _ => 0
+            };
+
+            var target = Math.Max(0, Math.Min(offset + delta, sv.ScrollableHeight));
+            sv.ChangeView(null, target, null);
+            e.Handled = true;
+        }
+
+        private void GamesGridView_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+        {
+            // Find the GameEntry from the double-tapped element
+            if (e.OriginalSource is FrameworkElement element)
+            {
+                var gameEntry = FindGameEntryFromElement(element);
+                if (gameEntry != null)
+                {
+                    // Launch RunGame with the selected game ID
+                    LaunchRunGame(gameEntry.AppId);
+                }
+            }
+        }
+
+        private GameEntry? FindGameEntryFromElement(FrameworkElement element)
+        {
+            // Walk up the visual tree to find the DataContext
+            var current = element;
+            while (current != null)
+            {
+                if (current.DataContext is GameEntry gameEntry)
+                {
+                    return gameEntry;
+                }
+                current = current.Parent as FrameworkElement;
+            }
+            return null;
+        }
+
+        private void LaunchRunGame(int appId)
+        {
+            try
+            {
+                // Try multiple possible paths for RunGame.exe
+                var possiblePaths = new[]
+                {
+                    // Same directory as MyOwnGames
+                    Path.Combine(
+                        Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) ?? "",
+                        "RunGame.exe"),
+                    
+                    // Relative path from build output
+                    Path.Combine(
+                        Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) ?? "",
+                        "..", "RunGame", "RunGame.exe"),
+                    
+                    // Full relative path from development structure
+                    Path.Combine(
+                        Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) ?? "",
+                        "..", "..", "..", "..", "output", "Debug", "x64", "net8.0-windows10.0.22621.0", "RunGame", "RunGame.exe")
+                };
+
+                string? runGameExePath = null;
+                foreach (var path in possiblePaths)
+                {
+                    var fullPath = Path.GetFullPath(path);
+                    if (File.Exists(fullPath))
+                    {
+                        runGameExePath = fullPath;
+                        break;
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(runGameExePath))
+                {
+                    AppendLog($"Found RunGame.exe at: {runGameExePath}");
+                    AppendLog($"Launching RunGame with Game ID: {appId}");
+                    
+                    var process = new System.Diagnostics.Process
+                    {
+                        StartInfo = new System.Diagnostics.ProcessStartInfo
+                        {
+                            FileName = runGameExePath,
+                            Arguments = appId.ToString(),
+                            UseShellExecute = false,
+                            CreateNoWindow = false,
+                            WorkingDirectory = Path.GetDirectoryName(runGameExePath)
+                        }
+                    };
+                    
+                    var started = process.Start();
+                    AppendLog($"RunGame process started: {started}");
+                    
+                    if (started)
+                    {
+                        AppendLog($"Successfully launched RunGame for game {appId}");
+                    }
+                    else
+                    {
+                        AppendLog($"Failed to start RunGame process for game {appId}");
+                    }
+                }
+                else
+                {
+                    var searchedPaths = string.Join("\n", possiblePaths.Select(Path.GetFullPath));
+                    AppendLog($"RunGame.exe not found in any of these locations:\n{searchedPaths}");
+                }
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"Error launching RunGame for game {appId}: {ex.Message}");
+                DebugLogger.LogDebug($"Error launching RunGame: {ex.Message}");
+            }
         }
 
         private async void OnAppWindowClosing(AppWindow sender, AppWindowClosingEventArgs args)
@@ -564,14 +794,89 @@ namespace MyOwnGames
             _steamService = null;
             
             // Unsubscribe from events before disposing
-            if (_imageService != null)
+            try
             {
-                _imageService.ImageDownloadCompleted -= OnImageDownloadCompleted;
-                _imageService.Dispose();
+                if (_imageService != null)
+                {
+                    _imageService.ImageDownloadCompleted -= OnImageDownloadCompleted;
+                    _imageService.Dispose();
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error disposing image service: {ex.Message}");
+            }
+            
+            // Dispose cancellation token source
+            try
+            {
+                _cancellationTokenSource?.Dispose();
+                _cancellationTokenSource = null;
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error disposing cancellation token source: {ex.Message}");
             }
             
             DebugLogger.OnLog -= _logHandler;
             DebugLogger.LogDebug($"Shutdown completed ({reason})");
+        }
+
+        private string GetCurrentLanguage()
+        {
+            if (LanguageComboBox.SelectedItem is ComboBoxItem selectedItem)
+            {
+                return selectedItem.Content?.ToString() ?? _defaultLanguage;
+            }
+            return _defaultLanguage;
+        }
+
+        private void LanguageComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_isLoading || LanguageComboBox.SelectedItem == null)
+                return;
+
+            try
+            {
+                var newLanguage = GetCurrentLanguage();
+                AppendLog($"Language changed to: {newLanguage}");
+                StatusText = $"Switching to {newLanguage}...";
+
+                // Update image service language
+                _imageService.SetLanguage(newLanguage);
+
+                // Update all game entries to use the new language
+                foreach (var gameEntry in AllGameItems)
+                {
+                    gameEntry.CurrentLanguage = newLanguage;
+                    
+                    // Reload images for the new language
+                    _ = LoadGameImageAsync(gameEntry, gameEntry.AppId, newLanguage);
+                }
+
+                StatusText = $"Language switched to {newLanguage}. Images loading...";
+                AppendLog($"Updated {AllGameItems.Count} games for language: {newLanguage}");
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"Error switching language: {ex.Message}");
+                StatusText = "Error switching language";
+            }
+        }
+
+        private static ScrollViewer? FindScrollViewer(DependencyObject root)
+        {
+            if (root is ScrollViewer sv)
+                return sv;
+
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+            {
+                var child = VisualTreeHelper.GetChild(root, i);
+                if (FindScrollViewer(child) is ScrollViewer result)
+                    return result;
+            }
+
+            return null;
         }
     }
 
@@ -597,7 +902,58 @@ namespace MyOwnGames
         }
         
         public string NameEn { get; set; } = "";
-        public string NameLocalized { get; set; } = "";
+        
+        // Multi-language support - store names by language code
+        public Dictionary<string, string> LocalizedNames { get; set; } = new();
+        
+        private string _currentLanguage = "english";
+        public string CurrentLanguage
+        {
+            get => _currentLanguage;
+            set
+            {
+                if (_currentLanguage != value)
+                {
+                    _currentLanguage = value;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(DisplayName));
+                }
+            }
+        }
+        
+        // Display name based on current language
+        public string DisplayName
+        {
+            get
+            {
+                // Try to get localized name for current language
+                if (!string.IsNullOrEmpty(CurrentLanguage) && 
+                    LocalizedNames.TryGetValue(CurrentLanguage, out var localizedName) && 
+                    !string.IsNullOrEmpty(localizedName))
+                {
+                    return localizedName;
+                }
+                
+                // Fall back to English name
+                return NameEn;
+            }
+        }
+        
+        // Legacy property for backward compatibility
+        public string NameLocalized 
+        { 
+            get => DisplayName; 
+            set 
+            {
+                // Store in current language
+                if (!string.IsNullOrEmpty(CurrentLanguage) && !string.IsNullOrEmpty(value))
+                {
+                    LocalizedNames[CurrentLanguage] = value;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(DisplayName));
+                }
+            }
+        }
 
         public event PropertyChangedEventHandler? PropertyChanged;
         private void OnPropertyChanged([CallerMemberName] string? name = null)
@@ -620,6 +976,17 @@ namespace MyOwnGames
         public void ForceIconRefresh()
         {
             OnPropertyChanged(nameof(IconUri));
+        }
+        
+        // Method to update localized name for specific language
+        public void SetLocalizedName(string language, string name)
+        {
+            LocalizedNames[language] = name;
+            if (language == CurrentLanguage)
+            {
+                OnPropertyChanged(nameof(DisplayName));
+                OnPropertyChanged(nameof(NameLocalized));
+            }
         }
     }
 }
