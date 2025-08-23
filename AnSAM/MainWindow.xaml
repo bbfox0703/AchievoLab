@@ -28,6 +28,11 @@
                     </AutoSuggestBox.QueryIcon>
                 </AutoSuggestBox>
             </CommandBar.Content>
+            <AppBarElementContainer>
+                <ComboBox x:Name="LanguageComboBox"
+                          Width="150"
+                          SelectionChanged="LanguageComboBox_SelectionChanged"/>
+            </AppBarElementContainer>
             <AppBarSeparator/>
             <AppBarButton x:Name="RefreshButton" Icon="Sync"   Label="Refresh" Click="OnRefreshClicked"/>
             <AppBarButton Icon="Remove"   Label="Clear Cache" Click="OnClearCacheClicked"/>
