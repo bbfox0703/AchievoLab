@@ -207,7 +207,7 @@ namespace MyOwnGames
             RootGrid.DataContext = this;
 
             // Load saved games after window is displayed
-            Loaded += MainWindow_Loaded;
+            RootGrid.Loaded += MainWindow_Loaded;
 
             // Clean up old failed download records on startup
             _ = CleanupOldFailedRecordsAsync();
@@ -217,7 +217,7 @@ namespace MyOwnGames
 
         private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
         {
-            Loaded -= MainWindow_Loaded;
+            RootGrid.Loaded -= MainWindow_Loaded;
             await LoadSavedGamesAsync();
         }
 
