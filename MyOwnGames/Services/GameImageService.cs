@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
 using System.Threading.Tasks;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using CommonUtilities;
 
 namespace MyOwnGames.Services
@@ -88,22 +90,40 @@ namespace MyOwnGames.Services
             {
                 var storeApiUrl = $"https://store.steampowered.com/api/appdetails?appids={appId}&l={language}";
                 using var response = await _httpClient.GetAsync(storeApiUrl);
-                if (response.IsSuccessStatusCode)
+                if (!response.IsSuccessStatusCode)
                 {
-                    var jsonContent = await response.Content.ReadAsStringAsync();
-                    var start = jsonContent.IndexOf("\"header_image\":\"");
-                    if (start >= 0)
+                    return null;
+                }
+
+                var jsonContent = await response.Content.ReadAsStringAsync();
+                var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                var storeData = JsonSerializer.Deserialize<Dictionary<string, StoreApiResponse>>(jsonContent, options);
+
+                if (storeData != null && storeData.TryGetValue(appId.ToString(), out var app) && app.Success)
+                {
+                    var header = app.Data?.HeaderImage;
+                    if (!string.IsNullOrEmpty(header))
                     {
-                        start += 16;
-                        var end = jsonContent.IndexOf("\"", start);
-                        if (end > start)
-                        {
-                            return jsonContent.Substring(start, end - start);
-                        }
+                        return header;
                     }
                 }
             }
-            catch { }
+            catch (HttpRequestException ex)
+            {
+                DebugLogger.LogDebug($"Error fetching store API data for {appId}: {ex.Message}");
+            }
+            catch (JsonException ex)
+            {
+                DebugLogger.LogDebug($"Malformed store API response for {appId}: {ex.Message}");
+            }
+            catch (TaskCanceledException ex)
+            {
+                DebugLogger.LogDebug($"Store API request for {appId} timed out: {ex.Message}");
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Unexpected error parsing store API response for {appId}: {ex.Message}");
+            }
             return null;
         }
 
@@ -139,5 +159,17 @@ namespace MyOwnGames.Services
             _httpClient.Dispose();
             _imageCache.Clear();
         }
+    }
+
+    internal class StoreApiResponse
+    {
+        public bool Success { get; set; }
+        public StoreApiData? Data { get; set; }
+    }
+
+    internal class StoreApiData
+    {
+        [JsonPropertyName("header_image")]
+        public string? HeaderImage { get; set; }
     }
 }
