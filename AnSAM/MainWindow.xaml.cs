@@ -682,19 +682,7 @@ namespace AnSAM
                     return;
                 }
 
-                string language = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName switch
-                {
-                    "es" => "spanish",
-                    "fr" => "french",
-                    "de" => "german",
-                    "it" => "italian",
-                    "pt" => "portuguese",
-                    "ru" => "russian",
-                    "ja" => "japanese",
-                    "ko" => "korean",
-                    "zh" => "tchinese",
-                    _ => "english"
-                };
+                string language = SteamLanguageResolver.GetSteamLanguage(CultureInfo.CurrentUICulture);
 
                 var url = GameImageUrlResolver.GetGameImageUrl(client, (uint)ID, language);
 
