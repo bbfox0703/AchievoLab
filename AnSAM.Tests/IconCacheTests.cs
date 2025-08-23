@@ -5,6 +5,9 @@ using System.Net;
 using System.Net.Sockets;
 using System.Threading.Tasks;
 using AnSAM.Services;
+using System.Xml.Linq;
+using System.Linq;
+using CommonUtilities;
 using Xunit;
 
 public class IconCacheTests
@@ -109,12 +112,11 @@ public class IconCacheTests
     public async Task InvalidDownloadIsIgnored()
     {
         SteamLanguageResolver.OverrideLanguage = "english";
+        var id = Random.Shared.Next(300001, 400000);
         try
         {
             var cacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab", "ImageCache", "english");
             Directory.CreateDirectory(cacheDir);
-
-            var id = Random.Shared.Next(300001, 400000);
             foreach (var file in Directory.EnumerateFiles(cacheDir, $"{id}.*"))
             {
                 try { File.Delete(file); } catch { }
@@ -149,6 +151,7 @@ public class IconCacheTests
         }
         finally
         {
+            new ImageFailureTrackingService().RemoveFailedRecord(id, "english");
             SteamLanguageResolver.OverrideLanguage = null;
         }
     }
@@ -157,12 +160,11 @@ public class IconCacheTests
     public async Task FailedDownloadReturnsEmptyPath()
     {
         SteamLanguageResolver.OverrideLanguage = "english";
+        var id = Random.Shared.Next(400001, 500000);
         try
         {
             var cacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab", "ImageCache", "english");
             Directory.CreateDirectory(cacheDir);
-
-            var id = Random.Shared.Next(400001, 500000);
             foreach (var file in Directory.EnumerateFiles(cacheDir, $"{id}.*"))
             {
                 try { File.Delete(file); } catch { }
@@ -195,6 +197,73 @@ public class IconCacheTests
         }
         finally
         {
+            new ImageFailureTrackingService().RemoveFailedRecord(id, "english");
+            SteamLanguageResolver.OverrideLanguage = null;
+        }
+    }
+
+    [Fact]
+    public async Task SkipsAndRetriesBasedOnFailureLog()
+    {
+        SteamLanguageResolver.OverrideLanguage = "english";
+        var tracker = new ImageFailureTrackingService();
+        var id = Random.Shared.Next(500001, 600000);
+        try
+        {
+            var cacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab", "ImageCache", "english");
+            Directory.CreateDirectory(cacheDir);
+            foreach (var file in Directory.EnumerateFiles(cacheDir, $"{id}.*"))
+            {
+                try { File.Delete(file); } catch { }
+            }
+
+            tracker.RecordFailedDownload(id, "english");
+
+            int port;
+            using (var l = new TcpListener(IPAddress.Loopback, 0))
+            {
+                l.Start();
+                port = ((IPEndPoint)l.LocalEndpoint).Port;
+            }
+            var prefix = $"http://localhost:{port}/";
+            using var listener = new HttpListener();
+            listener.Prefixes.Add(prefix);
+            listener.Start();
+            var contextTask = listener.GetContextAsync();
+            var skipResult = await IconCache.GetIconPathAsync(id, new Uri(prefix + "icon.png"));
+            await Task.Delay(200);
+            Assert.False(contextTask.IsCompleted);
+            listener.Stop();
+            Assert.Equal(string.Empty, skipResult.Path);
+
+            var doc = XDocument.Load(tracker.GetXmlFilePath());
+            var game = doc.Root?.Elements("Game").FirstOrDefault(g => (int?)g.Attribute("AppId") == id);
+            var lang = game?.Elements("Language").FirstOrDefault(l => l.Attribute("Code")?.Value == "english");
+            lang?.SetAttributeValue("LastFailed", DateTime.Now.AddDays(-20).ToString("yyyy-MM-dd HH:mm:ss"));
+            doc.Save(tracker.GetXmlFilePath());
+
+            using var listener2 = new HttpListener();
+            listener2.Prefixes.Add(prefix);
+            listener2.Start();
+            var serverTask = Task.Run(async () =>
+            {
+                var ctx = await listener2.GetContextAsync();
+                var data = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0, 0, 0, 0 };
+                ctx.Response.ContentType = "image/png";
+                ctx.Response.ContentLength64 = data.Length;
+                await ctx.Response.OutputStream.WriteAsync(data);
+                ctx.Response.Close();
+                listener2.Stop();
+            });
+
+            var retryResult = await IconCache.GetIconPathAsync(id, new Uri(prefix + "icon.png"));
+            await serverTask;
+            Assert.True(retryResult.Downloaded);
+            Assert.False(tracker.ShouldSkipDownload(id, "english"));
+        }
+        finally
+        {
+            tracker.RemoveFailedRecord(id, "english");
             SteamLanguageResolver.OverrideLanguage = null;
         }
     }

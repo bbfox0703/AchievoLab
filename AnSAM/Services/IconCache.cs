@@ -28,6 +28,7 @@ namespace AnSAM.Services
         private static readonly SemaphoreSlim Concurrency = new(4);
         private static readonly ConcurrentDictionary<string, Task<IconPathResult>> InFlight = new();
         private static readonly TimeSpan CacheDuration = TimeSpan.FromDays(30);
+        private static readonly ImageFailureTrackingService FailureTracker = new();
         private static readonly Dictionary<string, string> MimeToExtension = new(StringComparer.OrdinalIgnoreCase)
         {
             ["image/jpeg"] = ".jpg",
@@ -167,7 +168,16 @@ namespace AnSAM.Services
                 Interlocked.Increment(ref _totalRequests);
                 Interlocked.Increment(ref _completed);
                 ReportProgress();
+                FailureTracker.RemoveFailedRecord(id, language);
                 return Task.FromResult(new IconPathResult(cached, false));
+            }
+
+            if (FailureTracker.ShouldSkipDownload(id, language))
+            {
+                Interlocked.Increment(ref _totalRequests);
+                Interlocked.Increment(ref _completed);
+                ReportProgress();
+                return Task.FromResult(new IconPathResult(string.Empty, false));
             }
 
             var ext = Path.GetExtension(uri.AbsolutePath);
@@ -180,7 +190,7 @@ namespace AnSAM.Services
             {
                 Interlocked.Increment(ref _totalRequests);
                 ReportProgress();
-                return DownloadAsync(uri, basePath, ext);
+                return DownloadAsync(id, language, uri, basePath, ext);
             });
         }
 
@@ -217,7 +227,7 @@ namespace AnSAM.Services
             return null;
         }
 
-        private static async Task<IconPathResult> DownloadAsync(Uri uri, string basePath, string defaultExt)
+        private static async Task<IconPathResult> DownloadAsync(int id, string language, Uri uri, string basePath, string defaultExt)
         {
             await Concurrency.WaitAsync().ConfigureAwait(false);
             try
@@ -247,6 +257,7 @@ namespace AnSAM.Services
                     throw new InvalidDataException("Invalid image file");
                 }
 
+                FailureTracker.RemoveFailedRecord(id, language);
                 return new IconPathResult(path, true);
             }
             catch (Exception ex)
@@ -254,6 +265,7 @@ namespace AnSAM.Services
 #if DEBUG
                 DebugLogger.LogDebug($"Icon download failed: {ex.Message}");
 #endif
+                FailureTracker.RecordFailedDownload(id, language);
                 return new IconPathResult(string.Empty, false);
             }
             finally
