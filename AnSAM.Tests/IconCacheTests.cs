@@ -109,6 +109,23 @@ public class IconCacheTests
     }
 
     [Fact]
+    public void ProgressChangedHandlerExceptionIsSwallowed()
+    {
+        IconCache.ResetProgress();
+        void Handler(int c, int t) => throw new InvalidOperationException();
+        IconCache.ProgressChanged += Handler;
+        try
+        {
+            var ex = Record.Exception(() => IconCache.ResetProgress());
+            Assert.Null(ex);
+        }
+        finally
+        {
+            IconCache.ProgressChanged -= Handler;
+        }
+    }
+
+    [Fact]
     public async Task InvalidDownloadIsIgnored()
     {
         SteamLanguageResolver.OverrideLanguage = "english";

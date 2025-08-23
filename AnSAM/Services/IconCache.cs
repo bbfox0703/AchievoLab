@@ -340,7 +340,25 @@ namespace AnSAM.Services
         {
             var total = Volatile.Read(ref _totalRequests);
             var completed = Volatile.Read(ref _completed);
-            ProgressChanged?.Invoke(completed, total);
+            var handlers = ProgressChanged;
+            if (handlers == null)
+            {
+                return;
+            }
+
+            foreach (Action<int, int> handler in handlers.GetInvocationList())
+            {
+                try
+                {
+                    handler(completed, total);
+                }
+                catch (Exception ex)
+                {
+#if DEBUG
+                    DebugLogger.LogDebug($"ProgressChanged handler threw: {ex.Message}");
+#endif
+                }
+            }
         }
     }
 }
