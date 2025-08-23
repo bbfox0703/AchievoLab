@@ -180,15 +180,7 @@ namespace AnSAM.Services
             {
                 Interlocked.Increment(ref _totalRequests);
                 ReportProgress();
-                return DownloadAsync(uri, basePath, ext).ContinueWith(t =>
-                {
-                    if (t.Status == TaskStatus.RanToCompletion)
-                    {
-                        return t.Result;
-                    }
-
-                    return new IconPathResult(string.Empty, false);
-                }, TaskScheduler.Default);
+                return DownloadAsync(uri, basePath, ext);
             });
         }
 
@@ -262,7 +254,7 @@ namespace AnSAM.Services
 #if DEBUG
                 DebugLogger.LogDebug($"Icon download failed: {ex.Message}");
 #endif
-                throw;
+                return new IconPathResult(string.Empty, false);
             }
             finally
             {
