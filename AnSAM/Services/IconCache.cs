@@ -10,13 +10,23 @@ using CommonUtilities;
 namespace AnSAM.Services
 {
     /// <summary>
-    /// Downloads and caches game cover images under the <c>appcache</c> directory.
+    /// Downloads and caches game cover images under the <c>ImageCache</c> directory,
+    /// organised by Steam language.
     /// Requests are queued and limited to a small number of concurrent downloads.
     /// </summary>
     public static class IconCache
     {
         public readonly record struct IconPathResult(string Path, bool Downloaded);
-        private static readonly string CacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab", "appcache");
+        private static readonly string BaseCacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab", "ImageCache");
+        private static string CacheDir
+        {
+            get
+            {
+                var dir = Path.Combine(BaseCacheDir, SteamLanguageResolver.GetSteamLanguage());
+                Directory.CreateDirectory(dir);
+                return dir;
+            }
+        }
         private static readonly HttpClient Http = new();
         private static readonly SemaphoreSlim Concurrency = new(4);
         private static readonly ConcurrentDictionary<string, Task<IconPathResult>> InFlight = new();
@@ -36,6 +46,31 @@ namespace AnSAM.Services
 
         private static int _totalRequests;
         private static int _completed;
+
+        static IconCache()
+        {
+            try
+            {
+                Directory.CreateDirectory(BaseCacheDir);
+                var oldDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab", "appcache");
+                if (Directory.Exists(oldDir))
+                {
+                    var englishDir = Path.Combine(BaseCacheDir, "english");
+                    Directory.CreateDirectory(englishDir);
+                    foreach (var file in Directory.EnumerateFiles(oldDir))
+                    {
+                        try
+                        {
+                            var dest = Path.Combine(englishDir, Path.GetFileName(file));
+                            File.Move(file, dest, true);
+                        }
+                        catch { }
+                    }
+                    try { Directory.Delete(oldDir, true); } catch { }
+                }
+            }
+            catch { }
+        }
 
         /// <summary>
         /// Raised whenever icon download progress changes. Parameters are the

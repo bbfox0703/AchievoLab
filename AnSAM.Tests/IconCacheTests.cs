@@ -21,19 +21,27 @@ public class IconCacheTests
     public async Task ValidCachedIconIsUsed(string ext, byte[] data)
     {
         var id = Random.Shared.Next(100000, 200000);
-        var cacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AnSAM", "appcache");
-        Directory.CreateDirectory(cacheDir);
-        foreach (var file in Directory.EnumerateFiles(cacheDir, $"{id}.*"))
+        SteamLanguageResolver.OverrideLanguage = "english";
+        try
         {
-            try { File.Delete(file); } catch { }
+            var cacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab", "ImageCache", "english");
+            Directory.CreateDirectory(cacheDir);
+            foreach (var file in Directory.EnumerateFiles(cacheDir, $"{id}.*"))
+            {
+                try { File.Delete(file); } catch { }
+            }
+            var path = Path.Combine(cacheDir, $"{id}.{ext}");
+            await File.WriteAllBytesAsync(path, data);
+            var uri = new Uri($"http://example.invalid/{id}.{ext}");
+            var result = await IconCache.GetIconPathAsync(id, uri);
+            Assert.Equal(path, result.Path);
+            Assert.False(result.Downloaded);
+            try { File.Delete(path); } catch { }
         }
-        var path = Path.Combine(cacheDir, $"{id}.{ext}");
-        await File.WriteAllBytesAsync(path, data);
-        var uri = new Uri($"http://example.invalid/{id}.{ext}");
-        var result = await IconCache.GetIconPathAsync(id, uri);
-        Assert.Equal(path, result.Path);
-        Assert.False(result.Downloaded);
-        try { File.Delete(path); } catch { }
+        finally
+        {
+            SteamLanguageResolver.OverrideLanguage = null;
+        }
 }
 
     [Fact]
@@ -45,7 +53,8 @@ public class IconCacheTests
         IconCache.ProgressChanged += Handler;
         try
         {
-            var cacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AnSAM", "appcache");
+            SteamLanguageResolver.OverrideLanguage = "english";
+            var cacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab", "ImageCache", "english");
             Directory.CreateDirectory(cacheDir);
 
             var cachedId = Random.Shared.Next(200001, 300000);
@@ -90,6 +99,7 @@ public class IconCacheTests
         finally
         {
             IconCache.ProgressChanged -= Handler;
+            SteamLanguageResolver.OverrideLanguage = null;
         }
 
         Assert.Equal(new (int completed, int total)[] { (1, 1), (1, 2), (2, 2) }, events.ToArray());
