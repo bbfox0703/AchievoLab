@@ -31,6 +31,11 @@ namespace MyOwnGames.Services
             }
         }
         
+        public string GetCurrentLanguage()
+        {
+            return _currentLanguage;
+        }
+        
         private string GetLanguageCacheDirectory(string language)
         {
             var langDir = Path.Combine(_baseCacheDirectory, language);
@@ -53,7 +58,7 @@ namespace MyOwnGames.Services
 
             // Get current UI dispatcher for thread-safe operations
             _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
-            _imageFailureService = new CommonUtilities.ImageFailureTrackingService();
+            _imageFailureService = new ImageFailureTrackingService();
         }
 
         public async Task<string?> GetGameImageAsync(int appId, string? language = null)

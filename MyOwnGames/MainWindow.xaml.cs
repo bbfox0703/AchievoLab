@@ -1,4 +1,5 @@
 using Microsoft.UI;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -198,6 +199,14 @@ namespace MyOwnGames
             // Subscribe to image download completion events
             _imageService.ImageDownloadCompleted += OnImageDownloadCompleted;
 
+            // Initialize image service with default language
+            var initialLanguage = GetCurrentLanguage();
+            _imageService.SetLanguage(initialLanguage);
+            AppendLog($"Initialized with language: {initialLanguage}");
+
+            // Subscribe to scroll events for on-demand image loading - defer until after UI is loaded
+            _ = Task.Delay(1000).ContinueWith(_ => this.DispatcherQueue.TryEnqueue(() => SetupScrollEvents()));
+
             // 取得 AppWindow
             var hwnd = WindowNative.GetWindowHandle(this);
             var winId = Win32Interop.GetWindowIdFromWindow(hwnd);
@@ -233,7 +242,7 @@ namespace MyOwnGames
             if (_isShuttingDown) return; // Don't update UI during shutdown
             
             // Find the corresponding game entry and update its image
-            this.DispatcherQueue?.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.High, () =>
+            this.DispatcherQueue?.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
             {
                 if (_isShuttingDown) return; // Double check during async execution
                 
@@ -242,12 +251,16 @@ namespace MyOwnGames
                     var gameEntry = AllGameItems.FirstOrDefault(g => g.AppId == appId);
                     if (gameEntry != null && !string.IsNullOrEmpty(imagePath) && File.Exists(imagePath))
                     {
-                        // Force UI refresh by changing the URI
+                        // Check if the current IconUri is already pointing to this image
                         var fileUri = new Uri(imagePath).AbsoluteUri;
+                        if (gameEntry.IconUri == fileUri)
+                        {
+                            // Already updated, no need to update again
+                            return;
+                        }
 
-                        // Always set the URI and force refresh
+                        // Only update if different
                         gameEntry.IconUri = fileUri;
-                        gameEntry.ForceIconRefresh(); // Force UI refresh
                         
                         DebugLogger.LogDebug($"Updated UI for downloaded image {appId}: {fileUri}");
                         AppendLog($"Image updated for {appId}");
@@ -256,6 +269,11 @@ namespace MyOwnGames
                 catch (System.Runtime.InteropServices.COMException) when (_isShuttingDown)
                 {
                     // Ignore COM exceptions during shutdown
+                }
+                catch (System.Runtime.InteropServices.COMException comEx)
+                {
+                    // COM exception during normal operation - try to handle gracefully
+                    DebugLogger.LogDebug($"COM exception updating UI for {appId}: {comEx.Message}");
                 }
                 catch (ObjectDisposedException) when (_isShuttingDown)
                 {
@@ -368,27 +386,56 @@ namespace MyOwnGames
                 {
                     DebugLogger.LogDebug($"Image found for {appId}: {imagePath}");
                     
-                    // Thread-safe UI update using DispatcherQueue with immediate priority
-                    this.DispatcherQueue?.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.High, () =>
+                    // Thread-safe UI update with additional safety checks
+                    if (!_isShuttingDown && this.DispatcherQueue != null)
                     {
-                        try
+                        this.DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, () =>
                         {
-                            // Force a new URI to ensure UI refresh
-                            var fileUri = new Uri(imagePath).AbsoluteUri;
+                            if (_isShuttingDown) return; // Double check during async execution
                             
-                            // Always update and force refresh
-                            entry.IconUri = fileUri;
-                            entry.ForceIconRefresh(); // Force UI refresh
-                            
-                            DebugLogger.LogDebug($"Updated UI for {appId} to {fileUri}");
-                        }
-                        catch (Exception ex)
-                        {
-                            DebugLogger.LogDebug($"Error updating UI for image {appId}: {ex.Message}");
-                            // Fallback to direct path assignment
-                            entry.IconUri = imagePath;
-                        }
-                    });
+                            try
+                            {
+                                // Additional safety: check if entry is still valid
+                                if (entry != null && AllGameItems.Contains(entry))
+                                {
+                                    // Force a new URI to ensure UI refresh
+                                    var fileUri = new Uri(imagePath).AbsoluteUri;
+                                    
+                                    // Update with additional validation
+                                    if (!string.IsNullOrEmpty(fileUri))
+                                    {
+                                        entry.IconUri = fileUri;
+                                        DebugLogger.LogDebug($"Updated UI for {appId} to {fileUri}");
+                                    }
+                                }
+                            }
+                            catch (System.Runtime.InteropServices.COMException) when (_isShuttingDown)
+                            {
+                                // Ignore COM exceptions during shutdown
+                            }
+                            catch (ObjectDisposedException) when (_isShuttingDown)
+                            {
+                                // Ignore object disposed exceptions during shutdown
+                            }
+                            catch (Exception ex)
+                            {
+                                if (!_isShuttingDown)
+                                {
+                                    DebugLogger.LogDebug($"Error updating UI for image {appId}: {ex.Message}");
+                                    // Fallback: try simple assignment
+                                    try
+                                    {
+                                        if (entry != null)
+                                            entry.IconUri = imagePath;
+                                    }
+                                    catch
+                                    {
+                                        // If even fallback fails, just ignore
+                                    }
+                                }
+                            }
+                        });
+                    }
                     
                     AppendLog($"Loaded image for {appId}");
                 }
@@ -841,31 +888,250 @@ namespace MyOwnGames
             if (_isLoading || LanguageComboBox.SelectedItem == null)
                 return;
 
+            var newLanguage = GetCurrentLanguage();
+            var currentImageServiceLanguage = _imageService?.GetCurrentLanguage();
+            
+            AppendLog($"Language switching: UI={newLanguage}, ImageService={currentImageServiceLanguage}");
+            
+            if (newLanguage == currentImageServiceLanguage) // 避免重複切換同一語言
+            {
+                AppendLog($"Language switch skipped - already using {newLanguage}");
+                return;
+            }
+
+            AppendLog($"Language changed from {currentImageServiceLanguage} to: {newLanguage}");
+            StatusText = $"Switching to {newLanguage}...";
+
             try
             {
-                var newLanguage = GetCurrentLanguage();
-                AppendLog($"Language changed to: {newLanguage}");
-                StatusText = $"Switching to {newLanguage}...";
+                // 設定為正在載入狀態，但不阻塞 UI
+                _isLoading = true;
 
-                // Update image service language
-                _imageService.SetLanguage(newLanguage);
+                // Update image service language first
+                _imageService?.SetLanguage(newLanguage);
 
-                // Update all game entries to use the new language
+                // 先快速更新語言顯示
                 foreach (var gameEntry in AllGameItems)
                 {
                     gameEntry.CurrentLanguage = newLanguage;
-                    
-                    // Reload images for the new language
-                    _ = LoadGameImageAsync(gameEntry, gameEntry.AppId, newLanguage);
                 }
 
-                StatusText = $"Language switched to {newLanguage}. Images loading...";
+                // 異步處理圖片刷新：優先可見圖片，隱藏圖片清空
+                _ = Task.Run(async () =>
+                {
+                    await ProcessLanguageSwitchImageRefresh(newLanguage);
+                });
+
+                StatusText = $"Language switched to {newLanguage}. Refreshing images...";
                 AppendLog($"Updated {AllGameItems.Count} games for language: {newLanguage}");
             }
             catch (Exception ex)
             {
                 AppendLog($"Error switching language: {ex.Message}");
                 StatusText = "Error switching language";
+            }
+            finally
+            {
+                _isLoading = false;
+            }
+        }
+
+        private async Task ProcessLanguageSwitchImageRefresh(string newLanguage)
+        {
+            try
+            {
+                // 1. 獲取當前可見的遊戲項目 (必須在 UI 線程執行)
+                var (visibleItems, hiddenItems) = (new List<GameEntry>(), new List<GameEntry>());
+                
+                // 在 UI 線程獲取可見項目
+                await Task.Run(() =>
+                {
+                    this.DispatcherQueue.TryEnqueue(() =>
+                    {
+                        var result = GetVisibleAndHiddenGameItems();
+                        visibleItems.AddRange(result.visible);
+                        hiddenItems.AddRange(result.hidden);
+                    });
+                });
+                
+                // 等待 UI 操作完成
+                await Task.Delay(50);
+
+                AppendLog($"Found {visibleItems.Count} visible games, {hiddenItems.Count} hidden games");
+
+                // 2. 清空所有隱藏項目的圖片（設置為預設圖片）
+                this.DispatcherQueue.TryEnqueue(() =>
+                {
+                    foreach (var hiddenItem in hiddenItems)
+                    {
+                        hiddenItem.IconUri = "ms-appx:///Assets/no_icon.png";
+                    }
+                });
+
+                // 3. 優先載入可見項目的語系圖片
+                await LoadVisibleItemsImages(visibleItems, newLanguage);
+
+                this.DispatcherQueue.TryEnqueue(() =>
+                {
+                    StatusText = $"Language switched to {newLanguage}. Visible images loaded.";
+                    AppendLog($"Loaded {visibleItems.Count} visible images for {newLanguage}");
+                });
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"Error processing language switch image refresh: {ex.Message}");
+            }
+        }
+
+        private (List<GameEntry> visible, List<GameEntry> hidden) GetVisibleAndHiddenGameItems()
+        {
+            var visibleItems = new List<GameEntry>();
+            var hiddenItems = new List<GameEntry>();
+
+            if (GamesGridView?.ItemsPanelRoot is ItemsWrapGrid wrapGrid)
+            {
+                // 獲取 ScrollViewer
+                var scrollViewer = FindScrollViewer(GamesGridView);
+                if (scrollViewer != null)
+                {
+                    var viewportHeight = scrollViewer.ViewportHeight;
+                    var verticalOffset = scrollViewer.VerticalOffset;
+
+                    // 估算可見範圍內的項目
+                    var itemHeight = 180; // tile height
+                    var itemsPerRow = Math.Max(1, (int)(scrollViewer.ViewportWidth / 180));
+                    var firstVisibleRow = Math.Max(0, (int)(verticalOffset / itemHeight));
+                    var lastVisibleRow = (int)((verticalOffset + viewportHeight) / itemHeight) + 1;
+                    
+                    var firstVisibleIndex = firstVisibleRow * itemsPerRow;
+                    var lastVisibleIndex = Math.Min(AllGameItems.Count - 1, (lastVisibleRow + 1) * itemsPerRow);
+
+                    for (int i = 0; i < AllGameItems.Count; i++)
+                    {
+                        if (i >= firstVisibleIndex && i <= lastVisibleIndex)
+                            visibleItems.Add(AllGameItems[i]);
+                        else
+                            hiddenItems.Add(AllGameItems[i]);
+                    }
+                }
+                else
+                {
+                    // 如果無法獲取 ScrollViewer，假設前 20 個項目可見
+                    for (int i = 0; i < AllGameItems.Count; i++)
+                    {
+                        if (i < 20)
+                            visibleItems.Add(AllGameItems[i]);
+                        else
+                            hiddenItems.Add(AllGameItems[i]);
+                    }
+                }
+            }
+            else
+            {
+                // Fallback: 假設前 20 個項目可見
+                for (int i = 0; i < AllGameItems.Count; i++)
+                {
+                    if (i < 20)
+                        visibleItems.Add(AllGameItems[i]);
+                    else
+                        hiddenItems.Add(AllGameItems[i]);
+                }
+            }
+
+            return (visibleItems, hiddenItems);
+        }
+
+        private async Task LoadVisibleItemsImages(List<GameEntry> visibleItems, string language)
+        {
+            // 批次載入可見項目，但批次較小避免卡頓
+            const int batchSize = 3;
+            for (int i = 0; i < visibleItems.Count; i += batchSize)
+            {
+                var batch = visibleItems.Skip(i).Take(batchSize);
+                var tasks = batch.Select(entry => LoadGameImageAsync(entry, entry.AppId, language));
+                
+                await Task.WhenAll(tasks);
+                await Task.Delay(30); // 較短延遲，因為只處理可見項目
+            }
+        }
+
+        private void SetupScrollEvents()
+        {
+            // 訂閱滾動事件以實現按需載入
+            var scrollViewer = FindScrollViewer(GamesGridView);
+            if (scrollViewer != null)
+            {
+                scrollViewer.ViewChanged += GamesGridView_ViewChanged;
+            }
+        }
+
+        private void GamesGridView_ViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
+        {
+            if (_isLoading || sender is not ScrollViewer scrollViewer)
+                return;
+
+            try
+            {
+                // 獲取當前語言
+                var currentLanguage = _imageService?.GetCurrentLanguage() ?? "english";
+                
+                // 找出新進入可見範圍的項目
+                var visibleItems = GetCurrentlyVisibleItems(scrollViewer);
+                
+                // 只載入那些圖片為預設圖片（即之前被清空）的項目
+                var itemsNeedingImages = visibleItems.Where(item => 
+                    item.IconUri == "ms-appx:///Assets/no_icon.png").ToList();
+
+                if (itemsNeedingImages.Any())
+                {
+                    // 小批次載入，避免影響滾動性能
+                    _ = Task.Run(async () =>
+                    {
+                        await LoadOnDemandImages(itemsNeedingImages, currentLanguage);
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error in GamesGridView_ViewChanged: {ex.Message}");
+            }
+        }
+
+        private List<GameEntry> GetCurrentlyVisibleItems(ScrollViewer scrollViewer)
+        {
+            var visibleItems = new List<GameEntry>();
+            
+            var viewportHeight = scrollViewer.ViewportHeight;
+            var verticalOffset = scrollViewer.VerticalOffset;
+
+            // 估算可見範圍內的項目
+            var itemHeight = 180;
+            var itemsPerRow = Math.Max(1, (int)(scrollViewer.ViewportWidth / 180));
+            var firstVisibleRow = Math.Max(0, (int)(verticalOffset / itemHeight));
+            var lastVisibleRow = (int)((verticalOffset + viewportHeight) / itemHeight) + 1;
+            
+            var firstVisibleIndex = firstVisibleRow * itemsPerRow;
+            var lastVisibleIndex = Math.Min(AllGameItems.Count - 1, (lastVisibleRow + 1) * itemsPerRow);
+
+            for (int i = firstVisibleIndex; i <= lastVisibleIndex && i < AllGameItems.Count; i++)
+            {
+                visibleItems.Add(AllGameItems[i]);
+            }
+
+            return visibleItems;
+        }
+
+        private async Task LoadOnDemandImages(List<GameEntry> items, string language)
+        {
+            // 更小的批次大小，避免影響 UI 流暢度
+            const int batchSize = 2;
+            for (int i = 0; i < items.Count; i += batchSize)
+            {
+                var batch = items.Skip(i).Take(batchSize);
+                var tasks = batch.Select(entry => LoadGameImageAsync(entry, entry.AppId, language));
+                
+                await Task.WhenAll(tasks);
+                await Task.Delay(100); // 較長延遲，避免影響滾動
             }
         }
 
@@ -890,19 +1156,29 @@ namespace MyOwnGames
         public int AppId { get; set; }
         
         private string _iconUri = "";
+        private volatile bool _isUpdatingIcon = false;
+        
         public string IconUri 
         { 
             get => _iconUri; 
             set 
-            { 
-                if (_iconUri != value || !string.IsNullOrEmpty(value)) // Force update if new value is not empty
-                { 
-                    _iconUri = value; 
-                    OnPropertyChanged(); 
+            {
+                if (_isUpdatingIcon) return; // Prevent concurrent updates
+                
+                try 
+                {
+                    _isUpdatingIcon = true;
                     
-                    // Also trigger a general refresh
-                    OnPropertyChanged(nameof(IconUri));
-                } 
+                    if (_iconUri != value || !string.IsNullOrEmpty(value)) // Force update if new value is not empty
+                    { 
+                        _iconUri = value; 
+                        OnPropertyChanged(); // This already triggers IconUri property change
+                    } 
+                }
+                finally 
+                {
+                    _isUpdatingIcon = false;
+                }
             } 
         }
         
@@ -980,7 +1256,18 @@ namespace MyOwnGames
         // Method to force UI refresh
         public void ForceIconRefresh()
         {
-            OnPropertyChanged(nameof(IconUri));
+            try
+            {
+                OnPropertyChanged(nameof(IconUri));
+            }
+            catch (System.Runtime.InteropServices.COMException)
+            {
+                // Ignore COM exceptions during UI refresh
+            }
+            catch (ObjectDisposedException)
+            {
+                // Ignore object disposed exceptions
+            }
         }
         
         // Method to update localized name for specific language
