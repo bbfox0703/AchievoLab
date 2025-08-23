@@ -127,6 +127,7 @@
                   ItemsSource="{Binding GameItems}"
                   SelectionMode="None"
                   IsItemClickEnabled="False"
+                  IsTabStop="False"
                   DoubleTapped="GamesGridView_DoubleTapped"
                   ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                   ScrollViewer.HorizontalScrollMode="Disabled">

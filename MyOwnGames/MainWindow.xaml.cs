@@ -45,6 +45,7 @@ namespace MyOwnGames
         private SteamApiService? _steamService;
         private bool _isShuttingDown = false;
         private CancellationTokenSource? _cancellationTokenSource;
+        private ScrollViewer? _gamesScrollViewer;
 
         private readonly string _defaultLanguage = GetDefaultLanguage();
 
@@ -205,6 +206,7 @@ namespace MyOwnGames
 
             // Set DataContext for binding
             RootGrid.DataContext = this;
+            RootGrid.KeyDown += OnWindowKeyDown;
 
             // Load saved games after window is displayed
             RootGrid.Loaded += MainWindow_Loaded;
@@ -631,6 +633,33 @@ namespace MyOwnGames
                 : $"No results found for \"{keyword}\".";
         }
 
+        private void OnWindowKeyDown(object sender, KeyRoutedEventArgs e)
+        {
+            if (e.Key != Windows.System.VirtualKey.PageDown &&
+                e.Key != Windows.System.VirtualKey.PageUp &&
+                e.Key != Windows.System.VirtualKey.Down &&
+                e.Key != Windows.System.VirtualKey.Up)
+                return;
+
+            var sv = _gamesScrollViewer ??= FindScrollViewer(GamesGridView);
+            if (sv == null)
+                return;
+
+            double offset = sv.VerticalOffset;
+            double delta = e.Key switch
+            {
+                Windows.System.VirtualKey.PageDown => sv.ViewportHeight,
+                Windows.System.VirtualKey.PageUp => -sv.ViewportHeight,
+                Windows.System.VirtualKey.Down => 100,
+                Windows.System.VirtualKey.Up => -100,
+                _ => 0
+            };
+
+            var target = Math.Max(0, Math.Min(offset + delta, sv.ScrollableHeight));
+            sv.ChangeView(null, target, null);
+            e.Handled = true;
+        }
+
         private void GamesGridView_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
         {
             // Find the GameEntry from the double-tapped element
@@ -833,6 +862,21 @@ namespace MyOwnGames
                 AppendLog($"Error switching language: {ex.Message}");
                 StatusText = "Error switching language";
             }
+        }
+
+        private static ScrollViewer? FindScrollViewer(DependencyObject root)
+        {
+            if (root is ScrollViewer sv)
+                return sv;
+
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+            {
+                var child = VisualTreeHelper.GetChild(root, i);
+                if (FindScrollViewer(child) is ScrollViewer result)
+                    return result;
+            }
+
+            return null;
         }
     }
 
