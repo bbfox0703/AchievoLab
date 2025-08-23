@@ -301,7 +301,7 @@ namespace MyOwnGames
                         NameEn = game.NameEn,
                         LocalizedNames = new Dictionary<string, string>(game.LocalizedNames),
                         CurrentLanguage = currentLanguage,
-                        IconUri = "ms-appx:///Assets/steam_placeholder.png" // Will be updated async
+                        IconUri = "ms-appx:///Assets/no_icon.png" // Will be updated async
                     };
 
                     GameItems.Add(entry);
@@ -488,7 +488,7 @@ namespace MyOwnGames
                             AppId = game.AppId,
                             NameEn = game.NameEn,
                             CurrentLanguage = selectedLanguage,
-                            IconUri = "ms-appx:///Assets/steam_placeholder.png" // Will be updated async
+                            IconUri = "ms-appx:///Assets/no_icon.png" // Will be updated async
                         };
                         
                         // Set localized name for current language

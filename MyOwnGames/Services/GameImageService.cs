@@ -66,46 +66,74 @@ namespace MyOwnGames.Services
                 return cachedPath;
             }
 
-            // Check disk cache - language-specific directory
+            // 1. Check language-specific cache directory first
             var langCacheDir = GetLanguageCacheDirectory(language);
-            string fileName = $"{appId}_header.jpg";
-            string filePath = Path.Combine(langCacheDir, fileName);
+            string fileName = $"{appId}.jpg";
+            string langFilePath = Path.Combine(langCacheDir, fileName);
             
-            if (!File.Exists(filePath))
+            if (File.Exists(langFilePath))
             {
-                // Check if we should skip download due to recent failures
-                if (_imageFailureService.ShouldSkipDownload(appId, language))
-                {
-                    return null;
-                }
+                _imageCache[cacheKey] = langFilePath;
+                return langFilePath;
+            }
 
-                // Download image with language-specific URLs
-                var downloadSuccess = await DownloadGameImageAsync(appId, filePath, language);
+            // 2. Check general cache directory (fallback)
+            string generalFilePath = Path.Combine(_baseCacheDirectory, fileName);
+            if (File.Exists(generalFilePath))
+            {
+                _imageCache[cacheKey] = generalFilePath;
+                return generalFilePath;
+            }
+
+            // 3. Try to download language-specific image
+            if (!_imageFailureService.ShouldSkipDownload(appId, language))
+            {
+                var downloadSuccess = await DownloadGameImageAsync(appId, langFilePath, language);
                 
-                if (!downloadSuccess || !File.Exists(filePath))
+                if (downloadSuccess && File.Exists(langFilePath))
                 {
-                    // Record failed download
-                    _imageFailureService.RecordFailedDownload(appId, language);
-                    // Notify that download failed
-                    ImageDownloadCompleted?.Invoke(appId, null);
-                    return null;
+                    // Language-specific download succeeded
+                    _imageFailureService.RemoveFailedRecord(appId, language);
+                    _imageCache[cacheKey] = langFilePath;
+                    ImageDownloadCompleted?.Invoke(appId, langFilePath);
+                    return langFilePath;
                 }
                 else
                 {
-                    // Remove any previous failed record since download succeeded
-                    _imageFailureService.RemoveFailedRecord(appId, language);
-                    // Notify that download completed successfully
-                    ImageDownloadCompleted?.Invoke(appId, filePath);
+                    // Language-specific download failed, record it
+                    _imageFailureService.RecordFailedDownload(appId, language);
                 }
             }
 
-            if (File.Exists(filePath))
+            // 4. Fallback: Try to download general image (english/universal)
+            if (!_imageFailureService.ShouldSkipDownload(appId, "english"))
             {
-                // Cache the path
-                _imageCache[cacheKey] = filePath;
-                return filePath;
+                var fallbackSuccess = await DownloadGameImageAsync(appId, generalFilePath, "english");
+                
+                if (fallbackSuccess && File.Exists(generalFilePath))
+                {
+                    // Fallback download succeeded, save to general cache
+                    _imageFailureService.RemoveFailedRecord(appId, "english");
+                    _imageCache[cacheKey] = generalFilePath;
+                    ImageDownloadCompleted?.Invoke(appId, generalFilePath);
+                    return generalFilePath;
+                }
+                else
+                {
+                    // Fallback download also failed
+                    _imageFailureService.RecordFailedDownload(appId, "english");
+                }
             }
 
+            // 5. No image available, return no_icon.png path
+            var noIconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "no_icon.png");
+            if (File.Exists(noIconPath))
+            {
+                return noIconPath;
+            }
+
+            // 6. Final fallback - return null if even no_icon.png doesn't exist
+            ImageDownloadCompleted?.Invoke(appId, null);
             return null;
         }
 
@@ -213,7 +241,7 @@ namespace MyOwnGames.Services
             {
                 if (specificLanguage != null)
                 {
-                    // Clear cache for specific language
+                    // Clear cache for specific language only
                     var langCacheDir = GetLanguageCacheDirectory(specificLanguage);
                     if (Directory.Exists(langCacheDir))
                     {
@@ -226,21 +254,59 @@ namespace MyOwnGames.Services
                     {
                         _imageCache.Remove(key);
                     }
+                    DebugLogger.LogDebug($"Cleared cache for language: {specificLanguage}");
                 }
                 else
                 {
-                    // Clear all caches
+                    // Clear all caches (both general and language-specific)
                     _imageCache.Clear();
                     if (Directory.Exists(_baseCacheDirectory))
                     {
                         Directory.Delete(_baseCacheDirectory, true);
-                        Directory.CreateDirectory(_baseCacheDirectory);
+                        Directory.CreateDirectory(_baseCacheDirectory); // Recreate base directory
                     }
+                    DebugLogger.LogDebug("Cleared all image caches");
                 }
             }
             catch (Exception ex)
             {
                 DebugLogger.LogDebug($"Error clearing image cache: {ex.Message}");
+            }
+        }
+        
+        /// <summary>
+        /// Clear only general cache directory (preserve language-specific caches)
+        /// </summary>
+        public void ClearGeneralCache()
+        {
+            try
+            {
+                // Only clear files directly in the base cache directory, not subdirectories
+                var files = Directory.GetFiles(_baseCacheDirectory, "*.jpg");
+                foreach (var file in files)
+                {
+                    File.Delete(file);
+                }
+                
+                // Clear memory cache entries that point to general cache
+                var keysToRemove = new List<string>();
+                foreach (var kvp in _imageCache)
+                {
+                    if (kvp.Value.StartsWith(_baseCacheDirectory) && !kvp.Value.Contains(Path.DirectorySeparatorChar + "english" + Path.DirectorySeparatorChar))
+                    {
+                        keysToRemove.Add(kvp.Key);
+                    }
+                }
+                foreach (var key in keysToRemove)
+                {
+                    _imageCache.Remove(key);
+                }
+                
+                DebugLogger.LogDebug("Cleared general image cache");
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error clearing general image cache: {ex.Message}");
             }
         }
 
