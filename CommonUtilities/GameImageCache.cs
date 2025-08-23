@@ -22,6 +22,7 @@ namespace CommonUtilities
         private readonly ConcurrentDictionary<string, Task<ImageResult>> _inFlight = new();
         private readonly TimeSpan _cacheDuration;
         private readonly ImageFailureTrackingService? _failureTracker;
+        private readonly DomainRateLimiter _rateLimiter = new();
 
         private int _totalRequests;
         private int _completed;
@@ -187,6 +188,7 @@ namespace CommonUtilities
         private async Task<ImageResult> DownloadAsync(string cacheKey, string language, Uri uri, string basePath, string ext, int? failureId)
         {
             await _concurrency.WaitAsync().ConfigureAwait(false);
+            await _rateLimiter.WaitAsync(uri).ConfigureAwait(false);
             try
             {
                 using var response = await _http.GetAsync(uri).ConfigureAwait(false);
@@ -229,6 +231,7 @@ namespace CommonUtilities
             }
             finally
             {
+                _rateLimiter.RecordCall(uri);
                 _concurrency.Release();
                 _inFlight.TryRemove(basePath, out _);
                 Interlocked.Increment(ref _completed);
