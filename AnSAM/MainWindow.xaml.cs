@@ -756,7 +756,9 @@ namespace AnSAM
 
             try
             {
-                var cached = IconCache.TryGetCachedIconUri(ID);
+                string language = SteamLanguageResolver.GetSteamLanguage();
+
+                var cached = IconCache.TryGetCachedIconUri(ID, language);
                 if (cached != null)
                 {
                     coverAssigned = true;
@@ -771,13 +773,11 @@ namespace AnSAM
                     return;
                 }
 
-                string language = SteamLanguageResolver.GetSteamLanguage();
-
                 var url = GameImageUrlResolver.GetGameImageUrl(client, (uint)ID, language);
 
                 if (Uri.TryCreate(url, UriKind.Absolute, out var remoteUri))
                 {
-                    var result = await IconCache.GetIconPathAsync(ID, remoteUri).ConfigureAwait(false);
+                    var result = await IconCache.GetIconPathAsync(ID, remoteUri, language).ConfigureAwait(false);
                     if (Uri.TryCreate(result.Path, UriKind.Absolute, out var localUri))
                     {
                         coverAssigned = true;
