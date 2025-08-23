@@ -152,4 +152,50 @@ public class IconCacheTests
             SteamLanguageResolver.OverrideLanguage = null;
         }
     }
+
+    [Fact]
+    public async Task FailedDownloadReturnsEmptyPath()
+    {
+        SteamLanguageResolver.OverrideLanguage = "english";
+        try
+        {
+            var cacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab", "ImageCache", "english");
+            Directory.CreateDirectory(cacheDir);
+
+            var id = Random.Shared.Next(400001, 500000);
+            foreach (var file in Directory.EnumerateFiles(cacheDir, $"{id}.*"))
+            {
+                try { File.Delete(file); } catch { }
+            }
+
+            int port;
+            using (var l = new TcpListener(IPAddress.Loopback, 0))
+            {
+                l.Start();
+                port = ((IPEndPoint)l.LocalEndpoint).Port;
+            }
+            var prefix = $"http://localhost:{port}/";
+            using var listener = new HttpListener();
+            listener.Prefixes.Add(prefix);
+            listener.Start();
+            var serverTask = Task.Run(async () =>
+            {
+                var ctx = await listener.GetContextAsync();
+                ctx.Response.StatusCode = 404;
+                ctx.Response.Close();
+                listener.Stop();
+            });
+
+            var result = await IconCache.GetIconPathAsync(id, new Uri(prefix + "missing.png"));
+            await serverTask;
+
+            Assert.Equal(string.Empty, result.Path);
+            Assert.False(result.Downloaded);
+            Assert.Empty(Directory.EnumerateFiles(cacheDir, $"{id}.*"));
+        }
+        finally
+        {
+            SteamLanguageResolver.OverrideLanguage = null;
+        }
+    }
 }

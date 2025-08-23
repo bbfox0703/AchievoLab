@@ -171,7 +171,15 @@ namespace AnSAM.Services
             {
                 Interlocked.Increment(ref _totalRequests);
                 ReportProgress();
-                return DownloadAsync(uri, basePath, ext);
+                return DownloadAsync(uri, basePath, ext).ContinueWith(t =>
+                {
+                    if (t.Status == TaskStatus.RanToCompletion)
+                    {
+                        return t.Result;
+                    }
+
+                    return new IconPathResult(string.Empty, false);
+                }, TaskScheduler.Default);
             });
         }
 
@@ -223,15 +231,10 @@ namespace AnSAM.Services
             {
                 if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
                 {
-                    try
+                    var result = await GetIconPathAsync(id, uri).ConfigureAwait(false);
+                    if (!string.IsNullOrEmpty(result.Path))
                     {
-                        return await GetIconPathAsync(id, uri).ConfigureAwait(false);
-                    }
-                    catch (Exception ex) when (ex is HttpRequestException or InvalidDataException)
-                    {
-#if DEBUG
-                        DebugLogger.LogDebug($"Icon download failed for {id}: {ex.Message}");
-#endif
+                        return result;
                     }
                 }
             }
