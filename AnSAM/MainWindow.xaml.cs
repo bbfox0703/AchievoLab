@@ -83,6 +83,7 @@ namespace AnSAM
             GameListService.ProgressChanged += OnGameListProgressChanged;
             IconCache.ProgressChanged += OnIconProgressChanged;
             Activated += OnWindowActivated;
+            Closed += OnWindowClosed;
         }
 
         private void InitializeLanguageComboBox()
@@ -313,6 +314,20 @@ namespace AnSAM
             {
                 sv.ChangeView(null, offset.Value, null);
                 e.Handled = true;
+            }
+        }
+
+        private void OnWindowClosed(object sender, WindowEventArgs args)
+        {
+            GameListService.StatusChanged -= OnGameListStatusChanged;
+            GameListService.ProgressChanged -= OnGameListProgressChanged;
+            IconCache.ProgressChanged -= OnIconProgressChanged;
+            _uiSettings.ColorValuesChanged -= UiSettings_ColorValuesChanged;
+            Activated -= OnWindowActivated;
+
+            if (Content is FrameworkElement root)
+            {
+                root.KeyDown -= OnWindowKeyDown;
             }
         }
 
