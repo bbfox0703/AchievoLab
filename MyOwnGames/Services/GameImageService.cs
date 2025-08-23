@@ -47,6 +47,7 @@ namespace MyOwnGames.Services
         public async Task<string?> GetGameImageAsync(int appId, string? language = null)
         {
             language ??= _currentLanguage;
+            var originalLanguage = language;
             var cacheKey = $"{appId}_{language}";
 
             if (_imageCache.TryGetValue(cacheKey, out var cached))
@@ -58,7 +59,7 @@ namespace MyOwnGames.Services
 
                 try { File.Delete(cached); } catch { }
                 _imageCache.Remove(cacheKey);
-                _failureTracker.RecordFailedDownload(appId, language);
+                _failureTracker.RecordFailedDownload(appId, originalLanguage);
             }
 
             var languageSpecificUrlMap = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
@@ -140,7 +141,7 @@ namespace MyOwnGames.Services
                 try { File.Delete(result.Value.Path); } catch { }
             }
 
-            if (!string.Equals(language, "english", StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(originalLanguage, "english", StringComparison.OrdinalIgnoreCase))
             {
                 var englishUrlMap = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
                 var englishHeader = await GetHeaderImageFromStoreApiAsync(appId, "english");
@@ -163,7 +164,7 @@ namespace MyOwnGames.Services
 
                 var englishUrls = RoundRobin(englishUrlMap);
 
-                result = await _cache.GetImagePathAsync(appId.ToString(), englishUrls, language, appId);
+                result = await _cache.GetImagePathAsync(appId.ToString(), englishUrls, originalLanguage, appId);
                 if (!string.IsNullOrEmpty(result?.Path) && IsValidImage(result.Value.Path))
                 {
                     _imageCache[cacheKey] = result.Value.Path;
@@ -181,7 +182,7 @@ namespace MyOwnGames.Services
                 }
             }
 
-            _failureTracker.RecordFailedDownload(appId, language);
+            _failureTracker.RecordFailedDownload(appId, originalLanguage);
 
             var noIconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "no_icon.png");
             if (File.Exists(noIconPath))
