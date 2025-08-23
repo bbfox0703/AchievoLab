@@ -1367,7 +1367,7 @@ namespace RunGame
 
                             if (!string.IsNullOrEmpty(iconPath))
                             {
-                                this.DispatcherQueue.TryEnqueue(() =>
+                                this.DispatcherQueue?.TryEnqueue(() =>
                                 {
                                     try
                                     {
@@ -1390,9 +1390,12 @@ namespace RunGame
                     processed += batch.Length;
 
                     int progress = processed;
-                    this.DispatcherQueue.TryEnqueue(() =>
+                    this.DispatcherQueue?.TryEnqueue(() =>
                     {
-                        StatusLabel.Text = $"Loading icons... {progress}/{total}";
+                        if (StatusLabel != null)
+                        {
+                            StatusLabel.Text = $"Loading icons... {progress}/{total}";
+                        }
                     });
 
                     await Task.Delay(1);
@@ -1424,7 +1427,7 @@ namespace RunGame
 
                 if (!string.IsNullOrEmpty(iconPath))
                 {
-                    this.DispatcherQueue.TryEnqueue(() =>
+                    this.DispatcherQueue?.TryEnqueue(() =>
                     {
                         try
                         {
