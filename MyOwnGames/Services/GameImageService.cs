@@ -237,41 +237,6 @@ namespace MyOwnGames.Services
             }
             ImageDownloadCompleted?.Invoke(appId, path);
         }
-
-        private void CopyToEnglishCacheIfMissing(int appId, string path)
-        {
-            try
-            {
-                // Ensure the source file is already within the English cache
-                var sourceDir = Path.GetDirectoryName(path);
-                if (sourceDir == null ||
-                    !string.Equals(Path.GetFileName(sourceDir), "english", StringComparison.OrdinalIgnoreCase))
-                {
-                    return;
-                }
-
-                if (_cache.TryGetCachedPath(appId.ToString(), "english", checkEnglishFallback: false) != null)
-                {
-                    return;
-                }
-
-                var baseDir = Path.GetDirectoryName(sourceDir);
-                if (baseDir == null)
-                {
-                    return;
-                }
-
-                var englishDir = Path.Combine(baseDir, "english");
-                Directory.CreateDirectory(englishDir);
-                var englishPath = Path.Combine(englishDir, Path.GetFileName(path));
-                if (!File.Exists(englishPath))
-                {
-                    File.Copy(path, englishPath);
-                }
-            }
-            catch { }
-        }
-
         private async Task<string?> GetHeaderImageFromStoreApiAsync(int appId, string language)
         {
             try
