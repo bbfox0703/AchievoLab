@@ -158,7 +158,7 @@
                             <Border Grid.Row="0" 
                                     Background="{ThemeResource SystemControlBackgroundBaseLowBrush}"
                                     CornerRadius="2">
-                                <Image Source="{x:Bind IconUri, Mode=OneWay}" 
+                                <Image Source="{x:Bind IconSource, Mode=OneWay}"
                                        Stretch="UniformToFill"
                                        HorizontalAlignment="Center"
                                        VerticalAlignment="Center"/>
