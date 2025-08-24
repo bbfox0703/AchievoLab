@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
@@ -16,6 +17,9 @@ namespace MyOwnGames.Services
         private readonly GameImageCache _cache;
         private readonly ImageFailureTrackingService _failureTracker;
         private readonly Dictionary<string, string> _imageCache = new();
+        private readonly ConcurrentDictionary<string, Task<string?>> _pendingRequests = new();
+        private readonly HashSet<string> _completedEvents = new();
+        private readonly object _eventLock = new();
         private string _currentLanguage = "english";
 
         public event Action<int, string?>? ImageDownloadCompleted;
@@ -50,6 +54,31 @@ namespace MyOwnGames.Services
             var originalLanguage = language;
             var cacheKey = $"{appId}_{language}";
 
+            // Check if there's already a request in progress for this image
+            if (_pendingRequests.TryGetValue(cacheKey, out var existingTask))
+            {
+                return await existingTask.ConfigureAwait(false);
+            }
+
+            // Start a new request
+            var requestTask = GetGameImageInternalAsync(appId, language, originalLanguage, cacheKey);
+            _pendingRequests.TryAdd(cacheKey, requestTask);
+
+            try
+            {
+                var result = await requestTask.ConfigureAwait(false);
+                return result;
+            }
+            finally
+            {
+                // Always remove from pending requests when done
+                _pendingRequests.TryRemove(cacheKey, out _);
+            }
+        }
+
+        private async Task<string?> GetGameImageInternalAsync(int appId, string language, string originalLanguage, string cacheKey)
+        {
+
             if (_imageCache.TryGetValue(cacheKey, out var cached))
             {
                 if (IsValidImage(cached))
@@ -59,9 +88,19 @@ namespace MyOwnGames.Services
 
                 try { File.Delete(cached); } catch { }
                 _imageCache.Remove(cacheKey);
-                _failureTracker.RecordFailedDownload(appId, originalLanguage);
+                // Don't record as failed download - file was corrupted, not missing
             }
 
+            // Check if we should skip this language entirely due to repeated failures  
+            if (_failureTracker.ShouldSkipDownload(appId, originalLanguage))
+            {
+                // Return fallback image path directly
+                return GetFallbackImagePath();
+            }
+
+            // Only log when we actually need to download
+            DebugLogger.LogDebug($"Starting image download for {appId} (language: {language})");
+            
             var languageSpecificUrlMap = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 
             static void AddUrl(Dictionary<string, List<string>> map, string url)
@@ -129,7 +168,9 @@ namespace MyOwnGames.Services
                 _imageCache[cacheKey] = result.Value.Path;
                 if (result.Value.Downloaded)
                 {
-                    ImageDownloadCompleted?.Invoke(appId, result.Value.Path);
+                    // If English fallback was successful, remove failure record for original language
+                    _failureTracker.RemoveFailedRecord(appId, originalLanguage);
+                    TriggerImageDownloadCompletedEvent(appId, result.Value.Path);
                 }
                 return result.Value.Path;
             }
@@ -166,7 +207,7 @@ namespace MyOwnGames.Services
                     _imageCache[cacheKey] = result.Value.Path;
                     if (result.Value.Downloaded)
                     {
-                        ImageDownloadCompleted?.Invoke(appId, result.Value.Path);
+                        TriggerImageDownloadCompletedEvent(appId, result.Value.Path);
                     }
                     CopyToEnglishCacheIfMissing(appId, result.Value.Path);
                     return result.Value.Path;
@@ -191,7 +232,7 @@ namespace MyOwnGames.Services
                 _imageCache[cacheKey] = result.Value.Path;
                 if (result.Value.Downloaded)
                 {
-                    ImageDownloadCompleted?.Invoke(appId, result.Value.Path);
+                    TriggerImageDownloadCompletedEvent(appId, result.Value.Path);
                 }
                 if (!string.Equals(originalLanguage, "english", StringComparison.OrdinalIgnoreCase))
                 {
@@ -213,8 +254,29 @@ namespace MyOwnGames.Services
                 return noIconPath;
             }
 
-            ImageDownloadCompleted?.Invoke(appId, null);
+            TriggerImageDownloadCompletedEvent(appId, null);
             return null;
+        }
+
+        private string? GetFallbackImagePath()
+        {
+            var noIconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "no_icon.png");
+            return File.Exists(noIconPath) ? noIconPath : null;
+        }
+
+        private void TriggerImageDownloadCompletedEvent(int appId, string? path)
+        {
+            var eventKey = $"{appId}_{path ?? "null"}";
+            lock (_eventLock)
+            {
+                if (_completedEvents.Contains(eventKey))
+                {
+                    DebugLogger.LogDebug($"Skipping duplicate ImageDownloadCompleted event for {appId}");
+                    return;
+                }
+                _completedEvents.Add(eventKey);
+            }
+            ImageDownloadCompleted?.Invoke(appId, path);
         }
 
         private void CopyToEnglishCacheIfMissing(int appId, string path)
@@ -318,6 +380,10 @@ namespace MyOwnGames.Services
             {
                 _cache.ClearCache();
                 _imageCache.Clear();
+                lock (_eventLock)
+                {
+                    _completedEvents.Clear();
+                }
             }
         }
 

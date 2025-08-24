@@ -48,6 +48,9 @@ namespace MyOwnGames
         private bool _isShuttingDown = false;
         private CancellationTokenSource? _cancellationTokenSource;
         private ScrollViewer? _gamesScrollViewer;
+        private readonly HashSet<int> _imagesCurrentlyLoading = new();
+        private readonly HashSet<int> _imagesSuccessfullyLoaded = new();
+        private readonly object _imageLoadingLock = new();
 
         private readonly string _defaultLanguage = GetDefaultLanguage();
 
@@ -395,14 +398,35 @@ namespace MyOwnGames
         {
             if (_isShuttingDown) return; // Don't start new image loads during shutdown
             
+            // Prevent multiple simultaneous image loads for the same game, but allow retries for failed loads
+            lock (_imageLoadingLock)
+            {
+                if (_imagesCurrentlyLoading.Contains(appId))
+                {
+                    DebugLogger.LogDebug($"Image load already in progress for {appId}, skipping duplicate request");
+                    return;
+                }
+                if (_imagesSuccessfullyLoaded.Contains(appId))
+                {
+                    // Image already loaded successfully, no need to load again
+                    return;
+                }
+                _imagesCurrentlyLoading.Add(appId);
+            }
+            
             try
             {
-                DebugLogger.LogDebug($"Starting image load for {appId} (language: {language})");
                 var imagePath = await _imageService.GetGameImageAsync(appId, language);
                 
                 if (!string.IsNullOrEmpty(imagePath) && File.Exists(imagePath))
                 {
                     DebugLogger.LogDebug($"Image found for {appId}: {imagePath}");
+                    
+                    // Mark as successfully loaded
+                    lock (_imageLoadingLock)
+                    {
+                        _imagesSuccessfullyLoaded.Add(appId);
+                    }
                     
                     // Thread-safe UI update with additional safety checks
                     if (!_isShuttingDown && this.DispatcherQueue != null)
@@ -467,6 +491,14 @@ namespace MyOwnGames
             {
                 DebugLogger.LogDebug($"Error loading image for {appId}: {ex.Message}");
                 AppendLog($"Error loading image for {appId}: {ex.Message}");
+            }
+            finally
+            {
+                // Always remove from loading set when done
+                lock (_imageLoadingLock)
+                {
+                    _imagesCurrentlyLoading.Remove(appId);
+                }
             }
         }
 
