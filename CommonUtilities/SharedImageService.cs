@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -18,6 +19,7 @@ namespace CommonUtilities
         private readonly ConcurrentDictionary<string, Task<string?>> _pendingRequests = new();
         private readonly HashSet<string> _completedEvents = new();
         private readonly object _eventLock = new();
+        private CancellationTokenSource _cts = new();
         private string _currentLanguage = "english";
 
         public event Action<int, string?>? ImageDownloadCompleted;
@@ -38,6 +40,9 @@ namespace CommonUtilities
         {
             if (_currentLanguage != language)
             {
+                _cts.Cancel();
+                _cts.Dispose();
+                _cts = new CancellationTokenSource();
                 _currentLanguage = language;
                 _imageCache.Clear();
                 _pendingRequests.Clear();
@@ -141,7 +146,7 @@ namespace CommonUtilities
                 return result;
             }
 
-            var header = await GetHeaderImageFromStoreApiAsync(appId, language);
+            var header = await GetHeaderImageFromStoreApiAsync(appId, language, _cts.Token);
             if (!string.IsNullOrEmpty(header))
             {
                 AddUrl(languageSpecificUrlMap, header);
@@ -163,7 +168,7 @@ namespace CommonUtilities
             AddUrl(languageSpecificUrlMap, $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/header_{language}.jpg");
 
             var languageUrls = RoundRobin(languageSpecificUrlMap);
-            var result = await _cache.GetImagePathAsync(appId.ToString(), languageUrls, language, appId);
+            var result = await _cache.GetImagePathAsync(appId.ToString(), languageUrls, language, appId, _cts.Token);
             if (!string.IsNullOrEmpty(result?.Path) && IsFreshImage(result.Value.Path))
             {
                 _imageCache[cacheKey] = result.Value.Path;
@@ -185,7 +190,7 @@ namespace CommonUtilities
             AddUrl(logoUrlMap, $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/logo.png");
 
             var logoUrls = RoundRobin(logoUrlMap);
-            result = await _cache.GetImagePathAsync(appId.ToString(), logoUrls, originalLanguage, appId);
+            result = await _cache.GetImagePathAsync(appId.ToString(), logoUrls, originalLanguage, appId, _cts.Token);
             if (!string.IsNullOrEmpty(result?.Path) && IsFreshImage(result.Value.Path))
             {
                 _imageCache[cacheKey] = result.Value.Path;
@@ -236,12 +241,12 @@ namespace CommonUtilities
             }
             ImageDownloadCompleted?.Invoke(appId, path);
         }
-        private async Task<string?> GetHeaderImageFromStoreApiAsync(int appId, string language)
+        private async Task<string?> GetHeaderImageFromStoreApiAsync(int appId, string language, CancellationToken cancellationToken)
         {
             try
             {
                 var storeApiUrl = $"https://store.steampowered.com/api/appdetails?appids={appId}&l={language}";
-                using var response = await _httpClient.GetAsync(storeApiUrl);
+                using var response = await _httpClient.GetAsync(storeApiUrl, cancellationToken);
                 if (!response.IsSuccessStatusCode)
                 {
                     return null;
@@ -271,6 +276,11 @@ namespace CommonUtilities
             catch (JsonException ex)
             {
                 DebugLogger.LogDebug($"Malformed store API response for {appId}: {ex.Message}");
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                DebugLogger.LogDebug($"Store API request for {appId} cancelled");
+                throw;
             }
             catch (TaskCanceledException ex)
             {
@@ -316,6 +326,8 @@ namespace CommonUtilities
 
         public void Dispose()
         {
+            _cts.Cancel();
+            _cts.Dispose();
             _httpClient.Dispose();
             _imageCache.Clear();
         }
