@@ -130,7 +130,7 @@ namespace MyOwnGames
                     {
                         if (_totalImagesCount > 0)
                         {
-                            StatusText = $"下載圖片: {_completedImagesCount}/{_totalImagesCount} 已完成 ({_pendingImagesCount} 待處理)";
+                            StatusText = $"D/L: {_completedImagesCount}/{_totalImagesCount} done, ({_pendingImagesCount} queued)";
                             ProgressValue = progressPercent;
                             ProgressVisibility = Visibility.Visible;
                             IsLoading = true;
