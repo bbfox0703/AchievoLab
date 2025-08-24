@@ -10,7 +10,8 @@ namespace CommonUtilities
 {
     /// <summary>
     /// Shared image cache that downloads and stores images on disk with
-    /// MIME validation, cache expiration and optional failure tracking.
+    /// MIME validation, cache expiration, optional failure tracking, and
+    /// per-domain/global throttling.
     /// </summary>
     public class GameImageCache
     {

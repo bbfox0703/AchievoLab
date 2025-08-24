@@ -5,20 +5,23 @@ using System.Threading.Tasks;
 namespace CommonUtilities
 {
     /// <summary>
-    /// Rate limiter that throttles requests per-domain and globally using a token bucket.
+    /// Rate limiter that throttles requests per-domain with a base delay plus jitter and
+    /// globally using a token bucket.
     /// </summary>
     internal class DomainRateLimiter
     {
         private readonly Dictionary<string, DateTime> _lastCall = new(StringComparer.OrdinalIgnoreCase);
         private readonly object _lock = new();
 
-        // Token bucket parameters
-        private const int Capacity = 50; // max 50 requests
-        private const double FillRatePerSecond = Capacity / 60.0; // 50 per minute
+        // Token bucket parameters: allows up to 120 downloads per minute
+        private const int Capacity = 120; // max 120 requests
+        private const double FillRatePerSecond = 2; // 2 tokens per second => 120 per minute
         private double _tokens = Capacity;
         private DateTime _lastRefill = DateTime.UtcNow;
 
-        private static readonly TimeSpan PerDomainDelay = TimeSpan.FromSeconds(1);
+        // Per-domain delay with jitter to avoid bursts
+        private static readonly TimeSpan BaseDomainDelay = TimeSpan.FromSeconds(1);
+        private const double JitterSeconds = 0.5;
 
         /// <summary>
         /// Waits until a request is allowed for the given URI based on domain and global limits.
@@ -26,6 +29,7 @@ namespace CommonUtilities
         public async Task WaitAsync(Uri uri)
         {
             var host = uri.Host;
+            var minInterval = BaseDomainDelay + TimeSpan.FromSeconds(Random.Shared.NextDouble() * JitterSeconds);
             while (true)
             {
                 TimeSpan delay = TimeSpan.Zero;
@@ -35,9 +39,9 @@ namespace CommonUtilities
                     if (_lastCall.TryGetValue(host, out var last))
                     {
                         var since = DateTime.UtcNow - last;
-                        if (since < PerDomainDelay)
+                        if (since < minInterval)
                         {
-                            delay = PerDomainDelay - since;
+                            delay = minInterval - since;
                         }
                     }
 
