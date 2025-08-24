@@ -22,6 +22,9 @@ namespace MyOwnGames.Services
         private readonly HashSet<string> _completedEvents = new();
         private readonly object _eventLock = new();
         private string _currentLanguage = "english";
+        private int _totalGames;
+        private int _displayedImages;
+        private readonly HashSet<int> _countedAppIds = new();
 
         public event Action<int, string?>? ImageDownloadCompleted;
         public event Action<int, int>? ImageDownloadProgressChanged;
@@ -37,20 +40,6 @@ namespace MyOwnGames.Services
                 "AchievoLab", "ImageCache");
             _failureTracker = new ImageFailureTrackingService();
             _cache = new GameImageCache(baseDir, _failureTracker);
-            
-            // Forward progress events from cache
-            _cache.ProgressChanged += (completed, total) =>
-            {
-                DebugLogger.LogDebug($"GameImageService forwarding progress: {completed}/{total}");
-                ImageDownloadProgressChanged?.Invoke(completed, total);
-            };
-            
-            // Test the progress system immediately
-            Task.Delay(1000).ContinueWith(_ =>
-            {
-                DebugLogger.LogDebug("Testing progress system...");
-                _cache.ResetProgress();
-            });
         }
 
         public void SetLanguage(string language)
@@ -64,15 +53,18 @@ namespace MyOwnGames.Services
 
         public string GetCurrentLanguage() => _currentLanguage;
 
+        public void SetTotalGames(int total)
+        {
+            _totalGames = total;
+            _displayedImages = 0;
+            _countedAppIds.Clear();
+        }
+
         public async Task<string?> GetGameImageAsync(int appId, string? language = null)
         {
             language ??= _currentLanguage;
             var originalLanguage = language;
             var cacheKey = $"{appId}_{language}";
-            
-            // Test progress system directly
-            DebugLogger.LogDebug($"Testing direct progress event for {appId}");
-            ImageDownloadProgressChanged?.Invoke(1, 10);
 
             // Check if there's already a request in progress for this image
             if (_pendingRequests.TryGetValue(cacheKey, out var existingTask))
@@ -334,6 +326,31 @@ namespace MyOwnGames.Services
                 _completedEvents.Add(eventKey);
             }
             ImageDownloadCompleted?.Invoke(appId, path);
+
+            bool raise;
+            int displayed;
+            int total;
+            lock (_eventLock)
+            {
+                if (_countedAppIds.Add(appId))
+                {
+                    _displayedImages++;
+                    raise = true;
+                    displayed = _displayedImages;
+                    total = _totalGames;
+                }
+                else
+                {
+                    raise = false;
+                    displayed = _displayedImages;
+                    total = _totalGames;
+                }
+            }
+            if (raise)
+            {
+                DebugLogger.LogDebug($"GameImageService progress: {displayed}/{total}");
+                ImageDownloadProgressChanged?.Invoke(displayed, total);
+            }
         }
 
         private void CopyToEnglishCacheIfMissing(int appId, string path)
