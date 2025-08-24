@@ -118,6 +118,13 @@
                                    Label="Get Game list"
                                    Click="GetGamesButton_Click"
                                    IsEnabled="False"/>
+                
+                <!-- Stop Button -->
+                <AppBarButton x:Name="StopButton"
+                                   Icon="Stop"
+                                   Label="Stop"
+                                   Click="StopButton_Click"
+                                   IsEnabled="False"/>
             </CommandBar.PrimaryCommands>
         </CommandBar>
 

@@ -48,10 +48,10 @@ namespace MyOwnGames
         private bool _isShuttingDown = false;
         private CancellationTokenSource? _cancellationTokenSource;
         private ScrollViewer? _gamesScrollViewer;
-        private readonly HashSet<int> _imagesCurrentlyLoading = new();
-        private readonly HashSet<int> _imagesSuccessfullyLoaded = new();
+        private readonly HashSet<string> _imagesCurrentlyLoading = new();
+        private readonly HashSet<string> _imagesSuccessfullyLoaded = new();
         private readonly object _imageLoadingLock = new();
-        private readonly Dictionary<int, DateTime> _duplicateImageLogTimes = new();
+        private readonly Dictionary<string, DateTime> _duplicateImageLogTimes = new();
 
         private readonly string _defaultLanguage = GetDefaultLanguage();
 
@@ -398,27 +398,30 @@ namespace MyOwnGames
         private async Task LoadGameImageAsync(GameEntry entry, int appId, string? language = null)
         {
             if (_isShuttingDown) return; // Don't start new image loads during shutdown
-            
+
+            language ??= _imageService.GetCurrentLanguage();
+            var key = $"{appId}_{language}";
+
             // Prevent multiple simultaneous image loads for the same game, but allow retries for failed loads
             lock (_imageLoadingLock)
             {
-                if (_imagesCurrentlyLoading.Contains(appId))
+                if (_imagesCurrentlyLoading.Contains(key))
                 {
-                    if (!_duplicateImageLogTimes.TryGetValue(appId, out var lastLog) || (DateTime.Now - lastLog).TotalSeconds > 30)
+                    if (!_duplicateImageLogTimes.TryGetValue(key, out var lastLog) || (DateTime.Now - lastLog).TotalSeconds > 30)
                     {
                         DebugLogger.LogDebug($"Image load already in progress for {appId}, skipping duplicate request");
-                        _duplicateImageLogTimes[appId] = DateTime.Now;
+                        _duplicateImageLogTimes[key] = DateTime.Now;
                     }
                     return;
                 }
-                if (_imagesSuccessfullyLoaded.Contains(appId))
+                if (_imagesSuccessfullyLoaded.Contains(key))
                 {
                     // Image already loaded successfully, no need to load again
                     return;
                 }
-                _imagesCurrentlyLoading.Add(appId);
+                _imagesCurrentlyLoading.Add(key);
             }
-            
+
             try
             {
                 var imagePath = await _imageService.GetGameImageAsync(appId, language);
@@ -430,7 +433,7 @@ namespace MyOwnGames
                     // Mark as successfully loaded
                     lock (_imageLoadingLock)
                     {
-                        _imagesSuccessfullyLoaded.Add(appId);
+                        _imagesSuccessfullyLoaded.Add(key);
                     }
                     
                     // Thread-safe UI update with additional safety checks
@@ -502,8 +505,8 @@ namespace MyOwnGames
                 // Always remove from tracking dictionaries when done
                 lock (_imageLoadingLock)
                 {
-                    _imagesCurrentlyLoading.Remove(appId);
-                    _duplicateImageLogTimes.Remove(appId);
+                    _imagesCurrentlyLoading.Remove(key);
+                    _duplicateImageLogTimes.Remove(key);
                 }
             }
         }
@@ -545,6 +548,9 @@ namespace MyOwnGames
                 return;
             }
 
+            // Disable controls during operation
+            SetControlsEnabledState(false);
+
             await EnsureSteamIdHashConsistencyAsync(steamId64!);
 
             string? xmlPath = null;
@@ -580,14 +586,28 @@ namespace MyOwnGames
 
                 // Load existing games to check current language data status
                 var existingGamesData = await _dataService.LoadGamesWithLanguagesAsync();
-                
+                var existingLocalizedNames = new Dictionary<int, string>();
+                var skipAppIds = new HashSet<int>();
+                foreach (var game in existingGamesData)
+                {
+                    if (game.LocalizedNames != null && game.LocalizedNames.TryGetValue(selectedLanguage, out var name) && !string.IsNullOrEmpty(name))
+                    {
+                        existingLocalizedNames[game.AppId] = name;
+                        if (_imageService.HasImage(game.AppId, selectedLanguage))
+                        {
+                            skipAppIds.Add(game.AppId);
+                        }
+                    }
+                }
+
                 // Use real Steam API service with selected language
                 _steamService = new SteamApiService(apiKey!);
                 var total = await _steamService.GetOwnedGamesAsync(steamId64!, selectedLanguage, async game =>
                 {
+                    var shouldSkip = skipAppIds.Contains(game.AppId);
                     // Check if this game has data for the current language
                     var existingGameData = existingGamesData.FirstOrDefault(g => g.AppId == game.AppId);
-                    var hasLanguageData = existingGameData?.LocalizedNames?.ContainsKey(selectedLanguage) == true && 
+                    var hasLanguageData = existingGameData?.LocalizedNames?.ContainsKey(selectedLanguage) == true &&
                                          !string.IsNullOrEmpty(existingGameData.LocalizedNames[selectedLanguage]);
                     
                     // Always process the game to ensure XML consistency for current language
@@ -605,8 +625,11 @@ namespace MyOwnGames
                         
                         AppendLog($"Updated UI entry: {game.AppId} - {game.NameEn}");
 
-                        // Always reload image for current language to ensure consistency
-                        _ = LoadGameImageAsync(existingEntry, game.AppId, selectedLanguage);
+                        if (!shouldSkip)
+                        {
+                            // Reload image for current language if needed
+                            _ = LoadGameImageAsync(existingEntry, game.AppId, selectedLanguage);
+                        }
                     }
                     else
                     {
@@ -626,13 +649,19 @@ namespace MyOwnGames
                         AllGameItems.Add(newEntry);
                         AppendLog($"Added new game: {game.AppId} - {game.NameEn} ({selectedLanguage})");
 
-                        // Load image asynchronously for current language
-                        _ = LoadGameImageAsync(newEntry, game.AppId, selectedLanguage);
+                        if (!shouldSkip)
+                        {
+                            // Load image asynchronously for current language
+                            _ = LoadGameImageAsync(newEntry, game.AppId, selectedLanguage);
+                        }
                     }
 
-                    // Always save/update game data in XML for current language
-                    await _dataService.AppendGameAsync(game, steamId64!, apiKey!, selectedLanguage);
-                }, progress, null); // Pass null to process ALL games, not just missing ones
+                    if (!shouldSkip)
+                    {
+                        // Save/update game data in XML for current language
+                        await _dataService.AppendGameAsync(game, steamId64!, apiKey!, selectedLanguage);
+                    }
+                }, progress, skipAppIds, existingLocalizedNames, cancellationToken);
 
                 xmlPath = _dataService.GetXmlFilePath();
 
@@ -681,6 +710,9 @@ namespace MyOwnGames
                 IsLoading = false;
                 ProgressValue = 100;
                 
+                // Re-enable controls after operation completes
+                SetControlsEnabledState(true);
+                
                 if (!_isShuttingDown)
                 {
                     AppendLog("Finished retrieving games.");
@@ -698,6 +730,27 @@ namespace MyOwnGames
             var apiKey = ApiKeyBox.Password?.Trim();
             var steamId64 = SteamIdBox.Password?.Trim();
             GetGamesButton.IsEnabled = InputValidator.IsValidApiKey(apiKey) && InputValidator.IsValidSteamId64(steamId64);
+        }
+
+        private void SetControlsEnabledState(bool enabled)
+        {
+            ApiKeyBox.IsEnabled = enabled;
+            SteamIdBox.IsEnabled = enabled;
+            LanguageComboBox.IsEnabled = enabled;
+            GetGamesButton.IsEnabled = enabled && InputValidator.IsValidApiKey(ApiKeyBox.Password?.Trim()) && InputValidator.IsValidSteamId64(SteamIdBox.Password?.Trim());
+            StopButton.IsEnabled = !enabled;
+        }
+
+        private void StopButton_Click(object sender, RoutedEventArgs e)
+        {
+            // Cancel the current operation
+            _cancellationTokenSource?.Cancel();
+            StatusText = "Operation cancelled by user.";
+            AppendLog("Get Game List operation cancelled by user.");
+            
+            // Re-enable controls
+            SetControlsEnabledState(true);
+            IsLoading = false;
         }
 
         private void KeywordBox_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
@@ -946,9 +999,9 @@ namespace MyOwnGames
 
             var newLanguage = GetCurrentLanguage();
             var currentImageServiceLanguage = _imageService?.GetCurrentLanguage();
-            
+
             AppendLog($"Language switching: UI={newLanguage}, ImageService={currentImageServiceLanguage}");
-            
+
             if (newLanguage == currentImageServiceLanguage) // 避免重複切換同一語言
             {
                 AppendLog($"Language switch skipped - already using {newLanguage}");
@@ -965,6 +1018,23 @@ namespace MyOwnGames
 
                 // Update image service language first
                 _imageService?.SetLanguage(newLanguage);
+
+                // Clear tracking for previous language
+                if (!string.IsNullOrEmpty(currentImageServiceLanguage))
+                {
+                    lock (_imageLoadingLock)
+                    {
+                        _imagesCurrentlyLoading.RemoveWhere(k => k.EndsWith($"_{currentImageServiceLanguage}", StringComparison.OrdinalIgnoreCase));
+                        _imagesSuccessfullyLoaded.RemoveWhere(k => k.EndsWith($"_{currentImageServiceLanguage}", StringComparison.OrdinalIgnoreCase));
+                        var toRemove = _duplicateImageLogTimes.Keys
+                            .Where(k => k.EndsWith($"_{currentImageServiceLanguage}", StringComparison.OrdinalIgnoreCase))
+                            .ToList();
+                        foreach (var key in toRemove)
+                        {
+                            _duplicateImageLogTimes.Remove(key);
+                        }
+                    }
+                }
 
                 // 先快速更新語言顯示
                 foreach (var gameEntry in AllGameItems)

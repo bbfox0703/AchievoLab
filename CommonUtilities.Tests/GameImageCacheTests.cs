@@ -192,6 +192,51 @@ public class GameImageCacheTests : IDisposable
     }
 
     [Fact]
+    public async Task UsesNextUrlWhenFirstFails()
+    {
+        var language = "english";
+        var id = Random.Shared.Next(600001, 700000);
+        int port;
+        using (var l = new TcpListener(IPAddress.Loopback, 0))
+        {
+            l.Start();
+            port = ((IPEndPoint)l.LocalEndpoint).Port;
+        }
+
+        var prefix = $"http://localhost:{port}/";
+        using var listener = new HttpListener();
+        listener.Prefixes.Add(prefix);
+        listener.Start();
+
+        var serverTask = Task.Run(async () =>
+        {
+            // First request - 404
+            var ctx1 = await listener.GetContextAsync();
+            ctx1.Response.StatusCode = 404;
+            ctx1.Response.Close();
+
+            // Second request - valid image
+            var ctx2 = await listener.GetContextAsync();
+            var data = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0, 0, 0, 0 };
+            ctx2.Response.ContentType = "image/png";
+            ctx2.Response.ContentLength64 = data.Length;
+            await ctx2.Response.OutputStream.WriteAsync(data);
+            ctx2.Response.Close();
+            listener.Stop();
+        });
+
+        var urls = new[] { prefix + "missing.png", prefix + "icon.png" };
+        var result = await _cache.GetImagePathAsync(id.ToString(), urls, language, id);
+        await serverTask;
+
+        Assert.NotNull(result);
+        var image = result.Value;
+        Assert.True(image.Downloaded);
+        Assert.EndsWith(".png", image.Path);
+        _tracker.RemoveFailedRecord(id, language);
+    }
+
+    [Fact]
     public async Task SkipsAndRetriesBasedOnFailureLog()
     {
         var language = "english";
@@ -298,5 +343,40 @@ public class GameImageCacheTests : IDisposable
 
         var other = _cache.TryGetCachedPath(id.ToString(), "spanish", checkEnglishFallback: false);
         Assert.Null(other);
+    }
+
+    [Fact]
+    public async Task NonEnglishDownloadDoesNotPopulateEnglishCache()
+    {
+        var id = Random.Shared.Next(800001, 900000);
+        int port;
+        using (var l = new TcpListener(IPAddress.Loopback, 0))
+        {
+            l.Start();
+            port = ((IPEndPoint)l.LocalEndpoint).Port;
+        }
+        var prefix = $"http://localhost:{port}/";
+        using var listener = new HttpListener();
+        listener.Prefixes.Add(prefix);
+        listener.Start();
+
+        var serverTask = Task.Run(async () =>
+        {
+            var ctx = await listener.GetContextAsync();
+            var data = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0, 0, 0, 0 };
+            ctx.Response.ContentType = "image/png";
+            ctx.Response.ContentLength64 = data.Length;
+            await ctx.Response.OutputStream.WriteAsync(data);
+            ctx.Response.Close();
+            listener.Stop();
+        });
+
+        var result = await _cache.GetImagePathAsync(id.ToString(), new Uri(prefix + "icon.png"), "spanish", id);
+        await serverTask;
+        Assert.True(result.Downloaded);
+
+        var englishFiles = Directory.EnumerateFiles(Path.Combine(_baseCacheDir, "english"), $"{id}.*");
+        Assert.Empty(englishFiles);
+        _tracker.RemoveFailedRecord(id, "spanish");
     }
 }
