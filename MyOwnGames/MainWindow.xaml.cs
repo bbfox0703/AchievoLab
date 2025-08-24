@@ -53,6 +53,10 @@ namespace MyOwnGames
         private readonly object _imageLoadingLock = new();
         private readonly Dictionary<int, DateTime> _duplicateImageLogTimes = new();
 
+        private readonly Dictionary<string, ImageSource> _imageCache = new();
+        private readonly object _imageCacheLock = new();
+        private readonly ImageSource _placeholderImage;
+
         private readonly string _defaultLanguage = GetDefaultLanguage();
 
         private readonly AppWindow _appWindow;
@@ -197,11 +201,41 @@ namespace MyOwnGames
                 return "english";
             return "english";
         }
+
+        private static string GetImageCacheKey(int appId, string language) => $"{appId}_{language}";
+
+        private ImageSource LoadImageFromFile(string path)
+        {
+            try
+            {
+                var bytes = File.ReadAllBytes(path);
+                using var ms = new MemoryStream(bytes);
+                var bitmap = new BitmapImage();
+                bitmap.SetSource(ms.AsRandomAccessStream());
+                return bitmap;
+            }
+            catch
+            {
+                return _placeholderImage; // Fallback
+            }
+        }
+
+        private bool IsPlaceholderPath(string path)
+        {
+            return string.Equals(Path.GetFileName(path), "no_icon.png", StringComparison.OrdinalIgnoreCase);
+        }
         public MainWindow()
         {
             InitializeComponent();
             this.ExtendsContentIntoTitleBar = true;
             this.AppWindow.Title = "My Own Steam Games";
+
+            var placeholderPath = Path.Combine(AppContext.BaseDirectory, "Assets", "no_icon.png");
+            _placeholderImage = LoadImageFromFile(placeholderPath);
+            lock (_imageCacheLock)
+            {
+                _imageCache["no_icon"] = _placeholderImage;
+            }
 
             var defaultItem = LanguageComboBox.Items
                 .OfType<ComboBoxItem>()
@@ -217,7 +251,7 @@ namespace MyOwnGames
                 queue?.TryEnqueue(() => AppendLog(msg));
             };
             DebugLogger.OnLog += _logHandler;
-            
+
             // Subscribe to image download completion events
             _imageService.ImageDownloadCompleted += OnImageDownloadCompleted;
 
@@ -262,29 +296,43 @@ namespace MyOwnGames
         private void OnImageDownloadCompleted(int appId, string? imagePath)
         {
             if (_isShuttingDown) return; // Don't update UI during shutdown
-            
-            // Find the corresponding game entry and update its image
+
             this.DispatcherQueue?.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
             {
-                if (_isShuttingDown) return; // Double check during async execution
-                
+                if (_isShuttingDown) return;
+
                 try
                 {
-                    var gameEntry = AllGameItems.FirstOrDefault(g => g.AppId == appId);
-                    if (gameEntry != null && !string.IsNullOrEmpty(imagePath) && File.Exists(imagePath))
-                    {
-                        // Check if the current IconUri is already pointing to this image
-                        var fileUri = new Uri(imagePath).AbsoluteUri;
-                        if (gameEntry.IconUri == fileUri)
-                        {
-                            // Already updated, no need to update again
-                            return;
-                        }
+                    var entry = AllGameItems.FirstOrDefault(g => g.AppId == appId);
+                    if (entry == null) return;
 
-                        // Only update if different
-                        gameEntry.IconUri = fileUri;
-                        
-                        DebugLogger.LogDebug($"Updated UI for downloaded image {appId}: {fileUri}");
+                    var language = _imageService.GetCurrentLanguage();
+                    var cacheKey = GetImageCacheKey(appId, language);
+
+                    ImageSource? source = null;
+                    if (!string.IsNullOrEmpty(imagePath) && File.Exists(imagePath))
+                    {
+                        lock (_imageCacheLock)
+                        {
+                            if (!_imageCache.TryGetValue(cacheKey, out source))
+                            {
+                                source = IsPlaceholderPath(imagePath) ? _placeholderImage : LoadImageFromFile(imagePath);
+                                _imageCache[cacheKey] = source;
+                            }
+                        }
+                    }
+
+                    lock (_imageCacheLock)
+                    {
+                        if (source == null && _imageCache.TryGetValue(cacheKey, out var cached))
+                        {
+                            source = cached;
+                        }
+                    }
+
+                    if (source != null && !ReferenceEquals(entry.IconSource, source))
+                    {
+                        entry.IconSource = source;
                         AppendLog($"Image updated for {appId}");
                     }
                 }
@@ -294,7 +342,6 @@ namespace MyOwnGames
                 }
                 catch (System.Runtime.InteropServices.COMException comEx)
                 {
-                    // COM exception during normal operation - try to handle gracefully
                     DebugLogger.LogDebug($"COM exception updating UI for {appId}: {comEx.Message}");
                 }
                 catch (ObjectDisposedException) when (_isShuttingDown)
@@ -303,7 +350,6 @@ namespace MyOwnGames
                 }
                 catch (Exception) when (_isShuttingDown)
                 {
-                    // Ignore all exceptions during shutdown
                 }
                 catch (Exception ex)
                 {
@@ -358,7 +404,7 @@ namespace MyOwnGames
                             NameEn = game.NameEn,
                             LocalizedNames = new Dictionary<string, string>(game.LocalizedNames),
                             CurrentLanguage = currentLanguage,
-                            IconUri = "ms-appx:///Assets/no_icon.png" // Will be updated async
+                            IconSource = _placeholderImage // Will be updated async
                         };
 
                         DispatcherQueue?.TryEnqueue(() =>
@@ -397,9 +443,20 @@ namespace MyOwnGames
 
         private async Task LoadGameImageAsync(GameEntry entry, int appId, string? language = null)
         {
-            if (_isShuttingDown) return; // Don't start new image loads during shutdown
-            
-            // Prevent multiple simultaneous image loads for the same game, but allow retries for failed loads
+            if (_isShuttingDown) return;
+
+            language ??= _imageService.GetCurrentLanguage();
+            var cacheKey = GetImageCacheKey(appId, language);
+
+            lock (_imageCacheLock)
+            {
+                if (_imageCache.TryGetValue(cacheKey, out var cached))
+                {
+                    entry.IconSource = cached;
+                    return;
+                }
+            }
+
             lock (_imageLoadingLock)
             {
                 if (_imagesCurrentlyLoading.Contains(appId))
@@ -413,78 +470,62 @@ namespace MyOwnGames
                 }
                 if (_imagesSuccessfullyLoaded.Contains(appId))
                 {
-                    // Image already loaded successfully, no need to load again
                     return;
                 }
                 _imagesCurrentlyLoading.Add(appId);
             }
-            
+
             try
             {
                 var imagePath = await _imageService.GetGameImageAsync(appId, language);
-                
+
                 if (!string.IsNullOrEmpty(imagePath) && File.Exists(imagePath))
                 {
                     DebugLogger.LogDebug($"Image found for {appId}: {imagePath}");
-                    
-                    // Mark as successfully loaded
-                    lock (_imageLoadingLock)
-                    {
-                        _imagesSuccessfullyLoaded.Add(appId);
-                    }
-                    
-                    // Thread-safe UI update with additional safety checks
+
                     if (!_isShuttingDown && this.DispatcherQueue != null)
                     {
                         this.DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, () =>
                         {
-                            if (_isShuttingDown) return; // Double check during async execution
-                            
+                            if (_isShuttingDown) return;
+
                             try
                             {
-                                // Additional safety: check if entry is still valid
+                                var source = IsPlaceholderPath(imagePath) ? _placeholderImage : LoadImageFromFile(imagePath);
+
+                                lock (_imageCacheLock)
+                                {
+                                    _imageCache[cacheKey] = source;
+                                }
+
+                                lock (_imageLoadingLock)
+                                {
+                                    _imagesSuccessfullyLoaded.Add(appId);
+                                }
+
                                 if (entry != null && AllGameItems.Contains(entry))
                                 {
-                                    // Force a new URI to ensure UI refresh
-                                    var fileUri = new Uri(imagePath).AbsoluteUri;
-                                    
-                                    // Update with additional validation
-                                    if (!string.IsNullOrEmpty(fileUri))
-                                    {
-                                        entry.IconUri = fileUri;
-                                        DebugLogger.LogDebug($"Updated UI for {appId} to {fileUri}");
-                                    }
+                                    entry.IconSource = source;
+                                    DebugLogger.LogDebug($"Updated UI for {appId}");
                                 }
+
+                                AppendLog($"Loaded image for {appId}");
                             }
                             catch (System.Runtime.InteropServices.COMException) when (_isShuttingDown)
                             {
-                                // Ignore COM exceptions during shutdown
                             }
                             catch (ObjectDisposedException) when (_isShuttingDown)
                             {
-                                // Ignore object disposed exceptions during shutdown
                             }
                             catch (Exception ex)
                             {
                                 if (!_isShuttingDown)
                                 {
                                     DebugLogger.LogDebug($"Error updating UI for image {appId}: {ex.Message}");
-                                    // Fallback: try simple assignment
-                                    try
-                                    {
-                                        if (entry != null)
-                                            entry.IconUri = imagePath;
-                                    }
-                                    catch
-                                    {
-                                        // If even fallback fails, just ignore
-                                    }
                                 }
                             }
                         });
                     }
-                    
-                    AppendLog($"Loaded image for {appId}");
                 }
                 else
                 {
@@ -499,7 +540,6 @@ namespace MyOwnGames
             }
             finally
             {
-                // Always remove from tracking dictionaries when done
                 lock (_imageLoadingLock)
                 {
                     _imagesCurrentlyLoading.Remove(appId);
@@ -616,7 +656,7 @@ namespace MyOwnGames
                             AppId = game.AppId,
                             NameEn = game.NameEn,
                             CurrentLanguage = selectedLanguage,
-                            IconUri = "ms-appx:///Assets/no_icon.png" // Will be updated async
+                            IconSource = _placeholderImage // Will be updated async
                         };
                         
                         // Set localized name for current language
@@ -1020,7 +1060,7 @@ namespace MyOwnGames
                 {
                     foreach (var hiddenItem in hiddenItems)
                     {
-                        hiddenItem.IconUri = "ms-appx:///Assets/no_icon.png";
+                        hiddenItem.IconSource = _placeholderImage;
                     }
                 });
 
@@ -1133,10 +1173,10 @@ namespace MyOwnGames
                 
                 // 找出新進入可見範圍的項目
                 var visibleItems = GetCurrentlyVisibleItems(scrollViewer);
-                
+
                 // 只載入那些圖片為預設圖片（即之前被清空）的項目
-                var itemsNeedingImages = visibleItems.Where(item => 
-                    item.IconUri == "ms-appx:///Assets/no_icon.png").ToList();
+                var itemsNeedingImages = visibleItems.Where(item =>
+                    ReferenceEquals(item.IconSource, _placeholderImage)).ToList();
 
                 if (itemsNeedingImages.Any())
                 {
@@ -1210,32 +1250,32 @@ namespace MyOwnGames
     public class GameEntry : INotifyPropertyChanged
     {
         public int AppId { get; set; }
-        
-        private string _iconUri = "";
+
+        private ImageSource? _iconSource;
         private volatile bool _isUpdatingIcon = false;
-        
-        public string IconUri 
-        { 
-            get => _iconUri; 
-            set 
+
+        public ImageSource IconSource
+        {
+            get => _iconSource!;
+            set
             {
-                if (_isUpdatingIcon) return; // Prevent concurrent updates
-                
-                try 
+                if (_isUpdatingIcon) return;
+
+                try
                 {
                     _isUpdatingIcon = true;
-                    
-                    if (_iconUri != value || !string.IsNullOrEmpty(value)) // Force update if new value is not empty
-                    { 
-                        _iconUri = value; 
-                        OnPropertyChanged(); // This already triggers IconUri property change
-                    } 
+
+                    if (!ReferenceEquals(_iconSource, value) || value != null)
+                    {
+                        _iconSource = value;
+                        OnPropertyChanged();
+                    }
                 }
-                finally 
+                finally
                 {
                     _isUpdatingIcon = false;
                 }
-            } 
+            }
         }
         
         public string NameEn { get; set; } = "";
@@ -1314,7 +1354,7 @@ namespace MyOwnGames
         {
             try
             {
-                OnPropertyChanged(nameof(IconUri));
+                OnPropertyChanged(nameof(IconSource));
             }
             catch (System.Runtime.InteropServices.COMException)
             {
