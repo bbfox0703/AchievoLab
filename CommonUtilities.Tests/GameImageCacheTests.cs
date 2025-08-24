@@ -229,8 +229,10 @@ public class GameImageCacheTests : IDisposable
         var result = await _cache.GetImagePathAsync(id.ToString(), urls, language, id);
         await serverTask;
 
-        Assert.True(result.Downloaded);
-        Assert.EndsWith(".png", result.Path);
+        Assert.NotNull(result);
+        var image = result.Value;
+        Assert.True(image.Downloaded);
+        Assert.EndsWith(".png", image.Path);
         _tracker.RemoveFailedRecord(id, language);
     }
 
