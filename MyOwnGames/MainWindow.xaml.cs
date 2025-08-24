@@ -297,7 +297,8 @@ namespace MyOwnGames
         {
             if (_isShuttingDown) return; // Don't update UI during shutdown
 
-            this.DispatcherQueue?.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+            // Use higher priority and more defensive approach
+            this.DispatcherQueue?.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, () =>
             {
                 if (_isShuttingDown) return;
 
@@ -316,8 +317,15 @@ namespace MyOwnGames
                         {
                             if (!_imageCache.TryGetValue(cacheKey, out source))
                             {
-                                source = IsPlaceholderPath(imagePath) ? _placeholderImage : LoadImageFromFile(imagePath);
-                                _imageCache[cacheKey] = source;
+                                try
+                                {
+                                    source = IsPlaceholderPath(imagePath) ? _placeholderImage : LoadImageFromFile(imagePath);
+                                    _imageCache[cacheKey] = source;
+                                }
+                                catch
+                                {
+                                    source = _placeholderImage;
+                                }
                             }
                         }
                     }
@@ -330,32 +338,68 @@ namespace MyOwnGames
                         }
                     }
 
-                    if (source != null && !ReferenceEquals(entry.IconSource, source))
+                    // Safer UI update with retry logic
+                    if (source != null)
                     {
-                        entry.IconSource = source;
-                        AppendLog($"Image updated for {appId}");
+                        SafeUpdateIconSource(entry, source, appId);
                     }
                 }
-                catch (System.Runtime.InteropServices.COMException) when (_isShuttingDown)
+                catch (System.Runtime.InteropServices.COMException)
                 {
-                    // Ignore COM exceptions during shutdown
+                    // Silently ignore COM exceptions - they're expected during rapid scrolling
                 }
-                catch (System.Runtime.InteropServices.COMException comEx)
+                catch (ObjectDisposedException)
                 {
-                    DebugLogger.LogDebug($"COM exception updating UI for {appId}: {comEx.Message}");
+                    // Silently ignore disposed exceptions
                 }
-                catch (ObjectDisposedException) when (_isShuttingDown)
+                catch (InvalidOperationException)
                 {
-                    // Ignore object disposed exceptions during shutdown
+                    // Silently ignore invalid operation exceptions
                 }
-                catch (Exception) when (_isShuttingDown)
-                {
-                }
-                catch (Exception ex)
+                catch (Exception ex) when (!_isShuttingDown)
                 {
                     DebugLogger.LogDebug($"Error updating UI for downloaded image {appId}: {ex.Message}");
                 }
             });
+        }
+
+        private void SafeUpdateIconSource(GameEntry entry, ImageSource source, int appId)
+        {
+            try
+            {
+                // Only update if different to reduce UI churn
+                if (!ReferenceEquals(entry.IconSource, source))
+                {
+                    entry.IconSource = source;
+                    DebugLogger.LogDebug($"Updated UI for {appId}");
+                    // Don't add to log for every image update - too verbose
+                }
+            }
+            catch (System.Runtime.InteropServices.COMException)
+            {
+                // Retry once after a brief delay for COM exceptions
+                _ = Task.Delay(50).ContinueWith(_ =>
+                {
+                    this.DispatcherQueue?.TryEnqueue(() =>
+                    {
+                        try
+                        {
+                            if (!_isShuttingDown && !ReferenceEquals(entry.IconSource, source))
+                            {
+                                entry.IconSource = source;
+                            }
+                        }
+                        catch
+                        {
+                            // Final attempt failed, silently ignore
+                        }
+                    });
+                });
+            }
+            catch
+            {
+                // Other exceptions, silently ignore
+            }
         }
 
         private async Task CleanupOldFailedRecordsAsync()
@@ -505,24 +549,22 @@ namespace MyOwnGames
 
                                 if (entry != null && AllGameItems.Contains(entry))
                                 {
-                                    entry.IconSource = source;
-                                    DebugLogger.LogDebug($"Updated UI for {appId}");
+                                    SafeUpdateIconSource(entry, source, appId);
                                 }
 
-                                AppendLog($"Loaded image for {appId}");
+                                // Don't add to UI log for every image - too verbose
                             }
-                            catch (System.Runtime.InteropServices.COMException) when (_isShuttingDown)
+                            catch (System.Runtime.InteropServices.COMException)
                             {
+                                // Silently ignore COM exceptions
                             }
-                            catch (ObjectDisposedException) when (_isShuttingDown)
+                            catch (ObjectDisposedException)
                             {
+                                // Silently ignore disposed exceptions
                             }
-                            catch (Exception ex)
+                            catch (Exception ex) when (!_isShuttingDown)
                             {
-                                if (!_isShuttingDown)
-                                {
-                                    DebugLogger.LogDebug($"Error updating UI for image {appId}: {ex.Message}");
-                                }
+                                DebugLogger.LogDebug($"Error updating UI for image {appId}: {ex.Message}");
                             }
                         });
                     }
@@ -1265,11 +1307,26 @@ namespace MyOwnGames
                 {
                     _isUpdatingIcon = true;
 
-                    if (!ReferenceEquals(_iconSource, value) || value != null)
+                    if (!ReferenceEquals(_iconSource, value))
                     {
                         _iconSource = value;
-                        OnPropertyChanged();
+                        try
+                        {
+                            OnPropertyChanged();
+                        }
+                        catch (System.Runtime.InteropServices.COMException)
+                        {
+                            // Silently ignore COM exceptions during property change notification
+                        }
+                        catch (InvalidOperationException)
+                        {
+                            // Silently ignore invalid operation exceptions
+                        }
                     }
+                }
+                catch (System.Runtime.InteropServices.COMException)
+                {
+                    // Silently ignore COM exceptions
                 }
                 finally
                 {
