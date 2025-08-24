@@ -263,7 +263,12 @@ namespace CommonUtilities
                     {
                         // Success! Copy to original language folder
                         CopyToOriginalLanguageFolder(result.Path, cacheKey, originalLanguage);
-                        
+
+                        if (failureId.HasValue)
+                        {
+                            _failureTracker?.RemoveFailedRecord(failureId.Value, originalLanguage);
+                        }
+
                         // Create result for original language
                         var originalPath = GetCacheDir(originalLanguage);
                         var finalPath = Path.Combine(originalPath, cacheKey + Path.GetExtension(result.Path));

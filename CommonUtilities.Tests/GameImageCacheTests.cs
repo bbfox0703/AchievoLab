@@ -3,9 +3,13 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 using System.Linq;
+using System.Reflection;
 using CommonUtilities;
 using Xunit;
 
@@ -378,5 +382,109 @@ public class GameImageCacheTests : IDisposable
         var englishFiles = Directory.EnumerateFiles(Path.Combine(_baseCacheDir, "english"), $"{id}.*");
         Assert.Empty(englishFiles);
         _tracker.RemoveFailedRecord(id, "spanish");
+    }
+
+    [Fact]
+    public async Task SuccessfulEnglishFallbackClearsFailureRecord()
+    {
+        var id = 440; // Known app id with English header
+
+        // Replace internal HttpClient to avoid external network dependency
+        var httpField = typeof(GameImageCache).GetField("_http", BindingFlags.NonPublic | BindingFlags.Instance);
+        var handler = new SteamFallbackHandler(new HttpClientHandler());
+        var client = new HttpClient(handler);
+        client.Timeout = TimeSpan.FromSeconds(30);
+        client.DefaultRequestHeaders.Add("User-Agent", "AchievoLab/1.0");
+        client.DefaultRequestHeaders.Add("Accept", "image/webp,image/avif,image/apng,image/svg+xml,image/*,*/*;q=0.8");
+        httpField!.SetValue(_cache, client);
+
+        // First request: localized download fails with server error to record failure
+        int port1;
+        using (var l = new TcpListener(IPAddress.Loopback, 0))
+        {
+            l.Start();
+            port1 = ((IPEndPoint)l.LocalEndpoint).Port;
+        }
+        var prefix1 = $"http://localhost:{port1}/";
+        using var listener1 = new HttpListener();
+        listener1.Prefixes.Add(prefix1);
+        listener1.Start();
+        var serverTask1 = Task.Run(async () =>
+        {
+            var ctx = await listener1.GetContextAsync();
+            ctx.Response.StatusCode = 500;
+            ctx.Response.Close();
+            listener1.Stop();
+        });
+
+        var first = await _cache.GetImagePathAsync(id.ToString(), new Uri(prefix1 + "fail.png"), "spanish", id);
+        await serverTask1;
+        Assert.Equal(string.Empty, first.Path);
+        Assert.True(_tracker.ShouldSkipDownload(id, "spanish"));
+
+        // Invoke English fallback via reflection
+        var method = typeof(GameImageCache).GetMethod("TryEnglishFallbackAsync", BindingFlags.NonPublic | BindingFlags.Instance);
+        var task = (Task<GameImageCache.ImageResult?>)method!.Invoke(_cache, new object?[] { id.ToString(), "spanish", id })!;
+        var fallback = await task;
+        Assert.NotNull(fallback);
+        var spanishPath = fallback.Value.Path;
+        Assert.True(File.Exists(spanishPath));
+
+        // Failure record for Spanish should be cleared
+        Assert.False(_tracker.ShouldSkipDownload(id, "spanish"));
+
+        // Remove files to force a new request and verify no skip occurs
+        File.Delete(spanishPath);
+        var englishCached = _cache.TryGetCachedPath(id.ToString(), "english", checkEnglishFallback: false);
+        if (englishCached != null)
+        {
+            File.Delete(englishCached);
+        }
+
+        int port2;
+        using (var l = new TcpListener(IPAddress.Loopback, 0))
+        {
+            l.Start();
+            port2 = ((IPEndPoint)l.LocalEndpoint).Port;
+        }
+        var prefix2 = $"http://localhost:{port2}/";
+        using var listener2 = new HttpListener();
+        listener2.Prefixes.Add(prefix2);
+        listener2.Start();
+        var contextTask = listener2.GetContextAsync();
+
+        var second = await _cache.GetImagePathAsync(id.ToString(), new Uri(prefix2 + "again.png"), "spanish", id);
+        await Task.Delay(200);
+        Assert.True(contextTask.IsCompleted);
+        if (contextTask.IsCompleted)
+        {
+            var ctx = await contextTask;
+            ctx.Response.StatusCode = 404;
+            ctx.Response.Close();
+        }
+        listener2.Stop();
+        Assert.Equal(string.Empty, second.Path);
+
+        _tracker.RemoveFailedRecord(id, "spanish");
+    }
+
+    private class SteamFallbackHandler : DelegatingHandler
+    {
+        public SteamFallbackHandler(HttpMessageHandler inner) : base(inner) { }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.RequestUri.Host.EndsWith("steamstatic.com", StringComparison.OrdinalIgnoreCase))
+            {
+                var data = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0, 0, 0, 0 };
+                var response = new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(data)
+                };
+                response.Content.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+                return Task.FromResult(response);
+            }
+            return base.SendAsync(request, cancellationToken);
+        }
     }
 }
