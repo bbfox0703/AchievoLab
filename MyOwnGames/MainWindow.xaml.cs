@@ -587,7 +587,7 @@ namespace MyOwnGames
                     if (game.LocalizedNames != null && game.LocalizedNames.TryGetValue(selectedLanguage, out var name) && !string.IsNullOrEmpty(name))
                     {
                         existingLocalizedNames[game.AppId] = name;
-                        if (_imageService.IsImageCached(game.AppId, selectedLanguage))
+                        if (_imageService.HasImage(game.AppId, selectedLanguage))
                         {
                             skipAppIds.Add(game.AppId);
                         }
