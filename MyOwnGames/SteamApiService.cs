@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Net.Http;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Globalization;
 using MyOwnGames.Services;
@@ -45,16 +46,20 @@ namespace MyOwnGames
                 throw new ArgumentException("Invalid SteamID64. It must be a 17-digit number starting with 7656119.", nameof(steamId64));
         }
 
-        public async Task<int> GetOwnedGamesAsync(string steamId64, string targetLanguage = "english", Func<SteamGame, Task>? onGameRetrieved = null, IProgress<double>? progress = null, ISet<int>? existingAppIds = null, IDictionary<int, string>? existingLocalizedNames = null)
+        public async Task<int> GetOwnedGamesAsync(string steamId64, string targetLanguage = "english", Func<SteamGame, Task>? onGameRetrieved = null, IProgress<double>? progress = null, ISet<int>? existingAppIds = null, IDictionary<int, string>? existingLocalizedNames = null, CancellationToken cancellationToken = default)
         {
             ValidateCredentials(_apiKey, steamId64);
             try
             {
                 // Step 1: Get owned games with throttling
                 progress?.Report(10);
+                cancellationToken.ThrowIfCancellationRequested();
+                
                 await _rateLimiter.WaitAsync();
+                cancellationToken.ThrowIfCancellationRequested();
+                
                 var ownedGamesUrl = $"https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key={_apiKey}&steamid={steamId64}&format=json&include_appinfo=true";
-                var ownedGamesResponse = await _httpClient.GetStringAsync(ownedGamesUrl);
+                var ownedGamesResponse = await _httpClient.GetStringAsync(ownedGamesUrl, cancellationToken);
                 var ownedGamesData = DeserializeOwnedGamesResponse(ownedGamesResponse);
 
                 if (ownedGamesData?.response?.games == null)
@@ -69,6 +74,8 @@ namespace MyOwnGames
                 // Step 2: Process games with localized names (with throttling)
                 for (int i = 0; i < total; i++)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    
                     var game = ownedGamesData.response.games[i];
 
                     if (existingAppIds != null && existingAppIds.Contains(game.appid))
@@ -88,7 +95,7 @@ namespace MyOwnGames
                         }
                         else
                         {
-                            localizedName = await GetLocalizedGameNameAsync(game.appid, game.name, targetLanguage);
+                            localizedName = await GetLocalizedGameNameAsync(game.appid, game.name, targetLanguage, cancellationToken);
                         }
                     }
 
@@ -123,16 +130,19 @@ namespace MyOwnGames
         }
 
 
-        private async Task<string> GetLocalizedGameNameAsync(int appId, string englishName, string targetLanguage)
+        private async Task<string> GetLocalizedGameNameAsync(int appId, string englishName, string targetLanguage, CancellationToken cancellationToken = default)
         {
             if (targetLanguage == "english")
                 return englishName;
 
             try
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 await _rateLimiter.WaitAsync();
+                cancellationToken.ThrowIfCancellationRequested();
+                
                 var url = $"https://store.steampowered.com/api/appdetails?appids={appId}&l={targetLanguage}";
-                var response = await _httpClient.GetStringAsync(url);
+                var response = await _httpClient.GetStringAsync(url, cancellationToken);
                 var data = DeserializeAppDetailsResponse(response);
                 
                 if (data != null && data.TryGetValue(appId.ToString(), out var appDetails) && 
