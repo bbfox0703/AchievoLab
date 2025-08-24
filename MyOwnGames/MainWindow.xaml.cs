@@ -48,10 +48,10 @@ namespace MyOwnGames
         private bool _isShuttingDown = false;
         private CancellationTokenSource? _cancellationTokenSource;
         private ScrollViewer? _gamesScrollViewer;
-        private readonly HashSet<int> _imagesCurrentlyLoading = new();
-        private readonly HashSet<int> _imagesSuccessfullyLoaded = new();
+        private readonly HashSet<string> _imagesCurrentlyLoading = new();
+        private readonly HashSet<string> _imagesSuccessfullyLoaded = new();
         private readonly object _imageLoadingLock = new();
-        private readonly Dictionary<int, DateTime> _duplicateImageLogTimes = new();
+        private readonly Dictionary<string, DateTime> _duplicateImageLogTimes = new();
 
         private readonly string _defaultLanguage = GetDefaultLanguage();
 
@@ -398,27 +398,30 @@ namespace MyOwnGames
         private async Task LoadGameImageAsync(GameEntry entry, int appId, string? language = null)
         {
             if (_isShuttingDown) return; // Don't start new image loads during shutdown
-            
+
+            language ??= _imageService.GetCurrentLanguage();
+            var key = $"{appId}_{language}";
+
             // Prevent multiple simultaneous image loads for the same game, but allow retries for failed loads
             lock (_imageLoadingLock)
             {
-                if (_imagesCurrentlyLoading.Contains(appId))
+                if (_imagesCurrentlyLoading.Contains(key))
                 {
-                    if (!_duplicateImageLogTimes.TryGetValue(appId, out var lastLog) || (DateTime.Now - lastLog).TotalSeconds > 30)
+                    if (!_duplicateImageLogTimes.TryGetValue(key, out var lastLog) || (DateTime.Now - lastLog).TotalSeconds > 30)
                     {
                         DebugLogger.LogDebug($"Image load already in progress for {appId}, skipping duplicate request");
-                        _duplicateImageLogTimes[appId] = DateTime.Now;
+                        _duplicateImageLogTimes[key] = DateTime.Now;
                     }
                     return;
                 }
-                if (_imagesSuccessfullyLoaded.Contains(appId))
+                if (_imagesSuccessfullyLoaded.Contains(key))
                 {
                     // Image already loaded successfully, no need to load again
                     return;
                 }
-                _imagesCurrentlyLoading.Add(appId);
+                _imagesCurrentlyLoading.Add(key);
             }
-            
+
             try
             {
                 var imagePath = await _imageService.GetGameImageAsync(appId, language);
@@ -430,7 +433,7 @@ namespace MyOwnGames
                     // Mark as successfully loaded
                     lock (_imageLoadingLock)
                     {
-                        _imagesSuccessfullyLoaded.Add(appId);
+                        _imagesSuccessfullyLoaded.Add(key);
                     }
                     
                     // Thread-safe UI update with additional safety checks
@@ -502,8 +505,8 @@ namespace MyOwnGames
                 // Always remove from tracking dictionaries when done
                 lock (_imageLoadingLock)
                 {
-                    _imagesCurrentlyLoading.Remove(appId);
-                    _duplicateImageLogTimes.Remove(appId);
+                    _imagesCurrentlyLoading.Remove(key);
+                    _duplicateImageLogTimes.Remove(key);
                 }
             }
         }
@@ -969,9 +972,9 @@ namespace MyOwnGames
 
             var newLanguage = GetCurrentLanguage();
             var currentImageServiceLanguage = _imageService?.GetCurrentLanguage();
-            
+
             AppendLog($"Language switching: UI={newLanguage}, ImageService={currentImageServiceLanguage}");
-            
+
             if (newLanguage == currentImageServiceLanguage) // 避免重複切換同一語言
             {
                 AppendLog($"Language switch skipped - already using {newLanguage}");
@@ -988,6 +991,23 @@ namespace MyOwnGames
 
                 // Update image service language first
                 _imageService?.SetLanguage(newLanguage);
+
+                // Clear tracking for previous language
+                if (!string.IsNullOrEmpty(currentImageServiceLanguage))
+                {
+                    lock (_imageLoadingLock)
+                    {
+                        _imagesCurrentlyLoading.RemoveWhere(k => k.EndsWith($"_{currentImageServiceLanguage}", StringComparison.OrdinalIgnoreCase));
+                        _imagesSuccessfullyLoaded.RemoveWhere(k => k.EndsWith($"_{currentImageServiceLanguage}", StringComparison.OrdinalIgnoreCase));
+                        var toRemove = _duplicateImageLogTimes.Keys
+                            .Where(k => k.EndsWith($"_{currentImageServiceLanguage}", StringComparison.OrdinalIgnoreCase))
+                            .ToList();
+                        foreach (var key in toRemove)
+                        {
+                            _duplicateImageLogTimes.Remove(key);
+                        }
+                    }
+                }
 
                 // 先快速更新語言顯示
                 foreach (var gameEntry in AllGameItems)
