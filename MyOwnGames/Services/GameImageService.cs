@@ -162,7 +162,7 @@ namespace MyOwnGames.Services
 
             var languageUrls = RoundRobin(languageSpecificUrlMap);
 
-            var result = await _cache.GetImagePathAsync(appId.ToString(), languageUrls, language, appId);
+            var result = await FetchFromUrlsAsync(languageUrls, appId.ToString(), language, appId);
             if (!string.IsNullOrEmpty(result?.Path) && IsValidImage(result.Value.Path))
             {
                 _imageCache[cacheKey] = result.Value.Path;
@@ -201,7 +201,7 @@ namespace MyOwnGames.Services
 
                 var englishUrls = RoundRobin(englishUrlMap);
 
-                result = await _cache.GetImagePathAsync(appId.ToString(), englishUrls, originalLanguage, appId);
+                result = await FetchFromUrlsAsync(englishUrls, appId.ToString(), originalLanguage, appId);
                 if (!string.IsNullOrEmpty(result?.Path) && IsValidImage(result.Value.Path))
                 {
                     _imageCache[cacheKey] = result.Value.Path;
@@ -226,7 +226,7 @@ namespace MyOwnGames.Services
 
             var logoUrls = RoundRobin(logoUrlMap);
 
-            result = await _cache.GetImagePathAsync(appId.ToString(), logoUrls, originalLanguage, appId);
+            result = await FetchFromUrlsAsync(logoUrls, appId.ToString(), originalLanguage, appId);
             if (!string.IsNullOrEmpty(result?.Path) && IsValidImage(result.Value.Path))
             {
                 _imageCache[cacheKey] = result.Value.Path;
@@ -255,6 +255,41 @@ namespace MyOwnGames.Services
             }
 
             TriggerImageDownloadCompletedEvent(appId, null);
+            return null;
+        }
+
+        private async Task<GameImageCache.ImageResult?> FetchFromUrlsAsync(IEnumerable<string> urls, string cacheKey, string language, int appId)
+        {
+            const int MaxConcurrentAttempts = 3;
+            var queue = new Queue<string>(urls);
+            var tasks = new List<Task<GameImageCache.ImageResult>>();
+
+            void StartNext()
+            {
+                while (tasks.Count < MaxConcurrentAttempts && queue.Count > 0)
+                {
+                    var next = queue.Dequeue();
+                    if (Uri.TryCreate(next, UriKind.Absolute, out var uri))
+                    {
+                        tasks.Add(_cache.GetImagePathAsync(cacheKey, uri, language, appId));
+                    }
+                }
+            }
+
+            StartNext();
+
+            while (tasks.Count > 0)
+            {
+                var finished = await Task.WhenAny(tasks).ConfigureAwait(false);
+                tasks.Remove(finished);
+                var result = await finished.ConfigureAwait(false);
+                if (!string.IsNullOrEmpty(result.Path))
+                {
+                    return result;
+                }
+                StartNext();
+            }
+
             return null;
         }
 
