@@ -40,6 +40,7 @@ namespace AnSAM
         private readonly List<GameItem> _allGames = new();
         private readonly SteamClient _steamClient;
         private readonly AppWindow _appWindow;
+        private readonly SharedImageService _imageService = new();
 
         private bool _autoLoaded;
         private bool _languageInitialized;
@@ -81,7 +82,6 @@ namespace AnSAM
             }
             GameListService.StatusChanged += OnGameListStatusChanged;
             GameListService.ProgressChanged += OnGameListProgressChanged;
-            IconCache.ProgressChanged += OnIconProgressChanged;
             Activated += OnWindowActivated;
             Closed += OnWindowClosed;
         }
@@ -129,6 +129,7 @@ namespace AnSAM
 
             LanguageComboBox.SelectedItem = initial;
             SteamLanguageResolver.OverrideLanguage = initial;
+            _imageService.SetLanguage(initial);
             _languageInitialized = true;
         }
         private void ApplyTheme(ElementTheme theme, bool save = true)
@@ -177,6 +178,7 @@ namespace AnSAM
             if (LanguageComboBox.SelectedItem is string lang)
             {
                 SteamLanguageResolver.OverrideLanguage = lang;
+                _imageService.SetLanguage(lang);
 
                 try
                 {
@@ -321,9 +323,9 @@ namespace AnSAM
         {
             GameListService.StatusChanged -= OnGameListStatusChanged;
             GameListService.ProgressChanged -= OnGameListProgressChanged;
-            IconCache.ProgressChanged -= OnIconProgressChanged;
             _uiSettings.ColorValuesChanged -= UiSettings_ColorValuesChanged;
             Activated -= OnWindowActivated;
+            _imageService.Dispose();
 
             if (Content is FrameworkElement root)
             {
@@ -338,7 +340,7 @@ namespace AnSAM
                 return;
             }
 
-            await game.LoadCoverAsync(_steamClient);
+            await game.LoadCoverAsync(_imageService);
         }
 
 
@@ -456,15 +458,12 @@ namespace AnSAM
             StatusProgress.Value = 0;
             StatusExtra.Text = "0%";
 
-            IconCache.ResetProgress();
-
             var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab");
 
             using var http = new HttpClient();
             var apps = await GameCacheService.RefreshAsync(baseDir, _steamClient, http);
 
             var (allGames, filteredGames) = await BuildGameListAsync(apps, null);
-            var (completedIcons, totalIcons) = IconCache.GetProgress();
 
             _ = DispatcherQueue.TryEnqueue(() =>
             {
@@ -477,21 +476,11 @@ namespace AnSAM
                     Games.Add(game);
                 }
 
-                if (totalIcons > completedIcons)
-                {
-                    double p = totalIcons > 0 ? (double)completedIcons / totalIcons * 100 : 0;
-                    StatusText.Text = "Downloading icons…";
-                    StatusProgress.Value = p;
-                    StatusExtra.Text = $"{completedIcons}/{totalIcons}";
-                }
-                else
-                {
-                    StatusText.Text = _steamClient.Initialized
-                        ? $"Loaded {_allGames.Count} games"
-                        : $"Steam unavailable - showing {_allGames.Count} games";
-                    StatusProgress.Value = 0;
-                    StatusExtra.Text = $"{Games.Count}/{_allGames.Count}";
-                }
+                StatusText.Text = _steamClient.Initialized
+                    ? $"Loaded {_allGames.Count} games"
+                    : $"Steam unavailable - showing {_allGames.Count} games";
+                StatusProgress.Value = 0;
+                StatusExtra.Text = $"{Games.Count}/{_allGames.Count}";
             });
         }
 
@@ -658,26 +647,6 @@ namespace AnSAM
             });
         }
 
-        private void OnIconProgressChanged(int completed, int total)
-        {
-            _ = DispatcherQueue.TryEnqueue(() =>
-            {
-                if (completed < total)
-                {
-                    double p = total > 0 ? (double)completed / total * 100 : 0;
-                    StatusProgress.Value = p;
-                    StatusExtra.Text = $"{completed}/{total}";
-                    StatusText.Text = "Downloading icons…";
-                }
-                else if (total > 0 && _allGames.Count > 0)
-                {
-                    StatusText.Text = $"Loaded {_allGames.Count} games";
-                    StatusProgress.Value = 0;
-                    StatusExtra.Text = $"{Games.Count}/{_allGames.Count}";
-                }
-            });
-        }
-
         private static ScrollViewer? FindScrollViewer(DependencyObject root)
         {
             if (root is ScrollViewer sv)
@@ -743,7 +712,7 @@ namespace AnSAM
             UriScheme = uriScheme;
         }
 
-        public async Task LoadCoverAsync(SteamClient client)
+        public async Task LoadCoverAsync(SharedImageService imageService)
         {
             if (CoverPath != null || _coverLoading)
             {
@@ -758,37 +727,17 @@ namespace AnSAM
             {
                 string language = SteamLanguageResolver.GetSteamLanguage();
 
-                var cached = IconCache.TryGetCachedIconUri(ID, language);
-                if (cached != null)
+                var path = await imageService.GetGameImageAsync(ID, language).ConfigureAwait(false);
+                if (!string.IsNullOrEmpty(path) && Uri.TryCreate(path, UriKind.Absolute, out var localUri))
                 {
                     coverAssigned = true;
                     if (dispatcher != null)
                     {
-                        _ = dispatcher.TryEnqueue(() => CoverPath = cached);
+                        _ = dispatcher.TryEnqueue(() => CoverPath = localUri);
                     }
                     else
                     {
-                        CoverPath = cached;
-                    }
-                    return;
-                }
-
-                var url = GameImageUrlResolver.GetGameImageUrl(client, (uint)ID, language);
-
-                if (Uri.TryCreate(url, UriKind.Absolute, out var remoteUri))
-                {
-                    var result = await IconCache.GetIconPathAsync(ID, remoteUri, language).ConfigureAwait(false);
-                    if (Uri.TryCreate(result.Path, UriKind.Absolute, out var localUri))
-                    {
-                        coverAssigned = true;
-                        if (dispatcher != null)
-                        {
-                            _ = dispatcher.TryEnqueue(() => CoverPath = localUri);
-                        }
-                        else
-                        {
-                            CoverPath = localUri;
-                        }
+                        CoverPath = localUri;
                     }
                 }
             }

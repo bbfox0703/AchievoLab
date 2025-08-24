@@ -9,7 +9,6 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Navigation;
-using MyOwnGames.Services;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -41,7 +40,7 @@ namespace MyOwnGames
         public ObservableCollection<GameEntry> GameItems { get; } = new();
         private List<GameEntry> AllGameItems { get; } = new();
         public ObservableCollection<string> LogEntries { get; } = new();
-        private readonly GameImageService _imageService = new();
+        private readonly SharedImageService _imageService = new();
         private readonly GameDataService _dataService = new();
         private readonly Action<string> _logHandler;
         private SteamApiService? _steamService;

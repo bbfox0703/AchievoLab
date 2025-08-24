@@ -7,30 +7,29 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using CommonUtilities;
-using MyOwnGames.Services;
 using Xunit;
 
 public class GameImageServiceLanguageTests : IDisposable
 {
     private readonly string _tempDir;
-    private readonly GameImageService _service;
+    private readonly SharedImageService _service;
 
     public GameImageServiceLanguageTests()
     {
         _tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         Directory.CreateDirectory(_tempDir);
 
-        _service = new GameImageService();
+        _service = new SharedImageService();
 
         // Replace internal HttpClient used for store API
-        var storeField = typeof(GameImageService).GetField("_httpClient", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        var storeField = typeof(SharedImageService).GetField("_httpClient", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
         storeField.SetValue(_service, new HttpClient(new FakeStoreApiHandler()));
 
         // Replace internal cache with one that uses our fake image handler and temp directory
         var cache = new GameImageCache(_tempDir, new ImageFailureTrackingService());
         var httpField = typeof(GameImageCache).GetField("_http", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
         httpField.SetValue(cache, new HttpClient(new FakeImageHandler()));
-        var cacheField = typeof(GameImageService).GetField("_cache", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        var cacheField = typeof(SharedImageService).GetField("_cache", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
         cacheField.SetValue(_service, cache);
     }
 
