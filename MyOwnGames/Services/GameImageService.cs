@@ -16,7 +16,7 @@ namespace MyOwnGames.Services
         private readonly HttpClient _httpClient;
         private readonly GameImageCache _cache;
         private readonly ImageFailureTrackingService _failureTracker;
-        private readonly Dictionary<string, string> _imageCache = new();
+        private readonly ConcurrentDictionary<string, string> _imageCache = new();
         private readonly ConcurrentDictionary<string, Task<string?>> _pendingRequests = new();
         private readonly HashSet<string> _completedEvents = new();
         private readonly object _eventLock = new();
@@ -87,7 +87,7 @@ namespace MyOwnGames.Services
                 }
 
                 try { File.Delete(cached); } catch { }
-                _imageCache.Remove(cacheKey);
+                _imageCache.TryRemove(cacheKey, out _);
                 // Don't record as failed download - file was corrupted, not missing
             }
 
@@ -398,17 +398,12 @@ namespace MyOwnGames.Services
             if (specificLanguage != null)
             {
                 _cache.ClearCache(specificLanguage);
-                var keys = new List<string>();
-                foreach (var kv in _imageCache)
+                foreach (var key in _imageCache.Keys.ToList())
                 {
-                    if (kv.Key.EndsWith($"_{specificLanguage}"))
+                    if (key.EndsWith($"_{specificLanguage}"))
                     {
-                        keys.Add(kv.Key);
+                        _imageCache.TryRemove(key, out _);
                     }
-                }
-                foreach (var key in keys)
-                {
-                    _imageCache.Remove(key);
                 }
             }
             else
