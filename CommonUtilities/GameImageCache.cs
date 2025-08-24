@@ -24,7 +24,7 @@ namespace CommonUtilities
         private readonly ConcurrentDictionary<string, Task<ImageResult>> _inFlight = new();
         private readonly TimeSpan _cacheDuration;
         private readonly ImageFailureTrackingService? _failureTracker;
-        private readonly DomainRateLimiter _rateLimiter = new();
+        private readonly DomainRateLimiter _rateLimiter;
         private readonly ConcurrentDictionary<string, (DateTime Time, bool WasNotFound)> _lastErrors = new();
 
         private int _totalRequests;
@@ -46,14 +46,20 @@ namespace CommonUtilities
         public GameImageCache(string baseCacheDir,
             ImageFailureTrackingService? failureTracker = null,
             int maxConcurrency = 4,
-            TimeSpan? cacheDuration = null)
+            TimeSpan? cacheDuration = null,
+            int maxConcurrentRequestsPerDomain = 4,
+            int tokenBucketCapacity = 120,
+            double fillRatePerSecond = 2,
+            double? initialTokens = null)
         {
             _baseCacheDir = baseCacheDir;
             Directory.CreateDirectory(_baseCacheDir);
             _failureTracker = failureTracker;
             _concurrency = new SemaphoreSlim(maxConcurrency);
             _cacheDuration = cacheDuration ?? TimeSpan.FromDays(30);
-            
+
+            _rateLimiter = new DomainRateLimiter(maxConcurrentRequestsPerDomain, tokenBucketCapacity, fillRatePerSecond, initialTokens ?? tokenBucketCapacity);
+
             // Configure HttpClient with proper timeout and headers
             _http = new HttpClient();
             _http.Timeout = TimeSpan.FromSeconds(30);

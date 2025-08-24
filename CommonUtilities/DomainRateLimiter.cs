@@ -15,15 +15,21 @@ namespace CommonUtilities
         private readonly Dictionary<string, SemaphoreSlim> _domainSemaphores = new(StringComparer.OrdinalIgnoreCase);
         private readonly object _lock = new();
 
-        // Maximum concurrent requests per domain (configurable)
-        private const int MaxConcurrentRequestsPerDomain = 1; // Only 1 request per domain to avoid blocks
+        private readonly int _maxConcurrentRequestsPerDomain;
+        private readonly double _capacity;
+        private readonly double _fillRatePerSecond;
+        private double _tokens;
+        private DateTime _lastRefill;
 
-        // Token bucket parameters: allows up to 120 downloads per minute
-        private const int Capacity = 120; // max 120 requests
-        private const double FillRatePerSecond = 2; // 2 tokens per second => 120 per minute
-        private double _tokens = 10; // Start with fewer tokens for testing
-        private DateTime _lastRefill = DateTime.UtcNow;
-        
+        public DomainRateLimiter(int maxConcurrentRequestsPerDomain = 4, double capacity = 120, double fillRatePerSecond = 2, double initialTokens = -1)
+        {
+            _maxConcurrentRequestsPerDomain = maxConcurrentRequestsPerDomain;
+            _capacity = capacity;
+            _fillRatePerSecond = fillRatePerSecond;
+            _tokens = initialTokens >= 0 ? initialTokens : capacity;
+            _lastRefill = DateTime.UtcNow;
+        }
+
         // Global request counter for debugging
         private int _totalRequestsProcessed = 0;
 
@@ -73,7 +79,7 @@ namespace CommonUtilities
                         if (_tokens < 1)
                         {
                             var needed = 1 - _tokens;
-                            var tokenDelay = TimeSpan.FromSeconds(needed / FillRatePerSecond);
+                            var tokenDelay = TimeSpan.FromSeconds(needed / _fillRatePerSecond);
                             if (tokenDelay > delay)
                             {
                                 delay = tokenDelay;
@@ -101,7 +107,7 @@ namespace CommonUtilities
             {
                 if (!_domainSemaphores.TryGetValue(host, out var semaphore))
                 {
-                    semaphore = new SemaphoreSlim(MaxConcurrentRequestsPerDomain);
+                    semaphore = new SemaphoreSlim(_maxConcurrentRequestsPerDomain);
                     _domainSemaphores[host] = semaphore;
                 }
                 return semaphore;
@@ -130,7 +136,7 @@ namespace CommonUtilities
             var elapsed = (now - _lastRefill).TotalSeconds;
             if (elapsed > 0)
             {
-                _tokens = Math.Min(Capacity, _tokens + elapsed * FillRatePerSecond);
+                _tokens = Math.Min(_capacity, _tokens + elapsed * _fillRatePerSecond);
                 _lastRefill = now;
             }
         }
