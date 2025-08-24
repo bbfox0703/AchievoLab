@@ -48,10 +48,12 @@ namespace MyOwnGames.Services
 
         public string GetCurrentLanguage() => _currentLanguage;
 
-        public bool IsImageCached(int appId, string language)
+        public bool HasImage(int appId, string language)
         {
             return _cache.TryGetCachedPath(appId.ToString(), language, checkEnglishFallback: false) != null;
         }
+
+        public bool IsImageCached(int appId, string language) => HasImage(appId, language);
 
         public async Task<string?> GetGameImageAsync(int appId, string? language = null)
         {
