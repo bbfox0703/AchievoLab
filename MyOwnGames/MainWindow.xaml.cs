@@ -106,6 +106,76 @@ namespace MyOwnGames
             set { if (_progressPercentText != value) { _progressPercentText = value; OnPropertyChanged(); } }
         }
 
+        // Image download progress tracking
+        private int _totalImagesCount = 0;
+        private int _completedImagesCount = 0;
+        private int _pendingImagesCount = 0;
+        private readonly object _downloadProgressLock = new();
+
+        private void UpdateImageDownloadProgress(int totalImages, int completedImages)
+        {
+            lock (_downloadProgressLock)
+            {
+                _totalImagesCount = totalImages;
+                _completedImagesCount = completedImages;
+                _pendingImagesCount = Math.Max(0, _totalImagesCount - _completedImagesCount);
+
+                var progressPercent = _totalImagesCount > 0 ? (double)_completedImagesCount / _totalImagesCount * 100 : 0;
+
+                this.DispatcherQueue?.TryEnqueue(() =>
+                {
+                    if (_isShuttingDown) return;
+
+                    try
+                    {
+                        if (_totalImagesCount > 0)
+                        {
+                            StatusText = $"下載圖片: {_completedImagesCount}/{_totalImagesCount} 已完成 ({_pendingImagesCount} 待處理)";
+                            ProgressValue = progressPercent;
+                            ProgressVisibility = Visibility.Visible;
+                            IsLoading = true;
+                            DebugLogger.LogDebug($"StatusText updated: {StatusText}");
+                        }
+                        else
+                        {
+                            StatusText = "Ready.";
+                            ProgressVisibility = Visibility.Collapsed;
+                            IsLoading = false;
+                        }
+                    }
+                    catch
+                    {
+                        // Ignore UI update errors
+                    }
+                });
+            }
+        }
+
+        private void ResetImageDownloadProgress()
+        {
+            lock (_downloadProgressLock)
+            {
+                _totalImagesCount = 0;
+                _completedImagesCount = 0;
+                _pendingImagesCount = 0;
+            }
+
+            this.DispatcherQueue?.TryEnqueue(() =>
+            {
+                if (_isShuttingDown) return;
+                try
+                {
+                    StatusText = "Ready.";
+                    ProgressVisibility = Visibility.Collapsed;
+                    IsLoading = false;
+                }
+                catch
+                {
+                    // Ignore UI update errors
+                }
+            });
+        }
+
         public event PropertyChangedEventHandler? PropertyChanged;
         private void OnPropertyChanged([CallerMemberName] string? name = null)
         {
@@ -254,6 +324,7 @@ namespace MyOwnGames
 
             // Subscribe to image download completion events
             _imageService.ImageDownloadCompleted += OnImageDownloadCompleted;
+            _imageService.ImageDownloadProgressChanged += OnImageDownloadProgressChanged;
 
             // Initialize image service with default language
             var initialLanguage = GetCurrentLanguage();
@@ -291,6 +362,13 @@ namespace MyOwnGames
         {
             RootGrid.Loaded -= MainWindow_Loaded;
             await LoadSavedGamesAsync();
+        }
+
+        private void OnImageDownloadProgressChanged(int completed, int total)
+        {
+            if (_isShuttingDown) return;
+            DebugLogger.LogDebug($"Progress event: {completed}/{total}");
+            UpdateImageDownloadProgress(total, completed);
         }
 
         private void OnImageDownloadCompleted(int appId, string? imagePath)
@@ -421,6 +499,7 @@ namespace MyOwnGames
         private async Task LoadSavedGamesAsync()
         {
             IsLoading = true;
+            ResetImageDownloadProgress(); // Reset download progress tracking
             try
             {
                 AppendLog("Loading saved games...");
@@ -1039,6 +1118,7 @@ namespace MyOwnGames
 
             AppendLog($"Language changed from {currentImageServiceLanguage} to: {newLanguage}");
             StatusText = $"Switching to {newLanguage}...";
+            ResetImageDownloadProgress(); // Reset progress when switching languages
 
             try
             {

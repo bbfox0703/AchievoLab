@@ -453,9 +453,13 @@ namespace CommonUtilities
         {
             var total = Volatile.Read(ref _totalRequests);
             var completed = Volatile.Read(ref _completed);
+            DebugLogger.LogDebug($"GameImageCache ReportProgress: {completed}/{total}");
             var handlers = ProgressChanged;
             if (handlers == null)
+            {
+                DebugLogger.LogDebug("No ProgressChanged handlers");
                 return;
+            }
             foreach (Action<int, int> handler in handlers.GetInvocationList())
             {
                 try

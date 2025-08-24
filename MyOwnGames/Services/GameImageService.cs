@@ -24,6 +24,7 @@ namespace MyOwnGames.Services
         private string _currentLanguage = "english";
 
         public event Action<int, string?>? ImageDownloadCompleted;
+        public event Action<int, int>? ImageDownloadProgressChanged;
 
         public GameImageService()
         {
@@ -36,6 +37,20 @@ namespace MyOwnGames.Services
                 "AchievoLab", "ImageCache");
             _failureTracker = new ImageFailureTrackingService();
             _cache = new GameImageCache(baseDir, _failureTracker);
+            
+            // Forward progress events from cache
+            _cache.ProgressChanged += (completed, total) =>
+            {
+                DebugLogger.LogDebug($"GameImageService forwarding progress: {completed}/{total}");
+                ImageDownloadProgressChanged?.Invoke(completed, total);
+            };
+            
+            // Test the progress system immediately
+            Task.Delay(1000).ContinueWith(_ =>
+            {
+                DebugLogger.LogDebug("Testing progress system...");
+                _cache.ResetProgress();
+            });
         }
 
         public void SetLanguage(string language)
@@ -54,6 +69,10 @@ namespace MyOwnGames.Services
             language ??= _currentLanguage;
             var originalLanguage = language;
             var cacheKey = $"{appId}_{language}";
+            
+            // Test progress system directly
+            DebugLogger.LogDebug($"Testing direct progress event for {appId}");
+            ImageDownloadProgressChanged?.Invoke(1, 10);
 
             // Check if there's already a request in progress for this image
             if (_pendingRequests.TryGetValue(cacheKey, out var existingTask))
