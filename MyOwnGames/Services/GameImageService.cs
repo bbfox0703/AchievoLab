@@ -173,8 +173,7 @@ namespace MyOwnGames.Services
             AddUrl(languageSpecificUrlMap, $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/header_{language}.jpg");
 
             var languageUrls = RoundRobin(languageSpecificUrlMap);
-
-            var result = await FetchFromUrlsAsync(languageUrls, appId.ToString(), language, appId);
+            var result = await _cache.GetImagePathAsync(appId.ToString(), languageUrls, language, appId);
             if (!string.IsNullOrEmpty(result?.Path) && IsValidImage(result.Value.Path))
             {
                 _imageCache[cacheKey] = result.Value.Path;
@@ -192,52 +191,13 @@ namespace MyOwnGames.Services
                 try { File.Delete(result.Value.Path); } catch { }
             }
 
-            if (!string.Equals(originalLanguage, "english", StringComparison.OrdinalIgnoreCase))
-            {
-                var englishUrlMap = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-                var englishHeader = await GetHeaderImageFromStoreApiAsync(appId, "english");
-                if (!string.IsNullOrEmpty(englishHeader))
-                {
-                    AddUrl(englishUrlMap, englishHeader);
-                }
-
-                // Cloudflare CDN
-                AddUrl(englishUrlMap, $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg");
-
-                // Steam CDN
-                AddUrl(englishUrlMap, $"https://cdn.steamstatic.com/steam/apps/{appId}/header.jpg");
-
-                // Akamai CDN
-                AddUrl(englishUrlMap, $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg");
-
-
-                var englishUrls = RoundRobin(englishUrlMap);
-
-                result = await FetchFromUrlsAsync(englishUrls, appId.ToString(), originalLanguage, appId);
-                if (!string.IsNullOrEmpty(result?.Path) && IsValidImage(result.Value.Path))
-                {
-                    _imageCache[cacheKey] = result.Value.Path;
-                    if (result.Value.Downloaded)
-                    {
-                        TriggerImageDownloadCompletedEvent(appId, result.Value.Path);
-                    }
-                    return result.Value.Path;
-                }
-
-                if (!string.IsNullOrEmpty(result?.Path))
-                {
-                    try { File.Delete(result.Value.Path); } catch { }
-                }
-            }
-
             // As a final fallback, try downloading logo images
             var logoUrlMap = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
             AddUrl(logoUrlMap, $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/logo_{language}.png");
             AddUrl(logoUrlMap, $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/logo.png");
 
             var logoUrls = RoundRobin(logoUrlMap);
-
-            result = await FetchFromUrlsAsync(logoUrls, appId.ToString(), originalLanguage, appId);
+            result = await _cache.GetImagePathAsync(appId.ToString(), logoUrls, originalLanguage, appId);
             if (!string.IsNullOrEmpty(result?.Path) && IsValidImage(result.Value.Path))
             {
                 _imageCache[cacheKey] = result.Value.Path;
@@ -267,41 +227,6 @@ namespace MyOwnGames.Services
             }
 
             TriggerImageDownloadCompletedEvent(appId, null);
-            return null;
-        }
-
-        private async Task<GameImageCache.ImageResult?> FetchFromUrlsAsync(IEnumerable<string> urls, string cacheKey, string language, int appId)
-        {
-            const int MaxConcurrentAttempts = 3;
-            var queue = new Queue<string>(urls);
-            var tasks = new List<Task<GameImageCache.ImageResult>>();
-
-            void StartNext()
-            {
-                while (tasks.Count < MaxConcurrentAttempts && queue.Count > 0)
-                {
-                    var next = queue.Dequeue();
-                    if (Uri.TryCreate(next, UriKind.Absolute, out var uri))
-                    {
-                        tasks.Add(_cache.GetImagePathAsync(cacheKey, uri, language, appId));
-                    }
-                }
-            }
-
-            StartNext();
-
-            while (tasks.Count > 0)
-            {
-                var finished = await Task.WhenAny(tasks).ConfigureAwait(false);
-                tasks.Remove(finished);
-                var result = await finished.ConfigureAwait(false);
-                if (!string.IsNullOrEmpty(result.Path))
-                {
-                    return result;
-                }
-                StartNext();
-            }
-
             return null;
         }
 

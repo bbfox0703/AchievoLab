@@ -192,6 +192,49 @@ public class GameImageCacheTests : IDisposable
     }
 
     [Fact]
+    public async Task UsesNextUrlWhenFirstFails()
+    {
+        var language = "english";
+        var id = Random.Shared.Next(600001, 700000);
+        int port;
+        using (var l = new TcpListener(IPAddress.Loopback, 0))
+        {
+            l.Start();
+            port = ((IPEndPoint)l.LocalEndpoint).Port;
+        }
+
+        var prefix = $"http://localhost:{port}/";
+        using var listener = new HttpListener();
+        listener.Prefixes.Add(prefix);
+        listener.Start();
+
+        var serverTask = Task.Run(async () =>
+        {
+            // First request - 404
+            var ctx1 = await listener.GetContextAsync();
+            ctx1.Response.StatusCode = 404;
+            ctx1.Response.Close();
+
+            // Second request - valid image
+            var ctx2 = await listener.GetContextAsync();
+            var data = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0, 0, 0, 0 };
+            ctx2.Response.ContentType = "image/png";
+            ctx2.Response.ContentLength64 = data.Length;
+            await ctx2.Response.OutputStream.WriteAsync(data);
+            ctx2.Response.Close();
+            listener.Stop();
+        });
+
+        var urls = new[] { prefix + "missing.png", prefix + "icon.png" };
+        var result = await _cache.GetImagePathAsync(id.ToString(), urls, language, id);
+        await serverTask;
+
+        Assert.True(result.Downloaded);
+        Assert.EndsWith(".png", result.Path);
+        _tracker.RemoveFailedRecord(id, language);
+    }
+
+    [Fact]
     public async Task SkipsAndRetriesBasedOnFailureLog()
     {
         var language = "english";
