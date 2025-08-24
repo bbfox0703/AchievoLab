@@ -539,6 +539,7 @@ namespace MyOwnGames
                 }
 
                 AppendLog($"Loaded {savedGamesWithLanguages.Count} saved games from {_dataService.GetXmlFilePath()}");
+                DispatcherQueue?.TryEnqueue(() => _imageService.SetTotalGames(GameItems.Count));
             }
             catch (Exception ex)
             {
@@ -797,6 +798,7 @@ namespace MyOwnGames
 
                 StatusText = $"Completed full scan: {total} games processed with {selectedLanguage} data. Current list: {GameItems.Count} games. Saved to {xmlPath}";
                 AppendLog($"Full language scan complete - Total games: {total}, All games now have {selectedLanguage} data, Current display: {GameItems.Count} games, saved to {xmlPath}");
+                DispatcherQueue?.TryEnqueue(() => _imageService.SetTotalGames(GameItems.Count));
             }
             catch (OperationCanceledException)
             {
@@ -871,6 +873,7 @@ namespace MyOwnGames
                     GameItems.Add(item);
 
                 StatusText = $"Showing {AllGameItems.Count} game(s).";
+                _imageService.SetTotalGames(GameItems.Count);
                 return;
             }
 
@@ -887,6 +890,7 @@ namespace MyOwnGames
             StatusText = filtered.Count > 0
                 ? $"Found {filtered.Count} result(s) for \"{keyword}\"."
                 : $"No results found for \"{keyword}\".";
+            _imageService.SetTotalGames(GameItems.Count);
         }
 
         private void OnWindowKeyDown(object sender, KeyRoutedEventArgs e)
