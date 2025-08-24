@@ -112,13 +112,12 @@ namespace MyOwnGames
         private int _pendingImagesCount = 0;
         private readonly object _downloadProgressLock = new();
 
-        private void UpdateImageDownloadProgress(int totalImages, int completedImages)
+        private void UpdateImageDownloadProgress()
         {
             lock (_downloadProgressLock)
             {
-                _totalImagesCount = totalImages;
-                _completedImagesCount = completedImages;
-                _pendingImagesCount = Math.Max(0, _totalImagesCount - _completedImagesCount);
+                _totalImagesCount = GameItems.Count;
+                _pendingImagesCount = _totalImagesCount - _completedImagesCount;
 
                 var progressPercent = _totalImagesCount > 0 ? (double)_completedImagesCount / _totalImagesCount * 100 : 0;
 
@@ -155,25 +154,10 @@ namespace MyOwnGames
         {
             lock (_downloadProgressLock)
             {
-                _totalImagesCount = 0;
                 _completedImagesCount = 0;
-                _pendingImagesCount = 0;
             }
 
-            this.DispatcherQueue?.TryEnqueue(() =>
-            {
-                if (_isShuttingDown) return;
-                try
-                {
-                    StatusText = "Ready.";
-                    ProgressVisibility = Visibility.Collapsed;
-                    IsLoading = false;
-                }
-                catch
-                {
-                    // Ignore UI update errors
-                }
-            });
+            UpdateImageDownloadProgress();
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;
@@ -324,7 +308,6 @@ namespace MyOwnGames
 
             // Subscribe to image download completion events
             _imageService.ImageDownloadCompleted += OnImageDownloadCompleted;
-            _imageService.ImageDownloadProgressChanged += OnImageDownloadProgressChanged;
 
             // Initialize image service with default language
             var initialLanguage = GetCurrentLanguage();
@@ -364,13 +347,6 @@ namespace MyOwnGames
             await LoadSavedGamesAsync();
         }
 
-        private void OnImageDownloadProgressChanged(int completed, int total)
-        {
-            if (_isShuttingDown) return;
-            DebugLogger.LogDebug($"Progress event: {completed}/{total}");
-            UpdateImageDownloadProgress(total, completed);
-        }
-
         private void OnImageDownloadCompleted(int appId, string? imagePath)
         {
             if (_isShuttingDown) return; // Don't update UI during shutdown
@@ -380,45 +356,45 @@ namespace MyOwnGames
             {
                 if (_isShuttingDown) return;
 
+                bool shouldCount = false;
                 try
                 {
                     var entry = AllGameItems.FirstOrDefault(g => g.AppId == appId);
-                    if (entry == null) return;
-
-                    var language = _imageService.GetCurrentLanguage();
-                    var cacheKey = GetImageCacheKey(appId, language);
-
-                    ImageSource? source = null;
-                    if (!string.IsNullOrEmpty(imagePath) && File.Exists(imagePath))
+                    if (entry != null)
                     {
-                        lock (_imageCacheLock)
+                        shouldCount = true;
+                        var language = _imageService.GetCurrentLanguage();
+                        var cacheKey = GetImageCacheKey(appId, language);
+
+                        ImageSource? source = null;
+                        if (!string.IsNullOrEmpty(imagePath) && File.Exists(imagePath))
                         {
-                            if (!_imageCache.TryGetValue(cacheKey, out source))
+                            lock (_imageCacheLock)
                             {
-                                try
+                                if (!_imageCache.TryGetValue(cacheKey, out source))
                                 {
-                                    source = IsPlaceholderPath(imagePath) ? _placeholderImage : LoadImageFromFile(imagePath);
-                                    _imageCache[cacheKey] = source;
-                                }
-                                catch
-                                {
-                                    source = _placeholderImage;
+                                    try
+                                    {
+                                        source = IsPlaceholderPath(imagePath) ? _placeholderImage : LoadImageFromFile(imagePath);
+                                        _imageCache[cacheKey] = source;
+                                    }
+                                    catch
+                                    {
+                                        source = _placeholderImage;
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    lock (_imageCacheLock)
-                    {
-                        if (source == null && _imageCache.TryGetValue(cacheKey, out var cached))
+                        lock (_imageCacheLock)
                         {
-                            source = cached;
+                            if (source == null && _imageCache.TryGetValue(cacheKey, out var cached))
+                            {
+                                source = cached;
+                            }
                         }
-                    }
 
-                    // Safer UI update with retry logic
-                    if (source != null)
-                    {
+                        source ??= _placeholderImage;
                         SafeUpdateIconSource(entry, source, appId);
                     }
                 }
@@ -437,6 +413,17 @@ namespace MyOwnGames
                 catch (Exception ex) when (!_isShuttingDown)
                 {
                     DebugLogger.LogDebug($"Error updating UI for downloaded image {appId}: {ex.Message}");
+                }
+                finally
+                {
+                    if (shouldCount)
+                    {
+                        lock (_downloadProgressLock)
+                        {
+                            _completedImagesCount++;
+                        }
+                        UpdateImageDownloadProgress();
+                    }
                 }
             });
         }
