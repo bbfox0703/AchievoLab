@@ -548,6 +548,9 @@ namespace MyOwnGames
                 return;
             }
 
+            // Disable controls during operation
+            SetControlsEnabledState(false);
+
             await EnsureSteamIdHashConsistencyAsync(steamId64!);
 
             string? xmlPath = null;
@@ -658,7 +661,7 @@ namespace MyOwnGames
                         // Save/update game data in XML for current language
                         await _dataService.AppendGameAsync(game, steamId64!, apiKey!, selectedLanguage);
                     }
-                }, progress, skipAppIds, existingLocalizedNames);
+                }, progress, skipAppIds, existingLocalizedNames, cancellationToken);
 
                 xmlPath = _dataService.GetXmlFilePath();
 
@@ -707,6 +710,9 @@ namespace MyOwnGames
                 IsLoading = false;
                 ProgressValue = 100;
                 
+                // Re-enable controls after operation completes
+                SetControlsEnabledState(true);
+                
                 if (!_isShuttingDown)
                 {
                     AppendLog("Finished retrieving games.");
@@ -724,6 +730,27 @@ namespace MyOwnGames
             var apiKey = ApiKeyBox.Password?.Trim();
             var steamId64 = SteamIdBox.Password?.Trim();
             GetGamesButton.IsEnabled = InputValidator.IsValidApiKey(apiKey) && InputValidator.IsValidSteamId64(steamId64);
+        }
+
+        private void SetControlsEnabledState(bool enabled)
+        {
+            ApiKeyBox.IsEnabled = enabled;
+            SteamIdBox.IsEnabled = enabled;
+            LanguageComboBox.IsEnabled = enabled;
+            GetGamesButton.IsEnabled = enabled && InputValidator.IsValidApiKey(ApiKeyBox.Password?.Trim()) && InputValidator.IsValidSteamId64(SteamIdBox.Password?.Trim());
+            StopButton.IsEnabled = !enabled;
+        }
+
+        private void StopButton_Click(object sender, RoutedEventArgs e)
+        {
+            // Cancel the current operation
+            _cancellationTokenSource?.Cancel();
+            StatusText = "Operation cancelled by user.";
+            AppendLog("Get Game List operation cancelled by user.");
+            
+            // Re-enable controls
+            SetControlsEnabledState(true);
+            IsLoading = false;
         }
 
         private void KeywordBox_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
