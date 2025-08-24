@@ -51,6 +51,7 @@ namespace MyOwnGames
         private readonly HashSet<int> _imagesCurrentlyLoading = new();
         private readonly HashSet<int> _imagesSuccessfullyLoaded = new();
         private readonly object _imageLoadingLock = new();
+        private readonly Dictionary<int, DateTime> _duplicateImageLogTimes = new();
 
         private readonly string _defaultLanguage = GetDefaultLanguage();
 
@@ -403,7 +404,11 @@ namespace MyOwnGames
             {
                 if (_imagesCurrentlyLoading.Contains(appId))
                 {
-                    DebugLogger.LogDebug($"Image load already in progress for {appId}, skipping duplicate request");
+                    if (!_duplicateImageLogTimes.TryGetValue(appId, out var lastLog) || (DateTime.Now - lastLog).TotalSeconds > 30)
+                    {
+                        DebugLogger.LogDebug($"Image load already in progress for {appId}, skipping duplicate request");
+                        _duplicateImageLogTimes[appId] = DateTime.Now;
+                    }
                     return;
                 }
                 if (_imagesSuccessfullyLoaded.Contains(appId))
@@ -494,10 +499,11 @@ namespace MyOwnGames
             }
             finally
             {
-                // Always remove from loading set when done
+                // Always remove from tracking dictionaries when done
                 lock (_imageLoadingLock)
                 {
                     _imagesCurrentlyLoading.Remove(appId);
+                    _duplicateImageLogTimes.Remove(appId);
                 }
             }
         }
