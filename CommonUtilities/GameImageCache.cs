@@ -139,7 +139,7 @@ namespace CommonUtilities
             return null;
         }
 
-        public Task<ImageResult> GetImagePathAsync(string cacheKey, Uri uri, string language = "english", int? failureId = null)
+        public Task<ImageResult> GetImagePathAsync(string cacheKey, Uri uri, string language = "english", int? failureId = null, CancellationToken cancellationToken = default)
         {
             var cacheDir = GetCacheDir(language);
             var basePath = Path.Combine(cacheDir, cacheKey);
@@ -180,20 +180,20 @@ namespace CommonUtilities
             {
                 Interlocked.Increment(ref _totalRequests);
                 ReportProgress();
-                return DownloadAsync(cacheKey, language, uri, basePath, ext, failureId);
+                return DownloadAsync(cacheKey, language, uri, basePath, ext, failureId, cancellationToken);
             });
         }
 
-        public async Task<ImageResult?> GetImagePathAsync(string cacheKey, IEnumerable<string> uris, string language = "english", int? failureId = null)
+        public async Task<ImageResult?> GetImagePathAsync(string cacheKey, IEnumerable<string> uris, string language = "english", int? failureId = null, CancellationToken cancellationToken = default)
         {
             int notFoundCount = 0;
             var totalUrls = uris.Count();
-            
+
             foreach (var url in uris)
             {
                 if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
                 {
-                    var result = await GetImagePathAsync(cacheKey, uri, language, failureId).ConfigureAwait(false);
+                    var result = await GetImagePathAsync(cacheKey, uri, language, failureId, cancellationToken).ConfigureAwait(false);
                     if (!string.IsNullOrEmpty(result.Path))
                     {
                         return result;
@@ -209,7 +209,7 @@ namespace CommonUtilities
                         if (notFoundCount >= 2 && !string.Equals(language, "english", StringComparison.OrdinalIgnoreCase))
                         {
                             DebugLogger.LogDebug($"Switching to English fallback for {cacheKey} after {notFoundCount} 404s");
-                            return await TryEnglishFallbackAsync(cacheKey, language, failureId);
+                            return await TryEnglishFallbackAsync(cacheKey, language, failureId, cancellationToken);
                         }
                     }
                 }
@@ -235,7 +235,7 @@ namespace CommonUtilities
             _lastErrors[key] = (DateTime.UtcNow, wasNotFound);
         }
 
-        private async Task<ImageResult?> TryEnglishFallbackAsync(string cacheKey, string originalLanguage, int? failureId)
+        private async Task<ImageResult?> TryEnglishFallbackAsync(string cacheKey, string originalLanguage, int? failureId, CancellationToken cancellationToken)
         {
             DebugLogger.LogDebug($"Attempting English fallback for {cacheKey} (original: {originalLanguage})");
             
@@ -258,7 +258,7 @@ namespace CommonUtilities
             {
                 if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
                 {
-                    var result = await GetImagePathAsync(cacheKey, uri, "english", failureId).ConfigureAwait(false);
+                    var result = await GetImagePathAsync(cacheKey, uri, "english", failureId, cancellationToken).ConfigureAwait(false);
                     if (!string.IsNullOrEmpty(result.Path))
                     {
                         // Success! Copy to original language folder
@@ -302,13 +302,13 @@ namespace CommonUtilities
             }
         }
 
-        private async Task<ImageResult> DownloadAsync(string cacheKey, string language, Uri uri, string basePath, string ext, int? failureId)
+        private async Task<ImageResult> DownloadAsync(string cacheKey, string language, Uri uri, string basePath, string ext, int? failureId, CancellationToken cancellationToken)
         {
-            await _concurrency.WaitAsync().ConfigureAwait(false);
+            await _concurrency.WaitAsync(cancellationToken).ConfigureAwait(false);
             await _rateLimiter.WaitAsync(uri).ConfigureAwait(false);
             try
             {
-                using var response = await _http.GetAsync(uri).ConfigureAwait(false);
+                using var response = await _http.GetAsync(uri, cancellationToken).ConfigureAwait(false);
                 if (!response.IsSuccessStatusCode)
                 {
                     throw new HttpRequestException($"Failed: {response.StatusCode}");
@@ -323,7 +323,7 @@ namespace CommonUtilities
                 var path = basePath + ext;
                 await using (var fs = File.Create(path))
                 {
-                    await response.Content.CopyToAsync(fs).ConfigureAwait(false);
+                    await response.Content.CopyToAsync(fs, cancellationToken).ConfigureAwait(false);
                 }
 
                 if (!IsCacheValid(path))
@@ -337,6 +337,11 @@ namespace CommonUtilities
                     _failureTracker?.RemoveFailedRecord(failureId.Value, language);
                 }
                 return new ImageResult(path, true);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                DebugLogger.LogDebug($"Download cancelled for {uri}");
+                throw;
             }
             catch (HttpRequestException ex)
             {
