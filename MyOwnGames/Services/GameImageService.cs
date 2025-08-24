@@ -221,7 +221,6 @@ namespace MyOwnGames.Services
                     {
                         TriggerImageDownloadCompletedEvent(appId, result.Value.Path);
                     }
-                    CopyToEnglishCacheIfMissing(appId, result.Value.Path);
                     return result.Value.Path;
                 }
 
@@ -248,7 +247,8 @@ namespace MyOwnGames.Services
                 }
                 if (!string.Equals(originalLanguage, "english", StringComparison.OrdinalIgnoreCase))
                 {
-                    CopyToEnglishCacheIfMissing(appId, result.Value.Path);
+                    // Image might still be in English, but we cannot be certain;
+                    // avoid copying to the English cache to prevent contamination.
                 }
                 return result.Value.Path;
             }
@@ -330,18 +330,20 @@ namespace MyOwnGames.Services
         {
             try
             {
+                // Ensure the source file is already within the English cache
+                var sourceDir = Path.GetDirectoryName(path);
+                if (sourceDir == null ||
+                    !string.Equals(Path.GetFileName(sourceDir), "english", StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
                 if (_cache.TryGetCachedPath(appId.ToString(), "english", checkEnglishFallback: false) != null)
                 {
                     return;
                 }
 
-                var languageDir = Path.GetDirectoryName(path);
-                if (languageDir == null)
-                {
-                    return;
-                }
-
-                var baseDir = Path.GetDirectoryName(languageDir);
+                var baseDir = Path.GetDirectoryName(sourceDir);
                 if (baseDir == null)
                 {
                     return;
