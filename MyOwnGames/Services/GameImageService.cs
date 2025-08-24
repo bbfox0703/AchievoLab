@@ -31,9 +31,12 @@ namespace MyOwnGames.Services
 
         public GameImageService()
         {
-            // Initialize the HTTP client used for downloading images.
+            // Initialize the HTTP client used for store API calls with a browser-like
+            // user agent and language headers to avoid CDN rejections.
             _httpClient = new HttpClient();
-            _httpClient.DefaultRequestHeaders.Add("User-Agent", "MyOwnGames/1.0");
+            _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+            _httpClient.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
 
             // Configure the local cache for storing image files.
             var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -289,7 +292,7 @@ namespace MyOwnGames.Services
             const int MaxConcurrentAttempts = 3;
             var queue = new Queue<string>(urls);
             using var cts = new CancellationTokenSource();
-            var tasks = new List<Task<GameImageCache.ImageResult>>();
+            var tasks = new List<Task<(string Url, GameImageCache.ImageResult Result)>>();
 
             void StartNext()
             {
@@ -298,7 +301,10 @@ namespace MyOwnGames.Services
                     var next = queue.Dequeue();
                     if (Uri.TryCreate(next, UriKind.Absolute, out var uri))
                     {
-                        tasks.Add(_cache.GetImagePathAsync(cacheKey, uri, language, appId, cts.Token));
+                        DebugLogger.LogDebug($"Attempting CDN fetch for {appId} from {uri}");
+                        tasks.Add(_cache
+                            .GetImagePathAsync(cacheKey, uri, language, appId, cts.Token)
+                            .ContinueWith(t => (uri.ToString(), t.Result), TaskScheduler.Default));
                     }
                 }
             }
@@ -309,15 +315,18 @@ namespace MyOwnGames.Services
             {
                 var finished = await Task.WhenAny(tasks).ConfigureAwait(false);
                 tasks.Remove(finished);
-                var result = await finished.ConfigureAwait(false);
+                var (url, result) = await finished.ConfigureAwait(false);
                 if (!string.IsNullOrEmpty(result.Path))
                 {
+                    DebugLogger.LogDebug($"CDN fetch succeeded for {appId} from {url}");
                     cts.Cancel();
                     return result;
                 }
+                DebugLogger.LogDebug($"CDN fetch failed for {appId} from {url}");
                 StartNext();
             }
 
+            DebugLogger.LogDebug($"All CDN fetch attempts failed for {appId}");
             return null;
         }
 
@@ -407,6 +416,7 @@ namespace MyOwnGames.Services
                 using var response = await _httpClient.GetAsync(storeApiUrl);
                 if (!response.IsSuccessStatusCode)
                 {
+                    DebugLogger.LogDebug($"Store API returned {(int)response.StatusCode} for {appId} ({language})");
                     return null;
                 }
 

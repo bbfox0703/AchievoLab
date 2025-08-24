@@ -63,7 +63,9 @@ namespace CommonUtilities
             // Configure HttpClient with proper timeout and headers
             _http = new HttpClient();
             _http.Timeout = TimeSpan.FromSeconds(30);
-            _http.DefaultRequestHeaders.Add("User-Agent", "AchievoLab/1.0");
+            _http.DefaultRequestHeaders.UserAgent.ParseAdd(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+            _http.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
             _http.DefaultRequestHeaders.Add("Accept", "image/webp,image/avif,image/apng,image/svg+xml,image/*,*/*;q=0.8");
         }
 
