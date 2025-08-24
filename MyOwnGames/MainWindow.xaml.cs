@@ -106,59 +106,7 @@ namespace MyOwnGames
             set { if (_progressPercentText != value) { _progressPercentText = value; OnPropertyChanged(); } }
         }
 
-        // Image download progress tracking
-        private int _totalImagesCount = 0;
-        private int _completedImagesCount = 0;
-        private int _pendingImagesCount = 0;
-        private readonly object _downloadProgressLock = new();
-
-        private void UpdateImageDownloadProgress()
-        {
-            lock (_downloadProgressLock)
-            {
-                _totalImagesCount = GameItems.Count;
-                _pendingImagesCount = _totalImagesCount - _completedImagesCount;
-
-                var progressPercent = _totalImagesCount > 0 ? (double)_completedImagesCount / _totalImagesCount * 100 : 0;
-
-                this.DispatcherQueue?.TryEnqueue(() =>
-                {
-                    if (_isShuttingDown) return;
-
-                    try
-                    {
-                        if (_totalImagesCount > 0)
-                        {
-                            StatusText = $"D/L: {_completedImagesCount}/{_totalImagesCount} done, ({_pendingImagesCount} queued)";
-                            ProgressValue = progressPercent;
-                            ProgressVisibility = Visibility.Visible;
-                            IsLoading = true;
-                            DebugLogger.LogDebug($"StatusText updated: {StatusText}");
-                        }
-                        else
-                        {
-                            StatusText = "Ready.";
-                            ProgressVisibility = Visibility.Collapsed;
-                            IsLoading = false;
-                        }
-                    }
-                    catch
-                    {
-                        // Ignore UI update errors
-                    }
-                });
-            }
-        }
-
-        private void ResetImageDownloadProgress()
-        {
-            lock (_downloadProgressLock)
-            {
-                _completedImagesCount = 0;
-            }
-
-            UpdateImageDownloadProgress();
-        }
+        // Image download progress tracking removed
 
         private void ClearImageLoadingState()
         {
@@ -320,6 +268,7 @@ namespace MyOwnGames
 
             // Subscribe to image download completion events
             _imageService.ImageDownloadCompleted += OnImageDownloadCompleted;
+            // Removed: _imageService.ImageDownloadProgressChanged += OnImageDownloadProgressChanged;
 
             // Initialize image service with default language
             var initialLanguage = GetCurrentLanguage();
@@ -359,6 +308,8 @@ namespace MyOwnGames
             await LoadSavedGamesAsync();
         }
 
+        // Image download progress methods removed - no longer updating StatusText and ProgressBar
+
         private async void OnImageDownloadCompleted(int appId, string? imagePath)
         {
             if (_isShuttingDown) return; // Don't update UI during shutdown
@@ -369,21 +320,19 @@ namespace MyOwnGames
             var language = _imageService.GetCurrentLanguage();
             var cacheKey = GetImageCacheKey(appId, language);
 
-            ImageSource source = _placeholderImage;
-            try
-            {
-                if (!string.IsNullOrEmpty(imagePath) && File.Exists(imagePath))
-                {
-                    lock (_imageCacheLock)
-                    {
-                        if (_imageCache.TryGetValue(cacheKey, out var cached))
-                        {
-                            source = cached;
-                        }
-                    }
+            DebugLogger.LogDebug($"OnImageDownloadCompleted for {appId}, path: {imagePath}");
 
-                    if (ReferenceEquals(source, _placeholderImage) || source == null)
+            // Only process image if we have a valid path (not from cached scenario)
+            if (!string.IsNullOrEmpty(imagePath))
+            {
+                ImageSource source = _placeholderImage;
+                try
+                {
+                    if (File.Exists(imagePath))
                     {
+                        DebugLogger.LogDebug($"Loading image file for {appId}: {imagePath}");
+                        
+                        // Don't check cache first - always reload from file to ensure fresh image
                         try
                         {
                             source = await Task.Run(() =>
@@ -395,6 +344,8 @@ namespace MyOwnGames
                             {
                                 _imageCache[cacheKey] = source;
                             }
+
+                            DebugLogger.LogDebug($"Successfully loaded image for {appId} from {imagePath}");
                         }
                         catch (Exception ex)
                         {
@@ -402,35 +353,37 @@ namespace MyOwnGames
                             AppendLog($"Error decoding downloaded image for {appId}: {ex.Message}");
                             source = _placeholderImage;
                         }
+
+                        var finalSource = source ?? _placeholderImage;
+                        this.DispatcherQueue?.TryEnqueue(DispatcherQueuePriority.Low, () =>
+                        {
+                            if (_isShuttingDown) return;
+                            try
+                            {
+                                entry.IconSource = finalSource;
+                                DebugLogger.LogDebug($"Updated UI icon for {appId} from downloaded image");
+                            }
+                            catch (Exception ex)
+                            {
+                                DebugLogger.LogDebug($"Error updating UI for downloaded image {appId}: {ex.Message}");
+                            }
+                        });
                     }
-                }
-            }
-            catch (Exception ex)
-            {
-                DebugLogger.LogDebug($"Error processing downloaded image for {appId}: {ex.Message}");
-                AppendLog($"Error processing downloaded image for {appId}: {ex.Message}");
-                source = _placeholderImage;
-            }
-
-            lock (_downloadProgressLock)
-            {
-                _completedImagesCount++;
-            }
-            UpdateImageDownloadProgress();
-
-            var finalSource = source ?? _placeholderImage;
-            this.DispatcherQueue?.TryEnqueue(DispatcherQueuePriority.Low, () =>
-            {
-                if (_isShuttingDown) return;
-                try
-                {
-                    entry.IconSource = finalSource;
+                    else
+                    {
+                        DebugLogger.LogDebug($"Image file does not exist for {appId}: {imagePath}");
+                    }
                 }
                 catch (Exception ex)
                 {
-                    DebugLogger.LogDebug($"Error updating UI for downloaded image {appId}: {ex.Message}");
+                    DebugLogger.LogDebug($"Error processing downloaded image for {appId}: {ex.Message}");
+                    AppendLog($"Error processing downloaded image for {appId}: {ex.Message}");
                 }
-            });
+            }
+            else
+            {
+                DebugLogger.LogDebug($"OnImageDownloadCompleted called for cached image {appId}");
+            }
         }
 
         private async Task CleanupOldFailedRecordsAsync()
@@ -452,7 +405,6 @@ namespace MyOwnGames
         private async Task LoadSavedGamesAsync()
         {
             IsLoading = true;
-            ResetImageDownloadProgress(); // Reset download progress tracking
             ClearImageLoadingState();
             try
             {
@@ -540,6 +492,8 @@ namespace MyOwnGames
                     if (_isShuttingDown) return;
                     entry.IconSource = cachedSource;
                 });
+                
+                DebugLogger.LogDebug($"Using cached image for {appId}");
                 return;
             }
 
@@ -561,50 +515,103 @@ namespace MyOwnGames
                 _imagesCurrentlyLoading.Add(appId);
             }
 
-            ImageSource source = _placeholderImage;
             try
             {
                 var imagePath = await _imageService.GetGameImageAsync(appId, language);
 
                 if (!string.IsNullOrEmpty(imagePath) && File.Exists(imagePath))
                 {
-                    DebugLogger.LogDebug($"Image found for {appId}: {imagePath}");
-
+                    DebugLogger.LogDebug($"Image retrieved from service for {appId}: {imagePath}");
+                    
+                    // Load and display the image directly since we have the path
+                    ImageSource imageSource = _placeholderImage;
                     try
                     {
-                        source = await Task.Run(() =>
+                        imageSource = await Task.Run(() =>
                         {
                             return IsPlaceholderPath(imagePath) ? _placeholderImage : LoadImageFromFile(imagePath);
                         });
 
                         lock (_imageCacheLock)
                         {
-                            _imageCache[cacheKey] = source;
+                            _imageCache[cacheKey] = imageSource;
                         }
 
-                        lock (_imageLoadingLock)
-                        {
-                            _imagesSuccessfullyLoaded.Add(appId);
-                        }
+                        DebugLogger.LogDebug($"Successfully loaded image for {appId} from {imagePath}");
                     }
                     catch (Exception ex)
                     {
-                        DebugLogger.LogDebug($"Error decoding image for {appId}: {ex.Message}");
-                        AppendLog($"Error decoding image for {appId}: {ex.Message}");
-                        source = _placeholderImage;
+                        DebugLogger.LogDebug($"Error loading image for {appId}: {ex.Message}");
+                        imageSource = _placeholderImage;
+                    }
+
+                    // Update the UI immediately
+                    var finalImageSource = imageSource ?? _placeholderImage;
+                    this.DispatcherQueue?.TryEnqueue(DispatcherQueuePriority.Low, () =>
+                    {
+                        if (_isShuttingDown) return;
+                        if (entry != null && AllGameItems.Contains(entry))
+                        {
+                            try
+                            {
+                                entry.IconSource = finalImageSource;
+                                DebugLogger.LogDebug($"Updated UI icon for {appId} directly in LoadGameImageAsync");
+                            }
+                            catch (Exception ex)
+                            {
+                                DebugLogger.LogDebug($"Error updating UI for {appId}: {ex.Message}");
+                            }
+                        }
+                    });
+                    
+                    lock (_imageLoadingLock)
+                    {
+                        _imagesSuccessfullyLoaded.Add(appId);
                     }
                 }
                 else
                 {
-                    DebugLogger.LogDebug($"Image not found for {appId}");
-                    AppendLog($"Image not found for {appId}");
+                    DebugLogger.LogDebug($"Image not found for {appId} - using placeholder");
+                    
+                    // For placeholder images, update UI directly
+                    this.DispatcherQueue?.TryEnqueue(DispatcherQueuePriority.Low, () =>
+                    {
+                        if (_isShuttingDown) return;
+                        if (entry != null && AllGameItems.Contains(entry))
+                        {
+                            try
+                            {
+                                entry.IconSource = _placeholderImage;
+                            }
+                            catch (Exception ex)
+                            {
+                                DebugLogger.LogDebug($"Error updating UI for placeholder image {appId}: {ex.Message}");
+                            }
+                        }
+                    });
                 }
             }
             catch (Exception ex)
             {
                 DebugLogger.LogDebug($"Error loading image for {appId}: {ex.Message}");
                 AppendLog($"Error loading image for {appId}: {ex.Message}");
-                source = _placeholderImage;
+                
+                // For error cases, update UI directly with placeholder
+                this.DispatcherQueue?.TryEnqueue(DispatcherQueuePriority.Low, () =>
+                {
+                    if (_isShuttingDown) return;
+                    if (entry != null && AllGameItems.Contains(entry))
+                    {
+                        try
+                        {
+                            entry.IconSource = _placeholderImage;
+                        }
+                        catch (Exception ex2)
+                        {
+                            DebugLogger.LogDebug($"Error updating UI for error case {appId}: {ex2.Message}");
+                        }
+                    }
+                });
             }
             finally
             {
@@ -614,23 +621,6 @@ namespace MyOwnGames
                     _duplicateImageLogTimes.Remove(appId);
                 }
             }
-
-            var finalSource = source;
-            this.DispatcherQueue?.TryEnqueue(DispatcherQueuePriority.Low, () =>
-            {
-                if (_isShuttingDown) return;
-                if (entry != null && AllGameItems.Contains(entry))
-                {
-                    try
-                    {
-                        entry.IconSource = finalSource;
-                    }
-                    catch (Exception ex)
-                    {
-                        DebugLogger.LogDebug($"Error updating UI for image {appId}: {ex.Message}");
-                    }
-                }
-            });
         }
 
         private async Task EnsureSteamIdHashConsistencyAsync(string steamId64)
@@ -671,7 +661,6 @@ namespace MyOwnGames
             }
 
             ClearImageLoadingState();
-            ResetImageDownloadProgress();
 
             await EnsureSteamIdHashConsistencyAsync(steamId64!);
 
@@ -778,7 +767,6 @@ namespace MyOwnGames
                 StatusText = $"Completed full scan: {total} games processed with {selectedLanguage} data. Current list: {GameItems.Count} games. Saved to {xmlPath}";
                 AppendLog($"Full language scan complete - Total games: {total}, All games now have {selectedLanguage} data, Current display: {GameItems.Count} games, saved to {xmlPath}");
                 DispatcherQueue?.TryEnqueue(() => _imageService.SetTotalGames(GameItems.Count));
-                UpdateImageDownloadProgress();
             }
             catch (OperationCanceledException)
             {
@@ -1089,7 +1077,6 @@ namespace MyOwnGames
 
             AppendLog($"Language changed from {currentImageServiceLanguage} to: {newLanguage}");
             StatusText = $"Switching to {newLanguage}...";
-            ResetImageDownloadProgress(); // Reset progress when switching languages
 
             try
             {
