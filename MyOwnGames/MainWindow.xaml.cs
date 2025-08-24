@@ -482,18 +482,6 @@ namespace MyOwnGames
                 {
                     DebugLogger.LogDebug($"Image found for {appId}: {imagePath}");
 
-                    ImageSource source = IsPlaceholderPath(imagePath) ? _placeholderImage : LoadImageFromFile(imagePath);
-
-                    lock (_imageCacheLock)
-                    {
-                        _imageCache[cacheKey] = source;
-                    }
-
-                    lock (_imageLoadingLock)
-                    {
-                        _imagesSuccessfullyLoaded.Add(appId);
-                    }
-
                     if (!_isShuttingDown && this.DispatcherQueue != null)
                     {
                         this.DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, () =>
@@ -502,11 +490,25 @@ namespace MyOwnGames
 
                             try
                             {
+                                var source = IsPlaceholderPath(imagePath) ? _placeholderImage : LoadImageFromFile(imagePath);
+
+                                lock (_imageCacheLock)
+                                {
+                                    _imageCache[cacheKey] = source;
+                                }
+
+                                lock (_imageLoadingLock)
+                                {
+                                    _imagesSuccessfullyLoaded.Add(appId);
+                                }
+
                                 if (entry != null && AllGameItems.Contains(entry))
                                 {
                                     entry.IconSource = source;
                                     DebugLogger.LogDebug($"Updated UI for {appId}");
                                 }
+
+                                AppendLog($"Loaded image for {appId}");
                             }
                             catch (System.Runtime.InteropServices.COMException) when (_isShuttingDown)
                             {
@@ -519,18 +521,10 @@ namespace MyOwnGames
                                 if (!_isShuttingDown)
                                 {
                                     DebugLogger.LogDebug($"Error updating UI for image {appId}: {ex.Message}");
-                                    try
-                                    {
-                                        if (entry != null)
-                                            entry.IconSource = source;
-                                    }
-                                    catch { }
                                 }
                             }
                         });
                     }
-
-                    AppendLog($"Loaded image for {appId}");
                 }
                 else
                 {
