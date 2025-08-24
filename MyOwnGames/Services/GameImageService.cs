@@ -121,8 +121,6 @@ namespace MyOwnGames.Services
             // Akamai CDN
             AddUrl(languageSpecificUrlMap, $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/header_{language}.jpg");
 
-            // Additional assets
-            AddUrl(languageSpecificUrlMap, $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/logo_{language}.png");
             var languageUrls = RoundRobin(languageSpecificUrlMap);
 
             var result = await _cache.GetImagePathAsync(appId.ToString(), languageUrls, language, appId);
@@ -159,8 +157,6 @@ namespace MyOwnGames.Services
                 // Akamai CDN
                 AddUrl(englishUrlMap, $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg");
 
-                // Additional assets
-                AddUrl(englishUrlMap, $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/logo.png");
 
                 var englishUrls = RoundRobin(englishUrlMap);
 
@@ -180,6 +176,33 @@ namespace MyOwnGames.Services
                 {
                     try { File.Delete(result.Value.Path); } catch { }
                 }
+            }
+
+            // As a final fallback, try downloading logo images
+            var logoUrlMap = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            AddUrl(logoUrlMap, $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/logo_{language}.png");
+            AddUrl(logoUrlMap, $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/logo.png");
+
+            var logoUrls = RoundRobin(logoUrlMap);
+
+            result = await _cache.GetImagePathAsync(appId.ToString(), logoUrls, originalLanguage, appId);
+            if (!string.IsNullOrEmpty(result?.Path) && IsValidImage(result.Value.Path))
+            {
+                _imageCache[cacheKey] = result.Value.Path;
+                if (result.Value.Downloaded)
+                {
+                    ImageDownloadCompleted?.Invoke(appId, result.Value.Path);
+                }
+                if (!string.Equals(originalLanguage, "english", StringComparison.OrdinalIgnoreCase))
+                {
+                    CopyToEnglishCacheIfMissing(appId, result.Value.Path);
+                }
+                return result.Value.Path;
+            }
+
+            if (!string.IsNullOrEmpty(result?.Path))
+            {
+                try { File.Delete(result.Value.Path); } catch { }
             }
 
             _failureTracker.RecordFailedDownload(appId, originalLanguage);
