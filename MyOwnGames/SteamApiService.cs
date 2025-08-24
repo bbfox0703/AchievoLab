@@ -45,7 +45,7 @@ namespace MyOwnGames
                 throw new ArgumentException("Invalid SteamID64. It must be a 17-digit number starting with 7656119.", nameof(steamId64));
         }
 
-        public async Task<int> GetOwnedGamesAsync(string steamId64, string targetLanguage = "english", Func<SteamGame, Task>? onGameRetrieved = null, IProgress<double>? progress = null, ISet<int>? existingAppIds = null)
+        public async Task<int> GetOwnedGamesAsync(string steamId64, string targetLanguage = "english", Func<SteamGame, Task>? onGameRetrieved = null, IProgress<double>? progress = null, ISet<int>? existingAppIds = null, IDictionary<int, string>? existingLocalizedNames = null)
         {
             ValidateCredentials(_apiKey, steamId64);
             try
@@ -78,11 +78,18 @@ namespace MyOwnGames
                         continue;
                     }
 
-                    // Get localized name if not English
+                    // Get localized name if not English, using existing data when available
                     string localizedName = game.name; // Default to English name from owned games API
                     if (targetLanguage != "english")
                     {
-                        localizedName = await GetLocalizedGameNameAsync(game.appid, game.name, targetLanguage);
+                        if (existingLocalizedNames != null && existingLocalizedNames.TryGetValue(game.appid, out var cachedName))
+                        {
+                            localizedName = cachedName;
+                        }
+                        else
+                        {
+                            localizedName = await GetLocalizedGameNameAsync(game.appid, game.name, targetLanguage);
+                        }
                     }
 
                     var steamGame = new SteamGame
