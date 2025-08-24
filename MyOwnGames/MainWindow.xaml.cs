@@ -694,6 +694,8 @@ namespace MyOwnGames
                 return;
             }
 
+            ResetImageDownloadProgress();
+
             await EnsureSteamIdHashConsistencyAsync(steamId64!);
 
             string? xmlPath = null;
@@ -799,6 +801,7 @@ namespace MyOwnGames
                 StatusText = $"Completed full scan: {total} games processed with {selectedLanguage} data. Current list: {GameItems.Count} games. Saved to {xmlPath}";
                 AppendLog($"Full language scan complete - Total games: {total}, All games now have {selectedLanguage} data, Current display: {GameItems.Count} games, saved to {xmlPath}");
                 DispatcherQueue?.TryEnqueue(() => _imageService.SetTotalGames(GameItems.Count));
+                UpdateImageDownloadProgress();
             }
             catch (OperationCanceledException)
             {
