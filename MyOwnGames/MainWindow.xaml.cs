@@ -581,11 +581,16 @@ namespace MyOwnGames
                 // Load existing games to check current language data status
                 var existingGamesData = await _dataService.LoadGamesWithLanguagesAsync();
                 var existingLocalizedNames = new Dictionary<int, string>();
+                var skipAppIds = new HashSet<int>();
                 foreach (var game in existingGamesData)
                 {
                     if (game.LocalizedNames != null && game.LocalizedNames.TryGetValue(selectedLanguage, out var name) && !string.IsNullOrEmpty(name))
                     {
                         existingLocalizedNames[game.AppId] = name;
+                        if (_imageService.IsImageCached(game.AppId, selectedLanguage))
+                        {
+                            skipAppIds.Add(game.AppId);
+                        }
                     }
                 }
 
@@ -593,9 +598,10 @@ namespace MyOwnGames
                 _steamService = new SteamApiService(apiKey!);
                 var total = await _steamService.GetOwnedGamesAsync(steamId64!, selectedLanguage, async game =>
                 {
+                    var shouldSkip = skipAppIds.Contains(game.AppId);
                     // Check if this game has data for the current language
                     var existingGameData = existingGamesData.FirstOrDefault(g => g.AppId == game.AppId);
-                    var hasLanguageData = existingGameData?.LocalizedNames?.ContainsKey(selectedLanguage) == true && 
+                    var hasLanguageData = existingGameData?.LocalizedNames?.ContainsKey(selectedLanguage) == true &&
                                          !string.IsNullOrEmpty(existingGameData.LocalizedNames[selectedLanguage]);
                     
                     // Always process the game to ensure XML consistency for current language
@@ -613,8 +619,11 @@ namespace MyOwnGames
                         
                         AppendLog($"Updated UI entry: {game.AppId} - {game.NameEn}");
 
-                        // Always reload image for current language to ensure consistency
-                        _ = LoadGameImageAsync(existingEntry, game.AppId, selectedLanguage);
+                        if (!shouldSkip)
+                        {
+                            // Reload image for current language if needed
+                            _ = LoadGameImageAsync(existingEntry, game.AppId, selectedLanguage);
+                        }
                     }
                     else
                     {
@@ -634,13 +643,19 @@ namespace MyOwnGames
                         AllGameItems.Add(newEntry);
                         AppendLog($"Added new game: {game.AppId} - {game.NameEn} ({selectedLanguage})");
 
-                        // Load image asynchronously for current language
-                        _ = LoadGameImageAsync(newEntry, game.AppId, selectedLanguage);
+                        if (!shouldSkip)
+                        {
+                            // Load image asynchronously for current language
+                            _ = LoadGameImageAsync(newEntry, game.AppId, selectedLanguage);
+                        }
                     }
 
-                    // Always save/update game data in XML for current language
-                    await _dataService.AppendGameAsync(game, steamId64!, apiKey!, selectedLanguage);
-                }, progress, null, existingLocalizedNames); // Pass null to process ALL games, not just missing ones
+                    if (!shouldSkip)
+                    {
+                        // Save/update game data in XML for current language
+                        await _dataService.AppendGameAsync(game, steamId64!, apiKey!, selectedLanguage);
+                    }
+                }, progress, skipAppIds, existingLocalizedNames);
 
                 xmlPath = _dataService.GetXmlFilePath();
 
