@@ -60,6 +60,12 @@ namespace MyOwnGames.Services
             _countedAppIds.Clear();
         }
 
+        public void CancelPendingDownloads()
+        {
+            _httpClient.CancelPendingRequests();
+            _pendingRequests.Clear();
+        }
+
         public async Task<string?> GetGameImageAsync(int appId, string? language = null)
         {
             language ??= _currentLanguage;
