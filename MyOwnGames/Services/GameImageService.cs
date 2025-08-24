@@ -43,6 +43,11 @@ namespace MyOwnGames.Services
             {
                 _currentLanguage = language;
                 _imageCache.Clear();
+                _pendingRequests.Clear();
+                lock (_eventLock)
+                {
+                    _completedEvents.Clear();
+                }
             }
         }
 

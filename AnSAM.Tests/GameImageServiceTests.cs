@@ -47,4 +47,28 @@ public class GameImageServiceTests
         tracker.RemoveFailedRecord(appId, "english");
         service.Dispose();
     }
+
+    [Fact]
+    public async Task ImageDownloadCompleted_FiresAgain_AfterLanguageChange()
+    {
+        var tracker = new ImageFailureTrackingService();
+        var appId = int.MaxValue - 1;
+        tracker.RemoveFailedRecord(appId, "english");
+        tracker.RemoveFailedRecord(appId, "german");
+
+        var service = new GameImageService();
+        int eventCount = 0;
+        service.ImageDownloadCompleted += (_, _) => eventCount++;
+
+        await service.GetGameImageAsync(appId); // initial download in english
+
+        service.SetLanguage("german");
+        await service.GetGameImageAsync(appId); // download after language switch
+
+        Assert.Equal(2, eventCount);
+
+        tracker.RemoveFailedRecord(appId, "english");
+        tracker.RemoveFailedRecord(appId, "german");
+        service.Dispose();
+    }
 }
