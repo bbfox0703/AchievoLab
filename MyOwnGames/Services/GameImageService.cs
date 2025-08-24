@@ -15,7 +15,6 @@ namespace MyOwnGames.Services
     {
         private readonly HttpClient _httpClient;
         private readonly GameImageCache _cache;
-        private readonly ImageFailureTrackingService _failureTracker;
         private readonly Dictionary<string, string> _imageCache = new();
         private readonly ConcurrentDictionary<string, Task<string?>> _pendingRequests = new();
         private readonly HashSet<string> _completedEvents = new();
@@ -33,8 +32,7 @@ namespace MyOwnGames.Services
             // Configure the local cache for storing image files.
             var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "AchievoLab", "ImageCache");
-            _failureTracker = new ImageFailureTrackingService();
-            _cache = new GameImageCache(baseDir, _failureTracker);
+            _cache = new GameImageCache(baseDir, new ImageFailureTrackingService());
         }
 
         public void SetLanguage(string language)
@@ -101,13 +99,6 @@ namespace MyOwnGames.Services
                 try { File.Delete(cached); } catch { }
                 _imageCache.Remove(cacheKey);
                 // Don't record as failed download - file was corrupted, not missing
-            }
-
-            // Check if we should skip this language entirely due to repeated failures  
-            if (_failureTracker.ShouldSkipDownload(appId, originalLanguage))
-            {
-                // Return fallback image path directly
-                return GetFallbackImagePath();
             }
 
             // Only log when we actually need to download
@@ -179,8 +170,6 @@ namespace MyOwnGames.Services
                 _imageCache[cacheKey] = result.Value.Path;
                 if (result.Value.Downloaded)
                 {
-                    // If English fallback was successful, remove failure record for original language
-                    _failureTracker.RemoveFailedRecord(appId, originalLanguage);
                     TriggerImageDownloadCompletedEvent(appId, result.Value.Path);
                 }
                 return result.Value.Path;
@@ -217,8 +206,6 @@ namespace MyOwnGames.Services
             {
                 try { File.Delete(result.Value.Path); } catch { }
             }
-
-            _failureTracker.RecordFailedDownload(appId, originalLanguage);
 
             var noIconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "no_icon.png");
             if (File.Exists(noIconPath))
