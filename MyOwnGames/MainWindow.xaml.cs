@@ -580,7 +580,15 @@ namespace MyOwnGames
 
                 // Load existing games to check current language data status
                 var existingGamesData = await _dataService.LoadGamesWithLanguagesAsync();
-                
+                var existingLocalizedNames = new Dictionary<int, string>();
+                foreach (var game in existingGamesData)
+                {
+                    if (game.LocalizedNames != null && game.LocalizedNames.TryGetValue(selectedLanguage, out var name) && !string.IsNullOrEmpty(name))
+                    {
+                        existingLocalizedNames[game.AppId] = name;
+                    }
+                }
+
                 // Use real Steam API service with selected language
                 _steamService = new SteamApiService(apiKey!);
                 var total = await _steamService.GetOwnedGamesAsync(steamId64!, selectedLanguage, async game =>
@@ -632,7 +640,7 @@ namespace MyOwnGames
 
                     // Always save/update game data in XML for current language
                     await _dataService.AppendGameAsync(game, steamId64!, apiKey!, selectedLanguage);
-                }, progress, null); // Pass null to process ALL games, not just missing ones
+                }, progress, null, existingLocalizedNames); // Pass null to process ALL games, not just missing ones
 
                 xmlPath = _dataService.GetXmlFilePath();
 
