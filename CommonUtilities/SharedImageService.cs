@@ -7,11 +7,10 @@ using System.Threading.Tasks;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Linq;
-using CommonUtilities;
 
-namespace MyOwnGames.Services
+namespace CommonUtilities
 {
-    public class GameImageService : IDisposable
+    public class SharedImageService : IDisposable
     {
         private readonly HttpClient _httpClient;
         private readonly GameImageCache _cache;
@@ -23,7 +22,7 @@ namespace MyOwnGames.Services
 
         public event Action<int, string?>? ImageDownloadCompleted;
 
-        public GameImageService()
+        public SharedImageService()
         {
             // Initialize the HTTP client used for downloading images.
             _httpClient = new HttpClient();

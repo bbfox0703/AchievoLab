@@ -5,9 +5,6 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="../MyOwnGames/Services/GameImageService.cs" Link="GameImageService.cs" />
-  </ItemGroup>
-  <ItemGroup>
     <ProjectReference Include="../CommonUtilities/CommonUtilities.csproj" />
   </ItemGroup>
   <ItemGroup>
