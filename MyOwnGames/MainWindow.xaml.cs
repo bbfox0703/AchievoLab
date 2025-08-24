@@ -208,9 +208,10 @@ namespace MyOwnGames
         {
             try
             {
-                using var stream = File.OpenRead(path);
+                var bytes = File.ReadAllBytes(path);
+                using var ms = new MemoryStream(bytes);
                 var bitmap = new BitmapImage();
-                bitmap.SetSource(stream.AsRandomAccessStream());
+                bitmap.SetSource(ms.AsRandomAccessStream());
                 return bitmap;
             }
             catch
