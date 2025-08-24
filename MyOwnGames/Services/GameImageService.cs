@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Linq;
+using System.Threading;
 using CommonUtilities;
 
 namespace MyOwnGames.Services
@@ -262,6 +263,7 @@ namespace MyOwnGames.Services
         {
             const int MaxConcurrentAttempts = 3;
             var queue = new Queue<string>(urls);
+            using var cts = new CancellationTokenSource();
             var tasks = new List<Task<GameImageCache.ImageResult>>();
 
             void StartNext()
@@ -271,7 +273,7 @@ namespace MyOwnGames.Services
                     var next = queue.Dequeue();
                     if (Uri.TryCreate(next, UriKind.Absolute, out var uri))
                     {
-                        tasks.Add(_cache.GetImagePathAsync(cacheKey, uri, language, appId));
+                        tasks.Add(_cache.GetImagePathAsync(cacheKey, uri, language, appId, cts.Token));
                     }
                 }
             }
@@ -285,6 +287,7 @@ namespace MyOwnGames.Services
                 var result = await finished.ConfigureAwait(false);
                 if (!string.IsNullOrEmpty(result.Path))
                 {
+                    cts.Cancel();
                     return result;
                 }
                 StartNext();
