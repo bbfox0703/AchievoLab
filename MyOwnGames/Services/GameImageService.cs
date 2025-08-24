@@ -40,13 +40,6 @@ namespace MyOwnGames.Services
                 "AchievoLab", "ImageCache");
             _failureTracker = new ImageFailureTrackingService();
             _cache = new GameImageCache(baseDir, _failureTracker);
-            
-            // Connect GameImageCache progress events to this service
-            _cache.ProgressChanged += (completed, total) =>
-            {
-                DebugLogger.LogDebug($"GameImageCache progress forwarded to GameImageService: {completed}/{total}");
-                ImageDownloadProgressChanged?.Invoke(completed, total);
-            };
         }
 
         public void SetLanguage(string language)
