@@ -40,6 +40,13 @@ namespace MyOwnGames.Services
                 "AchievoLab", "ImageCache");
             _failureTracker = new ImageFailureTrackingService();
             _cache = new GameImageCache(baseDir, _failureTracker);
+            
+            // Connect GameImageCache progress events to this service
+            _cache.ProgressChanged += (completed, total) =>
+            {
+                DebugLogger.LogDebug($"GameImageCache progress forwarded to GameImageService: {completed}/{total}");
+                ImageDownloadProgressChanged?.Invoke(completed, total);
+            };
         }
 
         public void SetLanguage(string language)
@@ -107,6 +114,8 @@ namespace MyOwnGames.Services
             {
                 if (IsValidImage(cached))
                 {
+                    // Trigger completion event for cached images to ensure UI updates
+                    TriggerImageDownloadCompletedEvent(appId, cached);
                     return cached;
                 }
 
