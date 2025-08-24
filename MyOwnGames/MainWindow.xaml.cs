@@ -160,6 +160,18 @@ namespace MyOwnGames
             UpdateImageDownloadProgress();
         }
 
+        private void ClearImageLoadingState()
+        {
+            lock (_imageLoadingLock)
+            {
+                _imagesCurrentlyLoading.Clear();
+                _imagesSuccessfullyLoaded.Clear();
+                _duplicateImageLogTimes.Clear();
+            }
+
+            _imageService.CancelPendingDownloads();
+        }
+
         public event PropertyChangedEventHandler? PropertyChanged;
         private void OnPropertyChanged([CallerMemberName] string? name = null)
         {
@@ -441,6 +453,7 @@ namespace MyOwnGames
         {
             IsLoading = true;
             ResetImageDownloadProgress(); // Reset download progress tracking
+            ClearImageLoadingState();
             try
             {
                 AppendLog("Loading saved games...");
@@ -657,6 +670,7 @@ namespace MyOwnGames
                 return;
             }
 
+            ClearImageLoadingState();
             ResetImageDownloadProgress();
 
             await EnsureSteamIdHashConsistencyAsync(steamId64!);
