@@ -21,19 +21,12 @@ public class GameImageServiceLanguageTests : IDisposable
         _tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         Directory.CreateDirectory(_tempDir);
 
-        _service = new SharedImageService();
-
-        // Replace internal HttpClient used for store API
-        var storeField = typeof(SharedImageService).GetField("_httpClient", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
-        storeField.SetValue(_service, new HttpClient(new FakeStoreApiHandler()));
-
-        // Replace internal cache with one that uses our fake image handler and temp directory
-        var cache = new GameImageCache(_tempDir, new ImageFailureTrackingService());
         _imageHandler = new FakeImageHandler();
-        var httpField = typeof(GameImageCache).GetField("_http", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
-        httpField.SetValue(cache, new HttpClient(_imageHandler));
-        var cacheField = typeof(SharedImageService).GetField("_cache", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
-        cacheField.SetValue(_service, cache);
+        var cacheClient = new HttpClient(_imageHandler);
+        var cache = new GameImageCache(_tempDir, new ImageFailureTrackingService(), httpClient: cacheClient, disposeHttpClient: true);
+
+        var storeClient = new HttpClient(new FakeStoreApiHandler());
+        _service = new SharedImageService(storeClient, cache, disposeHttpClient: true);
     }
 
     [Fact(Skip = "Flaky with configurable rate limiter")]

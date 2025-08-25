@@ -20,7 +20,7 @@ namespace MyOwnGames
         private bool _disposed;
 
         public SteamApiService(string apiKey)
-            : this(apiKey, new HttpClient(), true, null)
+            : this(apiKey, HttpClientProvider.Shared, false, null)
         {
         }
 
@@ -31,10 +31,14 @@ namespace MyOwnGames
             _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
             _disposeHttpClient = disposeHttpClient;
             _rateLimiter = rateLimiter ?? RateLimiterService.FromAppSettings();
-            _httpClient.Timeout = TimeSpan.FromSeconds(30);
-            if (!_httpClient.DefaultRequestHeaders.Contains("User-Agent"))
+
+            if (_disposeHttpClient)
             {
-                _httpClient.DefaultRequestHeaders.Add("User-Agent", "MyOwnGames/1.0");
+                _httpClient.Timeout = TimeSpan.FromSeconds(30);
+                if (!_httpClient.DefaultRequestHeaders.Contains("User-Agent"))
+                {
+                    _httpClient.DefaultRequestHeaders.Add("User-Agent", "MyOwnGames/1.0");
+                }
             }
         }
 
