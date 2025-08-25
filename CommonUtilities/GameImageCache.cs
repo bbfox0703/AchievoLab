@@ -186,7 +186,7 @@ namespace CommonUtilities
             });
         }
 
-        public async Task<ImageResult?> GetImagePathAsync(string cacheKey, IEnumerable<string> uris, string language = "english", int? failureId = null, CancellationToken cancellationToken = default)
+        public async Task<ImageResult?> GetImagePathAsync(string cacheKey, IEnumerable<string> uris, string language = "english", int? failureId = null, CancellationToken cancellationToken = default, bool tryEnglishFallback = true)
         {
             int notFoundCount = 0;
             var totalUrls = uris.Count();
@@ -200,21 +200,34 @@ namespace CommonUtilities
                     {
                         return result;
                     }
-                    
+
                     // Check if this was a 404 (we can detect this by checking the last error)
                     if (IsRecentNotFoundError(uri))
                     {
                         notFoundCount++;
                         DebugLogger.LogDebug($"404 count for {cacheKey} in {language}: {notFoundCount}/{totalUrls}");
-                        
+
                         // After 2 CDN failures, try English fallback if we're not already on English
-                        if (notFoundCount >= 2 && !string.Equals(language, "english", StringComparison.OrdinalIgnoreCase))
+                        if (tryEnglishFallback && notFoundCount >= 2 && !string.Equals(language, "english", StringComparison.OrdinalIgnoreCase))
                         {
                             DebugLogger.LogDebug($"Switching to English fallback for {cacheKey} after {notFoundCount} 404s");
-                            return await TryEnglishFallbackAsync(cacheKey, language, failureId, cancellationToken);
+                            var fallback = await TryEnglishFallbackAsync(cacheKey, language, failureId, cancellationToken).ConfigureAwait(false);
+                            if (fallback != null)
+                            {
+                                return fallback;
+                            }
+                            if (failureId.HasValue)
+                            {
+                                _failureTracker?.RecordFailedDownload(failureId.Value, language);
+                            }
+                            return null;
                         }
                     }
                 }
+            }
+            if (notFoundCount == totalUrls && failureId.HasValue)
+            {
+                _failureTracker?.RecordFailedDownload(failureId.Value, language);
             }
             return null;
         }
@@ -240,46 +253,76 @@ namespace CommonUtilities
         private async Task<ImageResult?> TryEnglishFallbackAsync(string cacheKey, string originalLanguage, int? failureId, CancellationToken cancellationToken)
         {
             DebugLogger.LogDebug($"Attempting English fallback for {cacheKey} (original: {originalLanguage})");
-            
-            // Generate English URLs
-            var englishUrls = new List<string>();
-            
-            if (failureId.HasValue)
+
+            if (!failureId.HasValue)
             {
-                // Cloudflare CDN
-                englishUrls.Add($"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{failureId}/header.jpg");
-                
-                // Steam CDN  
-                englishUrls.Add($"https://cdn.steamstatic.com/steam/apps/{failureId}/header.jpg");
-                
-                // Akamai CDN
-                englishUrls.Add($"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{failureId}/header.jpg");
+                return null;
             }
-            
-            foreach (var url in englishUrls)
+
+            // Generate English header URLs
+            var englishHeaderUrls = new List<string>
+            {
+                $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{failureId}/header.jpg",
+                $"https://cdn.steamstatic.com/steam/apps/{failureId}/header.jpg",
+                $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{failureId}/header.jpg"
+            };
+
+            int notFoundCount = 0;
+            foreach (var url in englishHeaderUrls)
             {
                 if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
                 {
                     var result = await GetImagePathAsync(cacheKey, uri, "english", failureId, cancellationToken).ConfigureAwait(false);
                     if (!string.IsNullOrEmpty(result.Path))
                     {
-                        // Success! Copy to original language folder
                         CopyToOriginalLanguageFolder(result.Path, cacheKey, originalLanguage);
 
-                        if (failureId.HasValue)
-                        {
-                            _failureTracker?.RemoveFailedRecord(failureId.Value, originalLanguage);
-                        }
+                        _failureTracker?.RemoveFailedRecord(failureId.Value, originalLanguage);
 
-                        // Create result for original language
                         var originalPath = GetCacheDir(originalLanguage);
                         var finalPath = Path.Combine(originalPath, cacheKey + Path.GetExtension(result.Path));
-                        
+
                         return new ImageResult(finalPath, true);
+                    }
+
+                    if (IsRecentNotFoundError(uri))
+                    {
+                        notFoundCount++;
                     }
                 }
             }
-            
+
+            if (notFoundCount >= 2)
+            {
+                // Try English logo URLs as a final fallback
+                var englishLogoUrls = new List<string>
+                {
+                    $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{failureId}/logo.png",
+                    $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{failureId}/logo_english.png"
+                };
+
+                foreach (var url in englishLogoUrls)
+                {
+                    if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+                    {
+                        var result = await GetImagePathAsync(cacheKey, uri, "english", failureId, cancellationToken).ConfigureAwait(false);
+                        if (!string.IsNullOrEmpty(result.Path))
+                        {
+                            CopyToOriginalLanguageFolder(result.Path, cacheKey, originalLanguage);
+
+                            _failureTracker?.RemoveFailedRecord(failureId.Value, originalLanguage);
+
+                            var originalPath = GetCacheDir(originalLanguage);
+                            var finalPath = Path.Combine(originalPath, cacheKey + Path.GetExtension(result.Path));
+
+                            return new ImageResult(finalPath, true);
+                        }
+                    }
+                }
+            }
+
+            _failureTracker?.RecordFailedDownload(failureId.Value, "english");
+
             return null;
         }
 

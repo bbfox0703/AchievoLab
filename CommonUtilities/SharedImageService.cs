@@ -223,33 +223,6 @@ namespace CommonUtilities
                 try { File.Delete(result.Value.Path); } catch { }
             }
 
-            // As a final fallback, try downloading logo images
-            var logoUrlMap = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-            AddUrl(logoUrlMap, $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/logo_{language}.png");
-            AddUrl(logoUrlMap, $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/logo.png");
-
-            var logoUrls = RoundRobin(logoUrlMap);
-            result = await _cache.GetImagePathAsync(appId.ToString(), logoUrls, originalLanguage, appId, _cts.Token);
-            if (!string.IsNullOrEmpty(result?.Path) && IsFreshImage(result.Value.Path))
-            {
-                _imageCache[cacheKey] = result.Value.Path;
-                if (result.Value.Downloaded)
-                {
-                    TriggerImageDownloadCompletedEvent(appId, result.Value.Path);
-                }
-                if (!string.Equals(originalLanguage, "english", StringComparison.OrdinalIgnoreCase))
-                {
-                    // Image might still be in English, but we cannot be certain;
-                    // avoid copying to the English cache to prevent contamination.
-                }
-                return result.Value.Path;
-            }
-
-            if (!string.IsNullOrEmpty(result?.Path))
-            {
-                try { File.Delete(result.Value.Path); } catch { }
-            }
-
             var noIconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "no_icon.png");
             if (File.Exists(noIconPath))
             {
