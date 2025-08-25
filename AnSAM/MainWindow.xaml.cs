@@ -75,7 +75,6 @@ namespace AnSAM
                 }
             }
 
-            RefreshButton.IsEnabled = _steamClient.Initialized;
             if (!_steamClient.Initialized)
             {
                 StatusText.Text = "Steam unavailable";
@@ -426,33 +425,6 @@ namespace AnSAM
             StatusText.Text = "Ready";
         }
 
-        private async void OnRefreshClicked(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                await RefreshAsync();
-            }
-            catch (Exception ex)
-            {
-                StatusProgress.IsIndeterminate = false;
-                StatusProgress.Value = 0;
-                StatusExtra.Text = string.Empty;
-                StatusText.Text = "Refresh failed";
-
-                DebugLogger.LogDebug(ex.ToString());
-
-                var dialog = new ContentDialog
-                {
-                    Title = "Refresh failed",
-                    Content = "Unable to refresh game list. Please try again.",
-                    CloseButtonText = "OK",
-                    XamlRoot = Content.XamlRoot
-                };
-
-                await dialog.ShowAsync();
-                StatusText.Text = "Ready";
-            }
-        }
 
         private async Task RefreshAsync()
         {
@@ -472,7 +444,6 @@ namespace AnSAM
                 };
 
                 await dialog.ShowAsync();
-                RefreshButton.IsEnabled = false;
                 return;
             }
 
@@ -535,35 +506,6 @@ namespace AnSAM
             });
         }
 
-        private void OnClearCacheClicked(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab");
-                var iconDir = Path.Combine(baseDir, "ImageCache");
-                var cacheDir = Path.Combine(baseDir, "cache");
-                var gameListPath = Path.Combine(cacheDir, "games.xml");
-
-                if (Directory.Exists(iconDir))
-                {
-                    Directory.Delete(iconDir, true);
-                }
-
-                if (File.Exists(gameListPath))
-                {
-                    File.Delete(gameListPath);
-                }
-
-                StatusText.Text = "Cache cleared";
-            }
-            catch (Exception ex)
-            {
-#if DEBUG
-                DebugLogger.LogDebug($"Failed to clear cache: {ex.Message}");
-#endif
-                StatusText.Text = "Failed to clear cache";
-            }
-        }
 
         private void SearchBox_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
         {
