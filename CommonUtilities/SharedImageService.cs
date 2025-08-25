@@ -133,6 +133,21 @@ namespace CommonUtilities
                 // Don't record as failed download - file was corrupted, not missing
             }
 
+            // Check the on-disk cache before making any network calls
+            var diskCachedPath = _cache.TryGetCachedPath(appId.ToString(), language, checkEnglishFallback: false);
+            if (!string.IsNullOrEmpty(diskCachedPath))
+            {
+                if (IsFreshImage(diskCachedPath))
+                {
+                    _imageCache[cacheKey] = diskCachedPath;
+                    TriggerImageDownloadCompletedEvent(appId, diskCachedPath);
+                    return diskCachedPath;
+                }
+
+                try { File.Delete(diskCachedPath); } catch { }
+                // Don't record as failed download - file was corrupted or expired
+            }
+
             var languageSpecificUrlMap = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 
             static void AddUrl(Dictionary<string, List<string>> map, string url)
