@@ -41,6 +41,7 @@ namespace AnSAM
         private readonly SteamClient _steamClient;
         private readonly AppWindow _appWindow;
         private readonly SharedImageService _imageService = new();
+        private string _currentLanguage = "english";
 
         private bool _autoLoaded;
         private bool _languageInitialized;
@@ -176,6 +177,15 @@ namespace AnSAM
 
             if (LanguageComboBox.SelectedItem is string lang)
             {
+                // Check if language actually changed
+                if (lang == _currentLanguage)
+                {
+                    DebugLogger.LogDebug($"Language not changed, staying with: {lang}");
+                    return; // No action needed if language hasn't changed
+                }
+
+                DebugLogger.LogDebug($"Language changed from {_currentLanguage} to {lang}");
+                
                 SteamLanguageResolver.OverrideLanguage = lang;
                 await _imageService.SetLanguage(lang);
 
@@ -191,21 +201,32 @@ namespace AnSAM
 
                 try
                 {
-                    await RefreshAsync();
+                    // Load localized titles from steam_games.xml if switching to non-English
+                    if (lang != "english")
+                    {
+                        LoadLocalizedTitlesFromXml();
+                    }
+                    
+                    // Update game titles for the new language
+                    UpdateAllGameTitles(lang);
+                    
+                    StatusText.Text = lang == "english" 
+                        ? $"Switched to English - displaying original titles" 
+                        : $"Switched to {lang} - using localized titles where available";
                 }
                 catch (Exception ex)
                 {
                     StatusProgress.IsIndeterminate = false;
                     StatusProgress.Value = 0;
                     StatusExtra.Text = string.Empty;
-                    StatusText.Text = "Refresh failed";
+                    StatusText.Text = "Language switch failed";
 
-                    DebugLogger.LogDebug(ex.ToString());
+                    DebugLogger.LogDebug($"Language switch error: {ex}");
 
                     var dialog = new ContentDialog
                     {
-                        Title = "Refresh failed",
-                        Content = "Unable to refresh game list. Please try again.",
+                        Title = "Language switch failed",
+                        Content = "Unable to switch language. Please try again.",
                         CloseButtonText = "OK",
                         XamlRoot = Content.XamlRoot
                     };
@@ -464,6 +485,15 @@ namespace AnSAM
                 _allGames.Clear();
                 _allGames.AddRange(allGames);
 
+                // Load localized titles if current language is not English
+                if (_currentLanguage != "english")
+                {
+                    LoadLocalizedTitlesFromXml();
+                }
+                
+                // Update all game titles to current language
+                UpdateAllGameTitles(_currentLanguage);
+
                 Games.Clear();
                 foreach (var game in filteredGames)
                 {
@@ -471,8 +501,8 @@ namespace AnSAM
                 }
 
                 StatusText.Text = _steamClient.Initialized
-                    ? $"Loaded {_allGames.Count} games"
-                    : $"Steam unavailable - showing {_allGames.Count} games";
+                    ? $"Loaded {_allGames.Count} games (Language: {_currentLanguage})"
+                    : $"Steam unavailable - showing {_allGames.Count} games (Language: {_currentLanguage})";
                 StatusProgress.Value = 0;
                 StatusExtra.Text = $"{Games.Count}/{_allGames.Count}";
             });
@@ -627,11 +657,116 @@ namespace AnSAM
             return null;
         }
 
+        /// <summary>
+        /// Load localized game titles from MyOwnGames steam_games.xml
+        /// </summary>
+        private void LoadLocalizedTitlesFromXml()
+        {
+            try
+            {
+                var steamGamesXmlPath = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "AchievoLab", "cache", "steam_games.xml");
+
+                if (!File.Exists(steamGamesXmlPath))
+                {
+                    DebugLogger.LogDebug("steam_games.xml not found, using English titles only");
+                    return;
+                }
+
+                var doc = XDocument.Load(steamGamesXmlPath);
+                var gameElements = doc.Root?.Elements("Game");
+                
+                if (gameElements == null) return;
+
+                var localizedData = new Dictionary<int, Dictionary<string, string>>();
+                
+                foreach (var gameElement in gameElements)
+                {
+                    if (int.TryParse(gameElement.Attribute("AppID")?.Value, out var appId))
+                    {
+                        var gameLocalizedTitles = new Dictionary<string, string>();
+                        
+                        // Find all Name_* elements
+                        foreach (var nameElement in gameElement.Elements())
+                        {
+                            var elementName = nameElement.Name.LocalName;
+                            if (elementName.StartsWith("Name_") && !string.IsNullOrEmpty(nameElement.Value))
+                            {
+                                var language = elementName.Substring(5); // Remove "Name_" prefix
+                                gameLocalizedTitles[language] = nameElement.Value;
+                            }
+                        }
+                        
+                        if (gameLocalizedTitles.Count > 0)
+                        {
+                            localizedData[appId] = gameLocalizedTitles;
+                        }
+                    }
+                }
+
+                // Apply localized titles to existing games
+                foreach (var game in _allGames)
+                {
+                    if (localizedData.TryGetValue(game.ID, out var titles))
+                    {
+                        game.LocalizedTitles = titles;
+                        DebugLogger.LogDebug($"Loaded {titles.Count} localized titles for game {game.ID} ({game.EnglishTitle})");
+                    }
+                }
+                
+                DebugLogger.LogDebug($"Loaded localized titles from {steamGamesXmlPath} for {localizedData.Count} games");
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error loading localized titles: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Update all games to display titles in the specified language
+        /// </summary>
+        private void UpdateAllGameTitles(string language)
+        {
+            foreach (var game in _allGames)
+            {
+                game.UpdateDisplayTitle(language);
+            }
+            
+            // Also update filtered games in the UI
+            foreach (var game in Games)
+            {
+                game.UpdateDisplayTitle(language);
+            }
+            
+            _currentLanguage = language;
+            DebugLogger.LogDebug($"Updated all game titles to language: {language}");
+        }
+
     }
 
     public class GameItem : System.ComponentModel.INotifyPropertyChanged
     {
-        public string Title { get; set; }
+        private string _displayTitle;
+        public string Title 
+        { 
+            get => _displayTitle;
+            set
+            {
+                if (_displayTitle != value)
+                {
+                    _displayTitle = value;
+                    PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(Title)));
+                }
+            }
+        }
+        
+        // Store original English title from Steam client
+        public string EnglishTitle { get; set; }
+        
+        // Store localized titles from steam_games.xml if available
+        public Dictionary<string, string> LocalizedTitles { get; set; } = new();
+        
         public int ID { get; set; }
         public int AppId => ID;
         public Uri? CoverPath
@@ -669,12 +804,34 @@ namespace AnSAM
                          string? arguments = null,
                          string? uriScheme = null)
         {
-            Title = title;
+            EnglishTitle = title; // Store original English title
+            _displayTitle = title; // Initialize display title
             ID = id;
             CoverPath = coverPath;
             ExePath = exePath;
             Arguments = arguments;
             UriScheme = uriScheme;
+        }
+
+        /// <summary>
+        /// Update display title based on current language
+        /// </summary>
+        /// <param name="language">Target language (e.g., "tchinese", "japanese")</param>
+        public void UpdateDisplayTitle(string language)
+        {
+            if (language == "english")
+            {
+                Title = EnglishTitle;
+            }
+            else if (LocalizedTitles.TryGetValue(language, out var localizedTitle) && 
+                     !string.IsNullOrEmpty(localizedTitle))
+            {
+                Title = localizedTitle;
+            }
+            else
+            {
+                Title = EnglishTitle; // Fallback to English
+            }
         }
 
         public async Task LoadCoverAsync(SharedImageService imageService)
