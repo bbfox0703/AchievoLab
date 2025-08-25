@@ -21,25 +21,28 @@ namespace CommonUtilities
         private double _tokens;
         private DateTime _lastRefill;
 
+        private readonly TimeSpan _baseDomainDelay;
+        private readonly double _jitterSeconds;
+
         public DomainRateLimiter(
             int maxConcurrentRequestsPerDomain = 2,
             double capacity = 60,
             double fillRatePerSecond = 1,
-            double initialTokens = -1)
+            double initialTokens = -1,
+            TimeSpan? baseDomainDelay = null,
+            double jitterSeconds = 0.1)
         {
             _maxConcurrentRequestsPerDomain = maxConcurrentRequestsPerDomain;
             _capacity = capacity;
             _fillRatePerSecond = fillRatePerSecond;
             _tokens = initialTokens >= 0 ? initialTokens : capacity;
             _lastRefill = DateTime.UtcNow;
+            _baseDomainDelay = baseDomainDelay ?? TimeSpan.FromMilliseconds(100);
+            _jitterSeconds = jitterSeconds;
         }
 
         // Global request counter for debugging
         private int _totalRequestsProcessed = 0;
-
-        // Per-domain delay with jitter to avoid bursts
-        private static readonly TimeSpan BaseDomainDelay = TimeSpan.FromSeconds(1);
-        private const double JitterSeconds = 0.5;
 
         /// <summary>
         /// Waits until a request is allowed for the given URI based on domain and global limits.
@@ -55,7 +58,7 @@ namespace CommonUtilities
 
             try
             {
-                var minInterval = BaseDomainDelay + TimeSpan.FromSeconds(Random.Shared.NextDouble() * JitterSeconds);
+                var minInterval = _baseDomainDelay + TimeSpan.FromSeconds(Random.Shared.NextDouble() * _jitterSeconds);
 
                 while (true)
                 {

@@ -196,6 +196,51 @@ public class GameImageCacheTests : IDisposable
     }
 
     [Fact]
+    public async Task RateLimiterDelayIsConfigurable()
+    {
+        int port;
+        using (var l = new TcpListener(IPAddress.Loopback, 0))
+        {
+            l.Start();
+            port = ((IPEndPoint)l.LocalEndpoint).Port;
+        }
+        var prefix = $"http://localhost:{port}/";
+        using var listener = new HttpListener();
+        listener.Prefixes.Add(prefix);
+        listener.Start();
+        var requestTimes = new List<DateTime>();
+        var serverTask = Task.Run(async () =>
+        {
+            for (int i = 0; i < 2; i++)
+            {
+                var ctx = await listener.GetContextAsync();
+                requestTimes.Add(DateTime.UtcNow);
+                var data = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0, 0, 0, 0 };
+                ctx.Response.ContentType = "image/png";
+                ctx.Response.ContentLength64 = data.Length;
+                await ctx.Response.OutputStream.WriteAsync(data);
+                ctx.Response.Close();
+            }
+            listener.Stop();
+        });
+
+        using var cache = new GameImageCache(_baseCacheDir, _tracker, baseDomainDelay: TimeSpan.FromMilliseconds(100), jitterSeconds: 0);
+
+        var id1 = Random.Shared.Next(1000000, 2000000);
+        var id2 = id1 + 1;
+        await cache.GetImagePathAsync("delay1", new Uri(prefix + "1.png"), "english", id1);
+        await cache.GetImagePathAsync("delay2", new Uri(prefix + "2.png"), "english", id2);
+
+        await serverTask;
+
+        Assert.Equal(2, requestTimes.Count);
+        var interval = requestTimes[1] - requestTimes[0];
+        Assert.InRange(interval.TotalMilliseconds, 100, 500);
+        _tracker.RemoveFailedRecord(id1, "english");
+        _tracker.RemoveFailedRecord(id2, "english");
+    }
+
+    [Fact]
     public async Task UsesNextUrlWhenFirstFails()
     {
         var language = "english";
