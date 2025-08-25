@@ -170,14 +170,28 @@ namespace CommonUtilities
             //    AddUrl(languageSpecificUrlMap, $"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/{appId}/header_{language}.jpg");
             //}
 
-            // Cloudflare CDN
-            AddUrl(languageSpecificUrlMap, $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/header_{language}.jpg");
+            if (string.Equals(language, "english", StringComparison.OrdinalIgnoreCase))
+            {
+                // Cloudflare CDN
+                AddUrl(languageSpecificUrlMap, $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg");
 
-            // Steam CDN
-            AddUrl(languageSpecificUrlMap, $"https://cdn.steamstatic.com/steam/apps/{appId}/header_{language}.jpg");
+                // Steam CDN
+                AddUrl(languageSpecificUrlMap, $"https://cdn.steamstatic.com/steam/apps/{appId}/header.jpg");
 
-            // Akamai CDN
-            AddUrl(languageSpecificUrlMap, $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/header_{language}.jpg");
+                // Akamai CDN
+                AddUrl(languageSpecificUrlMap, $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg");
+            }
+            else
+            {
+                // Cloudflare CDN
+                AddUrl(languageSpecificUrlMap, $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/header_{language}.jpg");
+
+                // Steam CDN
+                AddUrl(languageSpecificUrlMap, $"https://cdn.steamstatic.com/steam/apps/{appId}/header_{language}.jpg");
+
+                // Akamai CDN
+                AddUrl(languageSpecificUrlMap, $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/header_{language}.jpg");
+            }
 
             var languageUrls = RoundRobin(languageSpecificUrlMap);
             var result = await _cache.GetImagePathAsync(appId.ToString(), languageUrls, language, appId, _cts.Token);
