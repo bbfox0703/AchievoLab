@@ -305,87 +305,93 @@ namespace CommonUtilities
         private async Task<ImageResult> DownloadAsync(string cacheKey, string language, Uri uri, string basePath, string ext, int? failureId, CancellationToken cancellationToken)
         {
             await _concurrency.WaitAsync(cancellationToken).ConfigureAwait(false);
-            await _rateLimiter.WaitAsync(uri).ConfigureAwait(false);
             try
             {
-                using var response = await _http.GetAsync(uri, cancellationToken).ConfigureAwait(false);
-                if (!response.IsSuccessStatusCode)
+                try
                 {
-                    throw new HttpRequestException($"Failed: {response.StatusCode}");
-                }
+                    await _rateLimiter.WaitAsync(uri).ConfigureAwait(false);
+                    using var response = await _http.GetAsync(uri, cancellationToken).ConfigureAwait(false);
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        throw new HttpRequestException($"Failed: {response.StatusCode}");
+                    }
 
-                var mime = response.Content.Headers.ContentType?.MediaType;
-                if (!string.IsNullOrEmpty(mime) && MimeToExtension.TryGetValue(mime, out var mapped))
-                {
-                    ext = mapped;
-                }
+                    var mime = response.Content.Headers.ContentType?.MediaType;
+                    if (!string.IsNullOrEmpty(mime) && MimeToExtension.TryGetValue(mime, out var mapped))
+                    {
+                        ext = mapped;
+                    }
 
-                var path = basePath + ext;
-                await using (var fs = File.Create(path))
-                {
-                    await response.Content.CopyToAsync(fs, cancellationToken).ConfigureAwait(false);
-                }
+                    var path = basePath + ext;
+                    await using (var fs = File.Create(path))
+                    {
+                        await response.Content.CopyToAsync(fs, cancellationToken).ConfigureAwait(false);
+                    }
 
-                if (!IsCacheValid(path))
-                {
-                    try { File.Delete(path); } catch { }
-                    throw new InvalidDataException("Invalid image file");
-                }
+                    if (!IsCacheValid(path))
+                    {
+                        try { File.Delete(path); } catch { }
+                        throw new InvalidDataException("Invalid image file");
+                    }
 
-                if (failureId.HasValue)
-                {
-                    _failureTracker?.RemoveFailedRecord(failureId.Value, language);
+                    if (failureId.HasValue)
+                    {
+                        _failureTracker?.RemoveFailedRecord(failureId.Value, language);
+                    }
+                    return new ImageResult(path, true);
                 }
-                return new ImageResult(path, true);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                DebugLogger.LogDebug($"Download cancelled for {uri}");
-                throw;
-            }
-            catch (HttpRequestException ex)
-            {
-                // Check if it's a 404 - this is expected for many localized images
-                bool isNotFound = ex.Message.Contains("NotFound", StringComparison.OrdinalIgnoreCase);
-                RecordError(uri, isNotFound);
-                
-                if (isNotFound)
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
-                    DebugLogger.LogDebug($"Image not found at {uri} (404) - will try fallback");
-                    // Don't record 404 as a failure for tracking purposes
-                    return new ImageResult(string.Empty, false);
+                    DebugLogger.LogDebug($"Download cancelled for {uri}");
+                    throw;
                 }
-                else
+                catch (HttpRequestException ex)
                 {
-                    DebugLogger.LogDebug($"HTTP request failed for {uri}: {ex.Message}");
+                    // Check if it's a 404 - this is expected for many localized images
+                    bool isNotFound = ex.Message.Contains("NotFound", StringComparison.OrdinalIgnoreCase);
+                    RecordError(uri, isNotFound);
+
+                    if (isNotFound)
+                    {
+                        DebugLogger.LogDebug($"Image not found at {uri} (404) - will try fallback");
+                        // Don't record 404 as a failure for tracking purposes
+                        return new ImageResult(string.Empty, false);
+                    }
+                    else
+                    {
+                        DebugLogger.LogDebug($"HTTP request failed for {uri}: {ex.Message}");
+                        if (failureId.HasValue)
+                        {
+                            _failureTracker?.RecordFailedDownload(failureId.Value, language);
+                        }
+                        return new ImageResult(string.Empty, false);
+                    }
+                }
+                catch (TaskCanceledException ex)
+                {
+                    DebugLogger.LogDebug($"Request timeout for {uri}: {ex.Message}");
                     if (failureId.HasValue)
                     {
                         _failureTracker?.RecordFailedDownload(failureId.Value, language);
                     }
                     return new ImageResult(string.Empty, false);
                 }
-            }
-            catch (TaskCanceledException ex)
-            {
-                DebugLogger.LogDebug($"Request timeout for {uri}: {ex.Message}");
-                if (failureId.HasValue)
+                catch (Exception ex)
                 {
-                    _failureTracker?.RecordFailedDownload(failureId.Value, language);
+                    DebugLogger.LogDebug($"Unexpected error downloading {uri}: {ex.GetType().Name} - {ex.Message}");
+                    if (failureId.HasValue)
+                    {
+                        _failureTracker?.RecordFailedDownload(failureId.Value, language);
+                    }
+                    return new ImageResult(string.Empty, false);
                 }
-                return new ImageResult(string.Empty, false);
-            }
-            catch (Exception ex)
-            {
-                DebugLogger.LogDebug($"Unexpected error downloading {uri}: {ex.GetType().Name} - {ex.Message}");
-                if (failureId.HasValue)
+                finally
                 {
-                    _failureTracker?.RecordFailedDownload(failureId.Value, language);
+                    _rateLimiter.RecordCall(uri);
                 }
-                return new ImageResult(string.Empty, false);
             }
             finally
             {
-                _rateLimiter.RecordCall(uri);
                 _concurrency.Release();
                 _inFlight.TryRemove(basePath, out _);
                 Interlocked.Increment(ref _completed);
