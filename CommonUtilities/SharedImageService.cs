@@ -120,9 +120,6 @@ namespace CommonUtilities
                 // Don't record as failed download - file was corrupted, not missing
             }
 
-            // Only log when we actually need to download
-            DebugLogger.LogDebug($"Starting image download for {appId} (language: {language})");
-            
             var languageSpecificUrlMap = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 
             static void AddUrl(Dictionary<string, List<string>> map, string url)
