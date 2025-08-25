@@ -15,6 +15,7 @@ namespace CommonUtilities
     {
         private readonly HttpClient _httpClient;
         private readonly GameImageCache _cache;
+        private readonly bool _disposeHttpClient;
         private readonly Dictionary<string, string> _imageCache = new();
         private readonly ConcurrentDictionary<string, Task<string?>> _pendingRequests = new();
         private readonly HashSet<string> _completedEvents = new();
@@ -24,16 +25,21 @@ namespace CommonUtilities
 
         public event Action<int, string?>? ImageDownloadCompleted;
 
-        public SharedImageService()
+        public SharedImageService(HttpClient? httpClient = null, GameImageCache? cache = null, bool disposeHttpClient = false)
         {
-            // Initialize the HTTP client used for downloading images.
-            _httpClient = new HttpClient();
-            _httpClient.DefaultRequestHeaders.Add("User-Agent", "MyOwnGames/1.0");
+            _httpClient = httpClient ?? HttpClientProvider.Shared;
+            _disposeHttpClient = disposeHttpClient && httpClient != null;
 
-            // Configure the local cache for storing image files.
-            var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "AchievoLab", "ImageCache");
-            _cache = new GameImageCache(baseDir, new ImageFailureTrackingService());
+            if (cache != null)
+            {
+                _cache = cache;
+            }
+            else
+            {
+                var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "AchievoLab", "ImageCache");
+                _cache = new GameImageCache(baseDir, new ImageFailureTrackingService());
+            }
         }
 
         public async Task SetLanguage(string language)
@@ -367,7 +373,11 @@ namespace CommonUtilities
         {
             _cts.Cancel();
             _cts.Dispose();
-            _httpClient.Dispose();
+            if (_disposeHttpClient)
+            {
+                _httpClient.Dispose();
+            }
+            _cache.Dispose();
             _imageCache.Clear();
         }
 

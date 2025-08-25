@@ -21,6 +21,7 @@ namespace CommonUtilities
 
         private readonly string _baseCacheDir;
         private readonly HttpClient _http;
+        private readonly bool _disposeHttpClient;
         private readonly SemaphoreSlim _concurrency;
         private readonly ConcurrentDictionary<string, Task<ImageResult>> _inFlight = new();
         private readonly TimeSpan _cacheDuration;
@@ -53,7 +54,9 @@ namespace CommonUtilities
             double fillRatePerSecond = 1,
             double? initialTokens = null,
             TimeSpan? baseDomainDelay = null,
-            double jitterSeconds = 0.1)
+            double jitterSeconds = 0.1,
+            HttpClient? httpClient = null,
+            bool disposeHttpClient = false)
         {
             _baseCacheDir = baseCacheDir;
             Directory.CreateDirectory(_baseCacheDir);
@@ -62,12 +65,8 @@ namespace CommonUtilities
             _cacheDuration = cacheDuration ?? TimeSpan.FromDays(30);
 
             _rateLimiter = new DomainRateLimiter(maxConcurrentRequestsPerDomain, tokenBucketCapacity, fillRatePerSecond, initialTokens ?? tokenBucketCapacity, baseDomainDelay, jitterSeconds);
-
-            // Configure HttpClient with proper timeout and headers
-            _http = new HttpClient();
-            _http.Timeout = TimeSpan.FromSeconds(30);
-            _http.DefaultRequestHeaders.Add("User-Agent", "AchievoLab/1.0");
-            _http.DefaultRequestHeaders.Add("Accept", "image/webp,image/avif,image/apng,image/svg+xml,image/*,*/*;q=0.8");
+            _http = httpClient ?? HttpClientProvider.Shared;
+            _disposeHttpClient = disposeHttpClient && httpClient != null;
         }
 
         private string GetCacheDir(string language)
@@ -334,7 +333,9 @@ namespace CommonUtilities
                     await _rateLimiter.WaitAsync(uri, cancellationToken).ConfigureAwait(false);
                     rateLimiterAcquired = true;
                     DebugLogger.LogDebug($"Starting image download for {uri}");
-                    using var response = await _http.GetAsync(uri, cancellationToken).ConfigureAwait(false);
+                    using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+                    request.Headers.Add("Accept", "image/webp,image/avif,image/apng,image/svg+xml,image/*,*/*;q=0.8");
+                    using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
 
                     if (response.StatusCode == HttpStatusCode.TooManyRequests || response.StatusCode == HttpStatusCode.Forbidden)
                     {
@@ -523,7 +524,10 @@ namespace CommonUtilities
 
         public void Dispose()
         {
-            _http?.Dispose();
+            if (_disposeHttpClient)
+            {
+                _http.Dispose();
+            }
             _concurrency?.Dispose();
         }
     }

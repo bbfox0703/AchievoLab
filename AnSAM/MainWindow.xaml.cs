@@ -483,7 +483,7 @@ namespace AnSAM
 
             var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab");
 
-            using var http = new HttpClient();
+            var http = HttpClientProvider.Shared;
             var apps = await GameCacheService.RefreshAsync(baseDir, _steamClient, http);
 
             var (allGames, filteredGames) = await BuildGameListAsync(apps, null);

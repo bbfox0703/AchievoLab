@@ -24,19 +24,14 @@ public class GameImageServiceCancellationTests : IDisposable
         _originalXdg = Environment.GetEnvironmentVariable("XDG_DATA_HOME");
         Environment.SetEnvironmentVariable("XDG_DATA_HOME", _tempDir);
 
-        _service = new SharedImageService();
-
-        // Replace store API client
-        var storeField = typeof(SharedImageService).GetField("_httpClient", BindingFlags.NonPublic | BindingFlags.Instance)!;
-        storeField.SetValue(_service, new HttpClient(new FakeStoreApiHandler()));
-
         // Setup cache with hanging image handler
         _tracker = new ImageFailureTrackingService();
-        var cache = new GameImageCache(_tempDir, _tracker);
-        var httpField = typeof(GameImageCache).GetField("_http", BindingFlags.NonPublic | BindingFlags.Instance)!;
-        httpField.SetValue(cache, new HttpClient(new HangingImageHandler()));
-        var cacheField = typeof(SharedImageService).GetField("_cache", BindingFlags.NonPublic | BindingFlags.Instance)!;
-        cacheField.SetValue(_service, cache);
+        var cacheClient = new HttpClient(new HangingImageHandler());
+        var cache = new GameImageCache(_tempDir, _tracker, httpClient: cacheClient, disposeHttpClient: true);
+
+        // SharedImageService with fake store API client
+        var storeClient = new HttpClient(new FakeStoreApiHandler());
+        _service = new SharedImageService(storeClient, cache, disposeHttpClient: true);
     }
 
     [Fact]
