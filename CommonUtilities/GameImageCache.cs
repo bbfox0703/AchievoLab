@@ -200,21 +200,34 @@ namespace CommonUtilities
                     {
                         return result;
                     }
-                    
+
                     // Check if this was a 404 (we can detect this by checking the last error)
                     if (IsRecentNotFoundError(uri))
                     {
                         notFoundCount++;
                         DebugLogger.LogDebug($"404 count for {cacheKey} in {language}: {notFoundCount}/{totalUrls}");
-                        
+
                         // After 2 CDN failures, try English fallback if we're not already on English
                         if (notFoundCount >= 2 && !string.Equals(language, "english", StringComparison.OrdinalIgnoreCase))
                         {
                             DebugLogger.LogDebug($"Switching to English fallback for {cacheKey} after {notFoundCount} 404s");
-                            return await TryEnglishFallbackAsync(cacheKey, language, failureId, cancellationToken);
+                            var fallback = await TryEnglishFallbackAsync(cacheKey, language, failureId, cancellationToken).ConfigureAwait(false);
+                            if (fallback != null)
+                            {
+                                return fallback;
+                            }
+                            if (failureId.HasValue)
+                            {
+                                _failureTracker?.RecordFailedDownload(failureId.Value, language);
+                            }
+                            return null;
                         }
                     }
                 }
+            }
+            if (notFoundCount == totalUrls && failureId.HasValue)
+            {
+                _failureTracker?.RecordFailedDownload(failureId.Value, language);
             }
             return null;
         }
@@ -256,6 +269,7 @@ namespace CommonUtilities
                 englishUrls.Add($"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{failureId}/header.jpg");
             }
             
+            int notFoundCount = 0;
             foreach (var url in englishUrls)
             {
                 if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
@@ -274,12 +288,22 @@ namespace CommonUtilities
                         // Create result for original language
                         var originalPath = GetCacheDir(originalLanguage);
                         var finalPath = Path.Combine(originalPath, cacheKey + Path.GetExtension(result.Path));
-                        
+
                         return new ImageResult(finalPath, true);
+                    }
+
+                    if (IsRecentNotFoundError(uri))
+                    {
+                        notFoundCount++;
                     }
                 }
             }
-            
+
+            if (notFoundCount == englishUrls.Count && failureId.HasValue)
+            {
+                _failureTracker?.RecordFailedDownload(failureId.Value, "english");
+            }
+
             return null;
         }
 
