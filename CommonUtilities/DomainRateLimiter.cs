@@ -50,13 +50,13 @@ namespace CommonUtilities
         /// Waits until a request is allowed for the given URI based on domain and global limits.
         /// Also enforces single concurrent request per domain.
         /// </summary>
-        public async Task WaitAsync(Uri uri, CancellationToken token)
+        public async Task WaitAsync(Uri uri, CancellationToken cancellationToken)
         {
             var host = uri.Host;
 
             // First acquire domain-specific semaphore to limit concurrent requests
             var domainSemaphore = GetOrCreateDomainSemaphore(host);
-            await domainSemaphore.WaitAsync(token).ConfigureAwait(false);
+            await domainSemaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
 
             try
             {
@@ -92,7 +92,7 @@ namespace CommonUtilities
 
                     if (tokenDelay > TimeSpan.Zero)
                     {
-                        await Task.Delay(tokenDelay, token).ConfigureAwait(false);
+                        await Task.Delay(tokenDelay, cancellationToken).ConfigureAwait(false);
                         lock (_lock)
                         {
                             RefillTokens(DateTime.UtcNow);
@@ -117,7 +117,7 @@ namespace CommonUtilities
 
                 if (domainDelay > TimeSpan.Zero)
                 {
-                    await Task.Delay(domainDelay, token).ConfigureAwait(false);
+                    await Task.Delay(domainDelay, cancellationToken).ConfigureAwait(false);
                     lock (_lock)
                     {
                         RefillTokens(DateTime.UtcNow);
