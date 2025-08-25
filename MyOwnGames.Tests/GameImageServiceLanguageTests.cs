@@ -48,7 +48,7 @@ public class GameImageServiceLanguageTests : IDisposable
         // Remove the english cache to force a redownload for the next language
         Directory.Delete(Path.Combine(_tempDir, "english"), true);
 
-        _service.SetLanguage("german");
+        await _service.SetLanguage("german");
         var secondPath = await _service.GetGameImageAsync(appId); // force redownload with english fallback
 
         Assert.NotNull(secondPath);
