@@ -169,7 +169,7 @@ namespace MyOwnGames
             {
                 DebugLogger.LogDebug($"Rate limited when getting localized name for {appId}, using English fallback: {ex.Message}");
                 // Wait longer on rate limit
-                await Task.Delay(TimeSpan.FromSeconds(30), cancellationToken);
+                await Task.Delay(TimeSpan.FromSeconds(63), cancellationToken);
             }
             catch (Exception ex)
             {
