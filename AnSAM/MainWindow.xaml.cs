@@ -190,7 +190,30 @@ namespace AnSAM
                     // Ignore inability to persist settings
                 }
 
-                await RefreshAsync();
+                try
+                {
+                    await RefreshAsync();
+                }
+                catch (Exception ex)
+                {
+                    StatusProgress.IsIndeterminate = false;
+                    StatusProgress.Value = 0;
+                    StatusExtra.Text = string.Empty;
+                    StatusText.Text = "Refresh failed";
+
+                    DebugLogger.LogDebug(ex.ToString());
+
+                    var dialog = new ContentDialog
+                    {
+                        Title = "Refresh failed",
+                        Content = "Unable to refresh game list. Please try again.",
+                        CloseButtonText = "OK",
+                        XamlRoot = Content.XamlRoot
+                    };
+
+                    await dialog.ShowAsync();
+                    StatusText.Text = "Ready";
+                }
             }
         }
 

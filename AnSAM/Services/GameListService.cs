@@ -65,31 +65,45 @@ namespace AnSAM.Services
 #if DEBUG
             DebugLogger.LogDebug($"Downloading game list from {GameListUrl} to {cachePath}");
 #endif
-            using var response = await http.GetAsync(GameListUrl, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
 
-            var totalBytes = response.Content.Headers.ContentLength ?? 0;
-            await using var network = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
-            await using var ms = new MemoryStream();
-
-            var buffer = new byte[81920];
-            int total = 0;
-            int read;
-            while ((read = await network.ReadAsync(buffer.AsMemory(0, buffer.Length)).ConfigureAwait(false)) > 0)
+            byte[] data;
+            try
             {
-                total += read;
-                if (total > MaxSizeBytes)
+                using var response = await http.GetAsync(GameListUrl, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
+                response.EnsureSuccessStatusCode();
+
+                var totalBytes = response.Content.Headers.ContentLength ?? 0;
+                await using var network = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
+                await using var ms = new MemoryStream();
+
+                var buffer = new byte[81920];
+                int total = 0;
+                int read;
+                while ((read = await network.ReadAsync(buffer.AsMemory(0, buffer.Length)).ConfigureAwait(false)) > 0)
                 {
-                    throw new InvalidOperationException("Game list exceeds 4 MB limit.");
+                    total += read;
+                    if (total > MaxSizeBytes)
+                    {
+                        throw new InvalidOperationException("Game list exceeds 4 MB limit.");
+                    }
+                    ms.Write(buffer, 0, read);
+                    if (totalBytes > 0)
+                    {
+                        ReportProgress((double)total / totalBytes * 100);
+                    }
                 }
-                ms.Write(buffer, 0, read);
-                if (totalBytes > 0)
-                {
-                    ReportProgress((double)total / totalBytes * 100);
-                }
+
+                data = ms.ToArray();
+            }
+            catch (HttpRequestException ex)
+            {
+                return HandleDownloadFailure(cachePath, ex);
+            }
+            catch (TaskCanceledException ex)
+            {
+                return HandleDownloadFailure(cachePath, ex);
             }
 
-            var data = ms.ToArray();
             ValidateAndParse(data);
 
             var tempPath = cachePath + ".tmp";
@@ -124,6 +138,27 @@ namespace AnSAM.Services
             ReportStatus("Game list downloaded.");
             ReportProgress(100);
             return data;
+        }
+
+        private static byte[] HandleDownloadFailure(string cachePath, Exception ex)
+        {
+            if (File.Exists(cachePath))
+            {
+                try
+                {
+                    var fallback = File.ReadAllBytes(cachePath);
+                    ValidateAndParse(fallback);
+                    ReportStatus("Using cached game list due to download failure...");
+                    ReportProgress(100);
+                    return fallback;
+                }
+                catch
+                {
+                    // Ignore cache failures and rethrow below
+                }
+            }
+
+            throw new GameListDownloadException("Failed to download game list.", ex);
         }
 
         /// <summary>
@@ -227,6 +262,14 @@ namespace AnSAM.Services
         private static void ReportProgress(double value) => ProgressChanged?.Invoke(value);
 
         private static void ReportStatus(string message) => StatusChanged?.Invoke(message);
+    }
+
+    public sealed class GameListDownloadException : Exception
+    {
+        public GameListDownloadException(string message, Exception innerException)
+            : base(message, innerException)
+        {
+        }
     }
 }
 

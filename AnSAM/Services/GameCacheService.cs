@@ -30,7 +30,14 @@ namespace AnSAM.Services
             Directory.CreateDirectory(cacheDir);
             var userGamesPath = Path.Combine(cacheDir, "usergames.xml");
 
-            await GameListService.LoadAsync(cacheDir, http).ConfigureAwait(false);
+            try
+            {
+                await GameListService.LoadAsync(cacheDir, http).ConfigureAwait(false);
+            }
+            catch (GameListDownloadException ex)
+            {
+                throw new InvalidOperationException("Unable to download game list. Please try again later.", ex);
+            }
 
             var result = new List<SteamAppData>();
             if (steam.Initialized)
