@@ -331,7 +331,7 @@ namespace CommonUtilities
                 bool rateLimiterAcquired = false;
                 try
                 {
-                    await _rateLimiter.WaitAsync(uri).ConfigureAwait(false);
+                    await _rateLimiter.WaitAsync(uri, cancellationToken).ConfigureAwait(false);
                     rateLimiterAcquired = true;
                     DebugLogger.LogDebug($"Starting image download for {uri}");
                     using var response = await _http.GetAsync(uri, cancellationToken).ConfigureAwait(false);
