@@ -162,15 +162,13 @@ namespace MyOwnGames
 
         private string GetGameImageUrl(int appId, string language = "english")
         {
-            // Language-aware image URL selection
-            // Priority: header image -> small capsule -> logo
-            if (language != "english")
+            // Return default header for English, otherwise try language-specific header
+            if (language == "english")
             {
-                // For non-English languages, try localized Store API first, then fallback to universal images
                 return $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg";
             }
-            
-            return $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg";
+
+            return $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/header_{language}.jpg";
         }
 
         [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "The types used in JSON deserialization are explicitly referenced and won't be trimmed")]
