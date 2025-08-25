@@ -33,6 +33,17 @@ public class GameImageCacheTests : IDisposable
         _cache = new GameImageCache(_baseCacheDir, _tracker);
     }
 
+    private class Always404Handler : HttpMessageHandler
+    {
+        public int RequestCount;
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            RequestCount++;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+        }
+    }
+
     public void Dispose()
     {
         Environment.SetEnvironmentVariable("XDG_DATA_HOME", _originalXdg);
@@ -419,6 +430,42 @@ public class GameImageCacheTests : IDisposable
         Assert.True(retryResult.Downloaded);
         Assert.False(_tracker.ShouldSkipDownload(id, language));
         _tracker.RemoveFailedRecord(id, language);
+    }
+
+    [Fact]
+    public async Task RecordsFailureFor404sAndSkipsFurtherRequests()
+    {
+        var handler = new Always404Handler();
+        var tracker = new ImageFailureTrackingService();
+        using var cache = new GameImageCache(_baseCacheDir, tracker, httpClient: new HttpClient(handler), disposeHttpClient: true);
+
+        var language = "spanish";
+        var id = Random.Shared.Next(900001, 1000000);
+
+        var urls = new[]
+        {
+            $"https://example.com/{id}/a.png",
+            $"https://example.com/{id}/b.png"
+        };
+
+        var result = await cache.GetImagePathAsync(id.ToString(), urls, language, id);
+        Assert.Null(result);
+        Assert.True(tracker.ShouldSkipDownload(id, language));
+        Assert.True(tracker.ShouldSkipDownload(id, "english"));
+        Assert.Equal(5, handler.RequestCount);
+
+        var logos = new[]
+        {
+            $"https://example.com/{id}/logo_{language}.png",
+            $"https://example.com/{id}/logo.png"
+        };
+
+        var logoResult = await cache.GetImagePathAsync(id.ToString(), logos, language, id);
+        Assert.Null(logoResult);
+        Assert.Equal(5, handler.RequestCount);
+
+        tracker.RemoveFailedRecord(id, language);
+        tracker.RemoveFailedRecord(id, "english");
     }
 
     [Theory]
