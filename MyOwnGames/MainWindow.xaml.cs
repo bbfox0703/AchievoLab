@@ -421,7 +421,7 @@ namespace MyOwnGames
             }
         }
 
-        private async Task LoadGameImageAsync(GameEntry entry, int appId, string? language = null)
+        private async Task LoadGameImageAsync(GameEntry entry, int appId, string? language = null, bool forceImmediate = false)
         {
             if (_isShuttingDown) return; // Don't start new image loads during shutdown
 
@@ -450,11 +450,33 @@ namespace MyOwnGames
 
             try
             {
+                // Check if image is already cached before async call
+                bool isCached = _imageService.IsImageCached(appId, language);
+                
+                // If forceImmediate is true and image is cached, process immediately
+                if (forceImmediate && isCached)
+                {
+                    // Get cached path synchronously if possible, or use async
+                    var cachedPath = GetCachedImagePath(appId, language);
+                    if (!string.IsNullOrEmpty(cachedPath) && File.Exists(cachedPath))
+                    {
+                        // Update UI immediately for cached images during Get Game List
+                        UpdateImageUI(entry, appId, cachedPath, true);
+                        
+                        // Mark as successfully loaded
+                        lock (_imageLoadingLock)
+                        {
+                            _imagesSuccessfullyLoaded.Add(key);
+                        }
+                        return;
+                    }
+                }
+                
                 var imagePath = await _imageService.GetGameImageAsync(appId, language);
                 
                 if (!string.IsNullOrEmpty(imagePath) && File.Exists(imagePath))
                 {
-                    DebugLogger.LogDebug($"Image found for {appId}: {imagePath}");
+                    DebugLogger.LogDebug($"Image found for {appId}: {imagePath} (cached: {isCached})");
                     
                     // Mark as successfully loaded
                     lock (_imageLoadingLock)
@@ -462,58 +484,13 @@ namespace MyOwnGames
                         _imagesSuccessfullyLoaded.Add(key);
                     }
                     
-                    // Thread-safe UI update with additional safety checks
-                    if (!_isShuttingDown && this.DispatcherQueue != null)
-                    {
-                        this.DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, () =>
-                        {
-                            if (_isShuttingDown) return; // Double check during async execution
-                            
-                            try
-                            {
-                                // Additional safety: check if entry is still valid
-                                if (entry != null && AllGameItems.Contains(entry))
-                                {
-                                    // Force a new URI to ensure UI refresh
-                                    var fileUri = new Uri(imagePath).AbsoluteUri;
-                                    
-                                    // Update with additional validation
-                                    if (!string.IsNullOrEmpty(fileUri))
-                                    {
-                                        entry.IconUri = fileUri;
-                                        DebugLogger.LogDebug($"Updated UI for {appId} to {fileUri}");
-                                    }
-                                }
-                            }
-                            catch (System.Runtime.InteropServices.COMException) when (_isShuttingDown)
-                            {
-                                // Ignore COM exceptions during shutdown
-                            }
-                            catch (ObjectDisposedException) when (_isShuttingDown)
-                            {
-                                // Ignore object disposed exceptions during shutdown
-                            }
-                            catch (Exception ex)
-                            {
-                                if (!_isShuttingDown)
-                                {
-                                    DebugLogger.LogDebug($"Error updating UI for image {appId}: {ex.Message}");
-                                    // Fallback: try simple assignment
-                                    try
-                                    {
-                                        if (entry != null)
-                                            entry.IconUri = imagePath;
-                                    }
-                                    catch
-                                    {
-                                        // If even fallback fails, just ignore
-                                    }
-                                }
-                            }
-                        });
-                    }
+                    // Update UI using helper method
+                    UpdateImageUI(entry, appId, imagePath, isCached);
                     
-                    AppendLog($"Loaded image for {appId}");
+                    if (!isCached)
+                    {
+                        AppendLog($"Downloaded image for {appId}");
+                    }
                 }
                 else
                 {
@@ -534,6 +511,82 @@ namespace MyOwnGames
                     _imagesCurrentlyLoading.Remove(key);
                     _duplicateImageLogTimes.Remove(key);
                 }
+            }
+        }
+
+        private string? GetCachedImagePath(int appId, string language)
+        {
+            // Try to get cached image path without async operation
+            try
+            {
+                // Use the GameImageCache TryGetCachedPath method through SharedImageService
+                var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab", "ImageCache");
+                var cache = new GameImageCache(baseDir);
+                var cachedPath = cache.TryGetCachedPath(appId.ToString(), language, checkEnglishFallback: false);
+                cache?.Dispose();
+                return cachedPath;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private void UpdateImageUI(GameEntry entry, int appId, string imagePath, bool isCached)
+        {
+            // For cached images, use higher priority to show immediately
+            var priority = isCached ? Microsoft.UI.Dispatching.DispatcherQueuePriority.High : 
+                                     Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal;
+            
+            // Thread-safe UI update with additional safety checks
+            if (!_isShuttingDown && this.DispatcherQueue != null)
+            {
+                this.DispatcherQueue.TryEnqueue(priority, () =>
+                {
+                    if (_isShuttingDown) return; // Double check during async execution
+                    
+                    try
+                    {
+                        // Additional safety: check if entry is still valid
+                        if (entry != null && AllGameItems.Contains(entry))
+                        {
+                            // Force a new URI to ensure UI refresh
+                            var fileUri = new Uri(imagePath).AbsoluteUri;
+                            
+                            // Update with additional validation
+                            if (!string.IsNullOrEmpty(fileUri))
+                            {
+                                entry.IconUri = fileUri;
+                                DebugLogger.LogDebug($"Updated UI for {appId} to {fileUri} (cached: {isCached})");
+                            }
+                        }
+                    }
+                    catch (System.Runtime.InteropServices.COMException) when (_isShuttingDown)
+                    {
+                        // Ignore COM exceptions during shutdown
+                    }
+                    catch (ObjectDisposedException) when (_isShuttingDown)
+                    {
+                        // Ignore object disposed exceptions during shutdown
+                    }
+                    catch (Exception ex)
+                    {
+                        if (!_isShuttingDown)
+                        {
+                            DebugLogger.LogDebug($"Error updating UI for image {appId}: {ex.Message}");
+                            // Fallback: try simple assignment
+                            try
+                            {
+                                if (entry != null)
+                                    entry.IconUri = imagePath;
+                            }
+                            catch
+                            {
+                                // If even fallback fails, just ignore
+                            }
+                        }
+                    }
+                });
             }
         }
 
@@ -633,10 +686,8 @@ namespace MyOwnGames
                             !string.IsNullOrEmpty(name))
                         {
                             existingLocalizedNames[game.AppId] = name;
-                            if (_imageService.HasImage(game.AppId, selectedLanguage))
-                            {
-                                skipAppIds.Add(game.AppId);
-                            }
+                            // Always skip API call for games with existing localized names
+                            skipAppIds.Add(game.AppId);
                         }
                     }
                 }, cancellationToken);
@@ -676,10 +727,8 @@ namespace MyOwnGames
                                 !string.IsNullOrEmpty(name))
                             {
                                 existingLocalizedNames[game.AppId] = name;
-                                if (_imageService.HasImage(game.AppId, selectedLanguage))
-                                {
-                                    skipAppIds.Add(game.AppId);
-                                }
+                                // Always skip API call for games with existing localized names (after English update)
+                                skipAppIds.Add(game.AppId);
                             }
                         }
                     }, cancellationToken);
@@ -714,7 +763,7 @@ namespace MyOwnGames
                         AppendLog($"Updated UI entry: {game.AppId} - {game.NameEn}");
 
                         // Reload image for current language if needed (use cache when available)
-                        _ = LoadGameImageAsync(existingEntry, game.AppId, selectedLanguage);
+                        _ = LoadGameImageAsync(existingEntry, game.AppId, selectedLanguage, forceImmediate: true);
                     }
                     else
                     {
@@ -735,7 +784,7 @@ namespace MyOwnGames
                         AppendLog($"Added new game: {game.AppId} - {game.NameEn} ({selectedLanguage})");
 
                         // Load image asynchronously for current language (from cache or download)
-                        _ = LoadGameImageAsync(newEntry, game.AppId, selectedLanguage);
+                        _ = LoadGameImageAsync(newEntry, game.AppId, selectedLanguage, forceImmediate: true);
                     }
 
                     if (!shouldSkip)
@@ -746,6 +795,57 @@ namespace MyOwnGames
                 }, progress, skipAppIds, existingLocalizedNames, cancellationToken);
 
                 xmlPath = _dataService.GetXmlFilePath();
+                
+                // Process skipped games (those with existing localized data) to ensure UI and images are updated
+                AppendLog($"Processing {skipAppIds.Count} games with existing {selectedLanguage} data...");
+                foreach (var skippedAppId in skipAppIds)
+                {
+                    try
+                    {
+                        var existingGameData = existingGamesData.FirstOrDefault(g => g.AppId == skippedAppId);
+                        if (existingGameData != null && existingGameData.LocalizedNames != null &&
+                            existingGameData.LocalizedNames.TryGetValue(selectedLanguage, out var localizedName))
+                        {
+                            // Check if game already exists in the UI list
+                            var existingEntry = AllGameItems.FirstOrDefault(g => g.AppId == skippedAppId);
+
+                            if (existingEntry != null)
+                            {
+                                // Update existing UI entry for current language
+                                existingEntry.SetLocalizedName(selectedLanguage, localizedName);
+                                existingEntry.CurrentLanguage = selectedLanguage;
+                                
+                                // Load cached image if available for current language
+                                _ = LoadGameImageAsync(existingEntry, skippedAppId, selectedLanguage, forceImmediate: true);
+                                AppendLog($"Updated existing UI entry for game {skippedAppId} ({selectedLanguage})");
+                            }
+                            else
+                            {
+                                // Create new UI entry for skipped game
+                                var newEntry = new GameEntry
+                                {
+                                    AppId = skippedAppId,
+                                    NameEn = existingGameData.NameEn ?? skippedAppId.ToString(),
+                                    CurrentLanguage = selectedLanguage,
+                                    IconUri = "ms-appx:///Assets/no_icon.png"
+                                };
+                                
+                                newEntry.SetLocalizedName(selectedLanguage, localizedName);
+
+                                GameItems.Add(newEntry);
+                                AllGameItems.Add(newEntry);
+                                
+                                // Load cached image if available for current language
+                                _ = LoadGameImageAsync(newEntry, skippedAppId, selectedLanguage, forceImmediate: true);
+                                AppendLog($"Added UI entry for skipped game {skippedAppId} ({selectedLanguage})");
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        AppendLog($"Error processing skipped game {skippedAppId}: {ex.Message}");
+                    }
+                }
 
                 // Update remaining count based on actual total vs current items
                 var currentTotalCount = GameItems.Count;
@@ -1254,11 +1354,34 @@ namespace MyOwnGames
 
         private async Task LoadVisibleItemsImages(List<GameEntry> visibleItems, string language)
         {
-            // 批次載入可見項目，但批次較小避免卡頓
-            const int batchSize = 3;
-            for (int i = 0; i < visibleItems.Count; i += batchSize)
+            // First, load all cached images immediately without delay
+            var cachedItems = new List<GameEntry>();
+            var nonCachedItems = new List<GameEntry>();
+            
+            foreach (var item in visibleItems)
             {
-                var batch = visibleItems.Skip(i).Take(batchSize);
+                if (_imageService.IsImageCached(item.AppId, language))
+                {
+                    cachedItems.Add(item);
+                }
+                else
+                {
+                    nonCachedItems.Add(item);
+                }
+            }
+            
+            // Load cached images immediately without batching or delay
+            if (cachedItems.Count > 0)
+            {
+                var cachedTasks = cachedItems.Select(entry => LoadGameImageAsync(entry, entry.AppId, language));
+                await Task.WhenAll(cachedTasks);
+            }
+            
+            // Then batch process non-cached items with delay
+            const int batchSize = 3;
+            for (int i = 0; i < nonCachedItems.Count; i += batchSize)
+            {
+                var batch = nonCachedItems.Skip(i).Take(batchSize);
                 var tasks = batch.Select(entry => LoadGameImageAsync(entry, entry.AppId, language));
                 
                 await Task.WhenAll(tasks);
@@ -1334,11 +1457,34 @@ namespace MyOwnGames
 
         private async Task LoadOnDemandImages(List<GameEntry> items, string language)
         {
-            // 更小的批次大小，避免影響 UI 流暢度
-            const int batchSize = 2;
-            for (int i = 0; i < items.Count; i += batchSize)
+            // First, load all cached images immediately without delay
+            var cachedItems = new List<GameEntry>();
+            var nonCachedItems = new List<GameEntry>();
+            
+            foreach (var item in items)
             {
-                var batch = items.Skip(i).Take(batchSize);
+                if (_imageService.IsImageCached(item.AppId, language))
+                {
+                    cachedItems.Add(item);
+                }
+                else
+                {
+                    nonCachedItems.Add(item);
+                }
+            }
+            
+            // Load cached images immediately without batching or delay
+            if (cachedItems.Count > 0)
+            {
+                var cachedTasks = cachedItems.Select(entry => LoadGameImageAsync(entry, entry.AppId, language));
+                await Task.WhenAll(cachedTasks);
+            }
+            
+            // Then batch process non-cached items with longer delay (background loading)
+            const int batchSize = 2;
+            for (int i = 0; i < nonCachedItems.Count; i += batchSize)
+            {
+                var batch = nonCachedItems.Skip(i).Take(batchSize);
                 var tasks = batch.Select(entry => LoadGameImageAsync(entry, entry.AppId, language));
                 
                 await Task.WhenAll(tasks);
