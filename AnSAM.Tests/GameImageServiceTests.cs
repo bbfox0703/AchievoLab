@@ -62,7 +62,7 @@ public class GameImageServiceTests
 
         await service.GetGameImageAsync(appId); // initial download in english
 
-        service.SetLanguage("german");
+        await service.SetLanguage("german");
         await service.GetGameImageAsync(appId); // download after language switch
 
         Assert.Equal(2, eventCount);

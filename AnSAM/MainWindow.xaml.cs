@@ -129,7 +129,7 @@ namespace AnSAM
 
             LanguageComboBox.SelectedItem = initial;
             SteamLanguageResolver.OverrideLanguage = initial;
-            _imageService.SetLanguage(initial);
+            _imageService.SetLanguage(initial).GetAwaiter().GetResult();
             _languageInitialized = true;
         }
         private void ApplyTheme(ElementTheme theme, bool save = true)
@@ -178,7 +178,7 @@ namespace AnSAM
             if (LanguageComboBox.SelectedItem is string lang)
             {
                 SteamLanguageResolver.OverrideLanguage = lang;
-                _imageService.SetLanguage(lang);
+                await _imageService.SetLanguage(lang);
 
                 try
                 {

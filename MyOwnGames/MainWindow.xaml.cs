@@ -223,7 +223,7 @@ namespace MyOwnGames
 
             // Initialize image service with default language
             var initialLanguage = GetCurrentLanguage();
-            _imageService.SetLanguage(initialLanguage);
+            _imageService.SetLanguage(initialLanguage).GetAwaiter().GetResult();
             AppendLog($"Initialized with language: {initialLanguage}");
 
             // Subscribe to scroll events for on-demand image loading - defer until after UI is loaded
@@ -343,7 +343,7 @@ namespace MyOwnGames
                 var currentLanguage = GetCurrentLanguage();
 
                 // Update image service language
-                _imageService.SetLanguage(currentLanguage);
+                await _imageService.SetLanguage(currentLanguage);
 
                 GameItems.Clear();
                 AllGameItems.Clear();
@@ -992,7 +992,7 @@ namespace MyOwnGames
             return _defaultLanguage;
         }
 
-        private void LanguageComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private async void LanguageComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (_isLoading || LanguageComboBox.SelectedItem == null)
                 return;
@@ -1017,7 +1017,10 @@ namespace MyOwnGames
                 _isLoading = true;
 
                 // Update image service language first
-                _imageService?.SetLanguage(newLanguage);
+                if (_imageService != null)
+                {
+                    await _imageService.SetLanguage(newLanguage);
+                }
 
                 // Clear tracking for previous language
                 if (!string.IsNullOrEmpty(currentImageServiceLanguage))

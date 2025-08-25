@@ -36,20 +36,35 @@ namespace CommonUtilities
             _cache = new GameImageCache(baseDir, new ImageFailureTrackingService());
         }
 
-        public void SetLanguage(string language)
+        public async Task SetLanguage(string language)
         {
             if (_currentLanguage != language)
             {
+                // Cancel ongoing operations
                 _cts.Cancel();
-                _cts.Dispose();
-                _cts = new CancellationTokenSource();
-                _currentLanguage = language;
+
+                // Capture pending requests before clearing
+                var pending = _pendingRequests.Values.ToArray();
+                try
+                {
+                    await Task.WhenAll(pending).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // Swallow exceptions from pending tasks
+                }
+
+                // Now clear caches and reset state
                 _imageCache.Clear();
                 _pendingRequests.Clear();
                 lock (_eventLock)
                 {
                     _completedEvents.Clear();
                 }
+
+                _cts.Dispose();
+                _cts = new CancellationTokenSource();
+                _currentLanguage = language;
             }
         }
 

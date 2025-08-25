@@ -45,7 +45,7 @@ public class GameImageServiceCancellationTests : IDisposable
         var appId = 12345;
         var downloadTask = _service.GetGameImageAsync(appId);
         await Task.Delay(100);
-        _service.SetLanguage("german");
+        await _service.SetLanguage("german");
 
         await Assert.ThrowsAsync<TaskCanceledException>(async () => await downloadTask);
         Assert.False(_tracker.ShouldSkipDownload(appId, "english"));
