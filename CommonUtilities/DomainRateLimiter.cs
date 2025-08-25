@@ -13,6 +13,8 @@ namespace CommonUtilities
     {
         private readonly Dictionary<string, DateTime> _lastCall = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, SemaphoreSlim> _domainSemaphores = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, TimeSpan> _domainExtraDelay = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, int> _failureCounts = new(StringComparer.OrdinalIgnoreCase);
         private readonly object _lock = new();
 
         private readonly int _maxConcurrentRequestsPerDomain;
@@ -58,7 +60,13 @@ namespace CommonUtilities
 
             try
             {
-                var minInterval = _baseDomainDelay + TimeSpan.FromSeconds(Random.Shared.NextDouble() * _jitterSeconds);
+                TimeSpan extraDelay;
+                lock (_lock)
+                {
+                    _domainExtraDelay.TryGetValue(host, out extraDelay);
+                }
+
+                var minInterval = _baseDomainDelay + extraDelay + TimeSpan.FromSeconds(Random.Shared.NextDouble() * _jitterSeconds);
 
                 while (true)
                 {
@@ -140,16 +148,36 @@ namespace CommonUtilities
         }
 
         /// <summary>
-        /// Records that a request to the URI's domain has completed and releases domain semaphore.
+        /// Records that a request to the URI's domain has completed and releases the domain semaphore.
+        /// If <paramref name="success"/> is false, the domain's delay will be increased and optionally
+        /// extended by <paramref name="serverDelay"/> (e.g. from a Retry-After header).
         /// </summary>
-        public void RecordCall(Uri uri)
+        public void RecordCall(Uri uri, bool success, TimeSpan? serverDelay = null)
         {
+            var host = uri.Host;
             lock (_lock)
             {
-                _lastCall[uri.Host] = DateTime.UtcNow;
-                
+                _lastCall[host] = DateTime.UtcNow;
+
+                if (success)
+                {
+                    _failureCounts.Remove(host);
+                    _domainExtraDelay.Remove(host);
+                }
+                else
+                {
+                    var count = _failureCounts.TryGetValue(host, out var existing) ? existing + 1 : 1;
+                    _failureCounts[host] = count;
+                    var computed = TimeSpan.FromTicks((long)(_baseDomainDelay.Ticks * Math.Pow(2, count)));
+                    if (serverDelay.HasValue && serverDelay.Value > computed)
+                    {
+                        computed = serverDelay.Value;
+                    }
+                    _domainExtraDelay[host] = computed;
+                }
+
                 // Release the domain semaphore
-                if (_domainSemaphores.TryGetValue(uri.Host, out var semaphore))
+                if (_domainSemaphores.TryGetValue(host, out var semaphore))
                 {
                     semaphore.Release();
                 }

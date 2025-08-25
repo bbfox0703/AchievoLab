@@ -5,6 +5,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Linq;
@@ -463,6 +464,87 @@ public class GameImageCacheTests : IDisposable
     }
 
     [Fact]
+    public async Task RetryAfterDelaysNextRequest()
+    {
+        using var cache = new GameImageCache(_baseCacheDir, _tracker, baseDomainDelay: TimeSpan.FromMilliseconds(10), jitterSeconds: 0);
+        var httpField = typeof(GameImageCache).GetField("_http", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        var responses = new[]
+        {
+            new HttpResponseMessage((HttpStatusCode)429)
+            {
+                Headers = { RetryAfter = new RetryConditionHeaderValue(TimeSpan.FromMilliseconds(200)) }
+            },
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(new byte[] { 0x89,0x50,0x4E,0x47,0,0,0,0 })
+                {
+                    Headers = { ContentType = new MediaTypeHeaderValue("image/png") }
+                }
+            }
+        };
+        var handler = new QueueMessageHandler(responses);
+        var client = new HttpClient(handler);
+        client.Timeout = TimeSpan.FromSeconds(30);
+        client.DefaultRequestHeaders.Add("User-Agent", "AchievoLab/1.0");
+        client.DefaultRequestHeaders.Add("Accept", "image/webp,image/avif,image/apng,image/svg+xml,image/*,*/*;q=0.8");
+        httpField.SetValue(cache, client);
+
+        var uri = new Uri("http://example.com/test.png");
+        await cache.GetImagePathAsync("1", uri, "english");
+
+        var sw = Stopwatch.StartNew();
+        await cache.GetImagePathAsync("2", uri, "english");
+        sw.Stop();
+        Assert.True(sw.Elapsed >= TimeSpan.FromMilliseconds(200));
+    }
+
+    [Fact]
+    public async Task ConsecutiveForbiddenIncreasesDelay()
+    {
+        using var cache = new GameImageCache(_baseCacheDir, _tracker, baseDomainDelay: TimeSpan.FromMilliseconds(50), jitterSeconds: 0);
+        var httpField = typeof(GameImageCache).GetField("_http", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        var responses = new[]
+        {
+            new HttpResponseMessage(HttpStatusCode.Forbidden),
+            new HttpResponseMessage(HttpStatusCode.Forbidden),
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(new byte[] { 0x89,0x50,0x4E,0x47,0,0,0,0 })
+                {
+                    Headers = { ContentType = new MediaTypeHeaderValue("image/png") }
+                }
+            }
+        };
+        var handler = new QueueMessageHandler(responses);
+        var client = new HttpClient(handler);
+        client.Timeout = TimeSpan.FromSeconds(30);
+        client.DefaultRequestHeaders.Add("User-Agent", "AchievoLab/1.0");
+        client.DefaultRequestHeaders.Add("Accept", "image/webp,image/avif,image/apng,image/svg+xml,image/*,*/*;q=0.8");
+        httpField.SetValue(cache, client);
+
+        var uri = new Uri("http://example.com/test2.png");
+        await cache.GetImagePathAsync("a", uri, "english");
+
+        var rateLimiterField = typeof(GameImageCache).GetField("_rateLimiter", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        var rateLimiter = rateLimiterField.GetValue(cache)!;
+        var extraField = rateLimiter.GetType().GetField("_domainExtraDelay", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        var dict = (System.Collections.IDictionary)extraField.GetValue(rateLimiter)!;
+        Assert.True(((TimeSpan)dict[uri.Host]) >= TimeSpan.FromMilliseconds(100));
+
+        await cache.GetImagePathAsync("b", uri, "english");
+        dict = (System.Collections.IDictionary)extraField.GetValue(rateLimiter)!;
+        Assert.True(((TimeSpan)dict[uri.Host]) >= TimeSpan.FromMilliseconds(200));
+
+        var sw = Stopwatch.StartNew();
+        await cache.GetImagePathAsync("c", uri, "english");
+        sw.Stop();
+        Assert.True(sw.Elapsed >= TimeSpan.FromMilliseconds(250));
+
+        dict = (System.Collections.IDictionary)extraField.GetValue(rateLimiter)!;
+        Assert.False(dict.Contains(uri.Host));
+    }
+
+    [Fact]
     public async Task SuccessfulEnglishFallbackClearsFailureRecord()
     {
         var id = 440; // Known app id with English header
@@ -551,6 +633,28 @@ public class GameImageCacheTests : IDisposable
         Assert.Equal(string.Empty, second.Path);
 
         _tracker.RemoveFailedRecord(id, "spanish");
+    }
+
+    private class QueueMessageHandler : HttpMessageHandler
+    {
+        private readonly Queue<HttpResponseMessage> _responses = new();
+
+        public QueueMessageHandler(IEnumerable<HttpResponseMessage> responses)
+        {
+            foreach (var r in responses)
+            {
+                _responses.Enqueue(r);
+            }
+        }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (_responses.Count > 0)
+            {
+                return Task.FromResult(_responses.Dequeue());
+            }
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+        }
     }
 
     private class SteamFallbackHandler : DelegatingHandler
