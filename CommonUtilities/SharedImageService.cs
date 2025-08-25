@@ -86,7 +86,15 @@ namespace CommonUtilities
             // Check if there's already a request in progress for this image
             if (_pendingRequests.TryGetValue(cacheKey, out var existingTask))
             {
-                return await existingTask.ConfigureAwait(false);
+                try
+                {
+                    return await existingTask.ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (_cts.IsCancellationRequested)
+                {
+                    DebugLogger.LogDebug($"Image request for {appId} cancelled");
+                    return GetFallbackImagePath();
+                }
             }
 
             // Start a new request
@@ -97,6 +105,11 @@ namespace CommonUtilities
             {
                 var result = await requestTask.ConfigureAwait(false);
                 return result;
+            }
+            catch (OperationCanceledException) when (_cts.IsCancellationRequested)
+            {
+                DebugLogger.LogDebug($"Image request for {appId} cancelled");
+                return GetFallbackImagePath();
             }
             finally
             {

@@ -306,7 +306,23 @@ namespace CommonUtilities
 
         private async Task<ImageResult> DownloadAsync(string cacheKey, string language, Uri uri, string basePath, string ext, int? failureId, CancellationToken cancellationToken)
         {
-            await _concurrency.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await _concurrency.WaitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException ex)
+            {
+                if (!cancellationToken.IsCancellationRequested)
+                {
+                    DebugLogger.LogDebug($"Unexpected cancellation for {uri}: {ex.Message}");
+                    if (failureId.HasValue)
+                    {
+                        _failureTracker?.RecordFailedDownload(failureId.Value, language);
+                    }
+                }
+                return new ImageResult(string.Empty, false);
+            }
+
             try
             {
                 try
@@ -343,11 +359,6 @@ namespace CommonUtilities
                     }
                     return new ImageResult(path, true);
                 }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                {
-                    DebugLogger.LogDebug($"Download cancelled for {uri}");
-                    throw;
-                }
                 catch (HttpRequestException ex)
                 {
                     // Check if it's a 404 - this is expected for many localized images
@@ -372,10 +383,25 @@ namespace CommonUtilities
                 }
                 catch (TaskCanceledException ex)
                 {
-                    DebugLogger.LogDebug($"Request timeout for {uri}: {ex.Message}");
-                    if (failureId.HasValue)
+                    if (!cancellationToken.IsCancellationRequested)
                     {
-                        _failureTracker?.RecordFailedDownload(failureId.Value, language);
+                        DebugLogger.LogDebug($"Request timeout for {uri}: {ex.Message}");
+                        if (failureId.HasValue)
+                        {
+                            _failureTracker?.RecordFailedDownload(failureId.Value, language);
+                        }
+                    }
+                    return new ImageResult(string.Empty, false);
+                }
+                catch (OperationCanceledException ex)
+                {
+                    if (!cancellationToken.IsCancellationRequested)
+                    {
+                        DebugLogger.LogDebug($"Unexpected cancellation for {uri}: {ex.Message}");
+                        if (failureId.HasValue)
+                        {
+                            _failureTracker?.RecordFailedDownload(failureId.Value, language);
+                        }
                     }
                     return new ImageResult(string.Empty, false);
                 }

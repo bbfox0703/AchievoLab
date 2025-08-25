@@ -196,6 +196,39 @@ public class GameImageCacheTests : IDisposable
     }
 
     [Fact]
+    public async Task CancelledDownloadReturnsEmptyPath()
+    {
+        var language = "english";
+        var id = Random.Shared.Next(5000000, 6000000);
+        int port;
+        using (var l = new TcpListener(IPAddress.Loopback, 0))
+        {
+            l.Start();
+            port = ((IPEndPoint)l.LocalEndpoint).Port;
+        }
+        var prefix = $"http://localhost:{port}/";
+        using var listener = new HttpListener();
+        listener.Prefixes.Add(prefix);
+        listener.Start();
+        var serverTask = Task.Run(async () =>
+        {
+            var ctx = await listener.GetContextAsync();
+            await Task.Delay(5000); // hold connection to allow cancellation
+            ctx.Response.StatusCode = 200;
+            ctx.Response.Close();
+            listener.Stop();
+        });
+
+        using var cts = new CancellationTokenSource();
+        var downloadTask = _cache.GetImagePathAsync(id.ToString(), new Uri(prefix + "slow.png"), language, id, cts.Token);
+        cts.CancelAfter(100);
+        var result = await downloadTask;
+        Assert.Equal(string.Empty, result.Path);
+        Assert.False(result.Downloaded);
+        await serverTask;
+    }
+
+    [Fact]
     public async Task RateLimiterDelayIsConfigurable()
     {
         int port;
