@@ -51,14 +51,8 @@ namespace CommonUtilities
 
                 // Capture pending requests before clearing
                 var pending = _pendingRequests.Values.ToArray();
-                try
-                {
-                    await Task.WhenAll(pending).ConfigureAwait(false);
-                }
-                catch
-                {
-                    // Swallow exceptions from pending tasks
-                }
+                // Don't block waiting for all requests to finish
+                _ = Task.WhenAll(pending); // 背景等待
 
                 // Now clear caches and reset state
                 _imageCache.Clear();
