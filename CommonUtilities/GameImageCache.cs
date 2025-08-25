@@ -186,7 +186,7 @@ namespace CommonUtilities
             });
         }
 
-        public async Task<ImageResult?> GetImagePathAsync(string cacheKey, IEnumerable<string> uris, string language = "english", int? failureId = null, CancellationToken cancellationToken = default)
+        public async Task<ImageResult?> GetImagePathAsync(string cacheKey, IEnumerable<string> uris, string language = "english", int? failureId = null, CancellationToken cancellationToken = default, bool tryEnglishFallback = true)
         {
             int notFoundCount = 0;
             var totalUrls = uris.Count();
@@ -208,7 +208,7 @@ namespace CommonUtilities
                         DebugLogger.LogDebug($"404 count for {cacheKey} in {language}: {notFoundCount}/{totalUrls}");
 
                         // After 2 CDN failures, try English fallback if we're not already on English
-                        if (notFoundCount >= 2 && !string.Equals(language, "english", StringComparison.OrdinalIgnoreCase))
+                        if (tryEnglishFallback && notFoundCount >= 2 && !string.Equals(language, "english", StringComparison.OrdinalIgnoreCase))
                         {
                             DebugLogger.LogDebug($"Switching to English fallback for {cacheKey} after {notFoundCount} 404s");
                             var fallback = await TryEnglishFallbackAsync(cacheKey, language, failureId, cancellationToken).ConfigureAwait(false);
