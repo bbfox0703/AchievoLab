@@ -173,6 +173,13 @@ namespace CommonUtilities
                     {
                         computed = serverDelay.Value;
                     }
+
+                    var cap = TimeSpan.FromSeconds(30);
+                    if (computed > cap)
+                    {
+                        computed = cap;
+                    }
+
                     _domainExtraDelay[host] = computed;
                 }
 
