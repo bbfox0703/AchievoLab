@@ -424,11 +424,18 @@ public class GameImageCacheTests : IDisposable
 
         // Invoke English fallback via reflection
         var method = typeof(GameImageCache).GetMethod("TryEnglishFallbackAsync", BindingFlags.NonPublic | BindingFlags.Instance);
-        var task = (Task<GameImageCache.ImageResult?>)method!.Invoke(_cache, new object?[] { id.ToString(), "spanish", id })!;
+        var task = (Task<GameImageCache.ImageResult?>)method!.Invoke(
+            _cache,
+            new object?[] { id.ToString(), "spanish", id, CancellationToken.None })!;
         var fallback = await task;
         Assert.NotNull(fallback);
         var spanishPath = fallback.Value.Path;
         Assert.True(File.Exists(spanishPath));
+
+        // English cache should also contain the downloaded image
+        var englishPath = _cache.TryGetCachedPath(id.ToString(), "english", checkEnglishFallback: false);
+        Assert.NotNull(englishPath);
+        Assert.True(File.Exists(englishPath));
 
         // Failure record for Spanish should be cleared
         Assert.False(_tracker.ShouldSkipDownload(id, "spanish"));
