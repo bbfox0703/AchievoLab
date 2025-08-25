@@ -18,14 +18,21 @@ namespace CommonUtilities
         private readonly int _maxConcurrentRequestsPerDomain;
         private readonly double _capacity;
         private readonly double _fillRatePerSecond;
+        private readonly bool _consumeTokenBeforeDomainDelay;
         private double _tokens;
         private DateTime _lastRefill;
 
-        public DomainRateLimiter(int maxConcurrentRequestsPerDomain = 2, double capacity = 120, double fillRatePerSecond = 2, double initialTokens = -1)
+        public DomainRateLimiter(
+            int maxConcurrentRequestsPerDomain = 2,
+            double capacity = 60,
+            double fillRatePerSecond = 1,
+            double initialTokens = -1,
+            bool consumeTokenBeforeDomainDelay = true)
         {
             _maxConcurrentRequestsPerDomain = maxConcurrentRequestsPerDomain;
             _capacity = capacity;
             _fillRatePerSecond = fillRatePerSecond;
+            _consumeTokenBeforeDomainDelay = consumeTokenBeforeDomainDelay;
             _tokens = initialTokens >= 0 ? initialTokens : capacity;
             _lastRefill = DateTime.UtcNow;
         }
@@ -44,52 +51,106 @@ namespace CommonUtilities
         public async Task WaitAsync(Uri uri)
         {
             var host = uri.Host;
-            
+
             // First acquire domain-specific semaphore to limit concurrent requests
             var domainSemaphore = GetOrCreateDomainSemaphore(host);
             await domainSemaphore.WaitAsync().ConfigureAwait(false);
-            
+
             try
             {
                 var minInterval = BaseDomainDelay + TimeSpan.FromSeconds(Random.Shared.NextDouble() * JitterSeconds);
-                while (true)
+
+                if (_consumeTokenBeforeDomainDelay)
                 {
-                    TimeSpan delay = TimeSpan.Zero;
+                    while (true)
+                    {
+                        TimeSpan tokenDelay;
+                        lock (_lock)
+                        {
+                            RefillTokens(DateTime.UtcNow);
+                            if (_tokens >= 1)
+                            {
+                                _tokens -= 1;
+                                _totalRequestsProcessed++;
+                                DebugLogger.LogDebug($"Token consumed for {host}, tokens remaining: {_tokens:F2}, total processed: {_totalRequestsProcessed}");
+                                tokenDelay = TimeSpan.Zero;
+                            }
+                            else
+                            {
+                                var needed = 1 - _tokens;
+                                tokenDelay = TimeSpan.FromSeconds(needed / _fillRatePerSecond);
+                            }
+                        }
+
+                        if (tokenDelay > TimeSpan.Zero)
+                        {
+                            await Task.Delay(tokenDelay).ConfigureAwait(false);
+                            continue;
+                        }
+                        break;
+                    }
+
+                    TimeSpan domainDelay = TimeSpan.Zero;
                     lock (_lock)
                     {
-                        // domain delay
                         if (_lastCall.TryGetValue(host, out var last))
                         {
                             var since = DateTime.UtcNow - last;
                             if (since < minInterval)
                             {
-                                delay = minInterval - since;
-                            }
-                        }
-
-                        RefillTokens(DateTime.UtcNow);
-                        if (_tokens >= 1 && delay == TimeSpan.Zero)
-                        {
-                            _tokens -= 1;
-                            _totalRequestsProcessed++;
-                            DebugLogger.LogDebug($"Token consumed for {host}, tokens remaining: {_tokens:F2}, total processed: {_totalRequestsProcessed}");
-                            // Don't release semaphore here - it will be released in RecordCall
-                            return;
-                        }
-                        if (_tokens < 1)
-                        {
-                            var needed = 1 - _tokens;
-                            var tokenDelay = TimeSpan.FromSeconds(needed / _fillRatePerSecond);
-                            if (tokenDelay > delay)
-                            {
-                                delay = tokenDelay;
+                                domainDelay = minInterval - since;
                             }
                         }
                     }
 
-                    if (delay > TimeSpan.Zero)
+                    if (domainDelay > TimeSpan.Zero)
                     {
-                        await Task.Delay(delay).ConfigureAwait(false);
+                        await Task.Delay(domainDelay).ConfigureAwait(false);
+                    }
+
+                    return;
+                }
+                else
+                {
+                    while (true)
+                    {
+                        TimeSpan delay = TimeSpan.Zero;
+                        lock (_lock)
+                        {
+                            // domain delay
+                            if (_lastCall.TryGetValue(host, out var last))
+                            {
+                                var since = DateTime.UtcNow - last;
+                                if (since < minInterval)
+                                {
+                                    delay = minInterval - since;
+                                }
+                            }
+
+                            RefillTokens(DateTime.UtcNow);
+                            if (_tokens >= 1 && delay == TimeSpan.Zero)
+                            {
+                                _tokens -= 1;
+                                _totalRequestsProcessed++;
+                                DebugLogger.LogDebug($"Token consumed for {host}, tokens remaining: {_tokens:F2}, total processed: {_totalRequestsProcessed}");
+                                // Don't release semaphore here - it will be released in RecordCall
+                                return;
+                            }
+                            if (_tokens < 1)
+                            {
+                                var needed = 1 - _tokens;
+                                var tokenDelay = TimeSpan.FromSeconds(needed / _fillRatePerSecond);
+                                if (tokenDelay > delay)
+                                {
+                                    delay = tokenDelay;
+                                }
+                            }
+                        }
+
+                        if (delay > TimeSpan.Zero)
+                        {
+                            await Task.Delay(delay).ConfigureAwait(false);
+                        }
                     }
                 }
             }
