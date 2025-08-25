@@ -733,9 +733,23 @@ namespace MyOwnGames
                         }
                     }, cancellationToken);
                 }
-                StatusText = selectedLanguage == "english" 
+                StatusText = selectedLanguage == "english"
                     ? "Scanning all games..."
                     : $"Scanning all games for {selectedLanguage} language data (this will be slower to avoid Steam API rate limits)...";
+
+                // Preload cached images for games we'll skip so they display during the API scan
+                AppendLog($"Preloading cached images for {skipAppIds.Count} skipped games...");
+                foreach (var appId in skipAppIds)
+                {
+                    if (_imageService.IsImageCached(appId, selectedLanguage))
+                    {
+                        var entry = AllGameItems.FirstOrDefault(g => g.AppId == appId);
+                        if (entry != null)
+                        {
+                            _ = LoadGameImageAsync(entry, appId, selectedLanguage, forceImmediate: true);
+                        }
+                    }
+                }
 
                 // Use real Steam API service with selected language
                 _steamService = new SteamApiService(apiKey!);
