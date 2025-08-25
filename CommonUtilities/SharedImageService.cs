@@ -229,7 +229,7 @@ namespace CommonUtilities
             AddUrl(logoUrlMap, $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/logo.png");
 
             var logoUrls = RoundRobin(logoUrlMap);
-            result = await _cache.GetImagePathAsync(appId.ToString(), logoUrls, originalLanguage, appId, _cts.Token);
+            result = await _cache.GetImagePathAsync(appId.ToString(), logoUrls, originalLanguage, appId, _cts.Token, tryEnglishFallback: false);
             if (!string.IsNullOrEmpty(result?.Path) && IsFreshImage(result.Value.Path))
             {
                 _imageCache[cacheKey] = result.Value.Path;
