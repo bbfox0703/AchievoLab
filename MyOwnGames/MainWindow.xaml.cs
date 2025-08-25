@@ -9,7 +9,6 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Navigation;
-using MyOwnGames.Services;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -30,6 +29,7 @@ using WinRT.Interop;
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
 using CommonUtilities;
+using MyOwnGames.Services;
 
 namespace MyOwnGames
 {
@@ -41,7 +41,7 @@ namespace MyOwnGames
         public ObservableCollection<GameEntry> GameItems { get; } = new();
         private List<GameEntry> AllGameItems { get; } = new();
         public ObservableCollection<string> LogEntries { get; } = new();
-        private readonly GameImageService _imageService = new();
+        private readonly SharedImageService _imageService = new();
         private readonly GameDataService _dataService = new();
         private readonly Action<string> _logHandler;
         private SteamApiService? _steamService;
@@ -223,7 +223,7 @@ namespace MyOwnGames
 
             // Initialize image service with default language
             var initialLanguage = GetCurrentLanguage();
-            _imageService.SetLanguage(initialLanguage);
+            _imageService.SetLanguage(initialLanguage).GetAwaiter().GetResult();
             AppendLog($"Initialized with language: {initialLanguage}");
 
             // Subscribe to scroll events for on-demand image loading - defer until after UI is loaded
@@ -343,7 +343,7 @@ namespace MyOwnGames
                 var currentLanguage = GetCurrentLanguage();
 
                 // Update image service language
-                _imageService.SetLanguage(currentLanguage);
+                await _imageService.SetLanguage(currentLanguage);
 
                 GameItems.Clear();
                 AllGameItems.Clear();
@@ -992,7 +992,7 @@ namespace MyOwnGames
             return _defaultLanguage;
         }
 
-        private void LanguageComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private async void LanguageComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (_isLoading || LanguageComboBox.SelectedItem == null)
                 return;
@@ -1017,7 +1017,10 @@ namespace MyOwnGames
                 _isLoading = true;
 
                 // Update image service language first
-                _imageService?.SetLanguage(newLanguage);
+                if (_imageService != null)
+                {
+                    await _imageService.SetLanguage(newLanguage);
+                }
 
                 // Clear tracking for previous language
                 if (!string.IsNullOrEmpty(currentImageServiceLanguage))

@@ -13,6 +13,8 @@ namespace CommonUtilities
     {
         private readonly Dictionary<string, DateTime> _lastCall = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, SemaphoreSlim> _domainSemaphores = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, TimeSpan> _domainExtraDelay = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, int> _failureCounts = new(StringComparer.OrdinalIgnoreCase);
         private readonly object _lock = new();
 
         private readonly int _maxConcurrentRequestsPerDomain;
@@ -21,77 +23,108 @@ namespace CommonUtilities
         private double _tokens;
         private DateTime _lastRefill;
 
-        public DomainRateLimiter(int maxConcurrentRequestsPerDomain = 4, double capacity = 120, double fillRatePerSecond = 2, double initialTokens = -1)
+        private readonly TimeSpan _baseDomainDelay;
+        private readonly double _jitterSeconds;
+
+        public DomainRateLimiter(
+            int maxConcurrentRequestsPerDomain = 2,
+            double capacity = 60,
+            double fillRatePerSecond = 1,
+            double initialTokens = -1,
+            TimeSpan? baseDomainDelay = null,
+            double jitterSeconds = 0.1)
         {
             _maxConcurrentRequestsPerDomain = maxConcurrentRequestsPerDomain;
             _capacity = capacity;
             _fillRatePerSecond = fillRatePerSecond;
             _tokens = initialTokens >= 0 ? initialTokens : capacity;
             _lastRefill = DateTime.UtcNow;
+            _baseDomainDelay = baseDomainDelay ?? TimeSpan.FromMilliseconds(100);
+            _jitterSeconds = jitterSeconds;
         }
 
         // Global request counter for debugging
         private int _totalRequestsProcessed = 0;
 
-        // Per-domain delay with jitter to avoid bursts
-        private static readonly TimeSpan BaseDomainDelay = TimeSpan.FromSeconds(1);
-        private const double JitterSeconds = 0.5;
-
         /// <summary>
         /// Waits until a request is allowed for the given URI based on domain and global limits.
         /// Also enforces single concurrent request per domain.
         /// </summary>
-        public async Task WaitAsync(Uri uri)
+        public async Task WaitAsync(Uri uri, CancellationToken cancellationToken)
         {
             var host = uri.Host;
-            
+
             // First acquire domain-specific semaphore to limit concurrent requests
             var domainSemaphore = GetOrCreateDomainSemaphore(host);
-            await domainSemaphore.WaitAsync().ConfigureAwait(false);
-            
+            await domainSemaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+
             try
             {
-                var minInterval = BaseDomainDelay + TimeSpan.FromSeconds(Random.Shared.NextDouble() * JitterSeconds);
+                TimeSpan extraDelay;
+                lock (_lock)
+                {
+                    _domainExtraDelay.TryGetValue(host, out extraDelay);
+                }
+
+                var minInterval = _baseDomainDelay + extraDelay + TimeSpan.FromSeconds(Random.Shared.NextDouble() * _jitterSeconds);
+
                 while (true)
                 {
-                    TimeSpan delay = TimeSpan.Zero;
+                    TimeSpan tokenDelay;
                     lock (_lock)
                     {
-                        // domain delay
-                        if (_lastCall.TryGetValue(host, out var last))
+                        var now = DateTime.UtcNow;
+                        var elapsed = (now - _lastRefill).TotalSeconds;
+                        var available = Math.Min(_capacity, _tokens + elapsed * _fillRatePerSecond);
+                        if (available >= 1)
                         {
-                            var since = DateTime.UtcNow - last;
-                            if (since < minInterval)
-                            {
-                                delay = minInterval - since;
-                            }
-                        }
-
-                        RefillTokens(DateTime.UtcNow);
-                        if (_tokens >= 1 && delay == TimeSpan.Zero)
-                        {
-                            _tokens -= 1;
+                            _tokens = available - 1;
+                            _lastRefill = now;
                             _totalRequestsProcessed++;
                             DebugLogger.LogDebug($"Token consumed for {host}, tokens remaining: {_tokens:F2}, total processed: {_totalRequestsProcessed}");
-                            // Don't release semaphore here - it will be released in RecordCall
-                            return;
+                            tokenDelay = TimeSpan.Zero;
                         }
-                        if (_tokens < 1)
+                        else
                         {
-                            var needed = 1 - _tokens;
-                            var tokenDelay = TimeSpan.FromSeconds(needed / _fillRatePerSecond);
-                            if (tokenDelay > delay)
-                            {
-                                delay = tokenDelay;
-                            }
+                            tokenDelay = TimeSpan.FromSeconds((1 - available) / _fillRatePerSecond);
                         }
                     }
 
-                    if (delay > TimeSpan.Zero)
+                    if (tokenDelay > TimeSpan.Zero)
                     {
-                        await Task.Delay(delay).ConfigureAwait(false);
+                        await Task.Delay(tokenDelay, cancellationToken).ConfigureAwait(false);
+                        lock (_lock)
+                        {
+                            RefillTokens(DateTime.UtcNow);
+                        }
+                        continue;
+                    }
+                    break;
+                }
+
+                TimeSpan domainDelay = TimeSpan.Zero;
+                lock (_lock)
+                {
+                    if (_lastCall.TryGetValue(host, out var last))
+                    {
+                        var since = DateTime.UtcNow - last;
+                        if (since < minInterval)
+                        {
+                            domainDelay = minInterval - since;
+                        }
                     }
                 }
+
+                if (domainDelay > TimeSpan.Zero)
+                {
+                    await Task.Delay(domainDelay, cancellationToken).ConfigureAwait(false);
+                    lock (_lock)
+                    {
+                        RefillTokens(DateTime.UtcNow);
+                    }
+                }
+
+                return;
             }
             catch
             {
@@ -115,16 +148,36 @@ namespace CommonUtilities
         }
 
         /// <summary>
-        /// Records that a request to the URI's domain has completed and releases domain semaphore.
+        /// Records that a request to the URI's domain has completed and releases the domain semaphore.
+        /// If <paramref name="success"/> is false, the domain's delay will be increased and optionally
+        /// extended by <paramref name="serverDelay"/> (e.g. from a Retry-After header).
         /// </summary>
-        public void RecordCall(Uri uri)
+        public void RecordCall(Uri uri, bool success, TimeSpan? serverDelay = null)
         {
+            var host = uri.Host;
             lock (_lock)
             {
-                _lastCall[uri.Host] = DateTime.UtcNow;
-                
+                _lastCall[host] = DateTime.UtcNow;
+
+                if (success)
+                {
+                    _failureCounts.Remove(host);
+                    _domainExtraDelay.Remove(host);
+                }
+                else
+                {
+                    var count = _failureCounts.TryGetValue(host, out var existing) ? existing + 1 : 1;
+                    _failureCounts[host] = count;
+                    var computed = TimeSpan.FromTicks((long)(_baseDomainDelay.Ticks * Math.Pow(2, count)));
+                    if (serverDelay.HasValue && serverDelay.Value > computed)
+                    {
+                        computed = serverDelay.Value;
+                    }
+                    _domainExtraDelay[host] = computed;
+                }
+
                 // Release the domain semaphore
-                if (_domainSemaphores.TryGetValue(uri.Host, out var semaphore))
+                if (_domainSemaphores.TryGetValue(host, out var semaphore))
                 {
                     semaphore.Release();
                 }

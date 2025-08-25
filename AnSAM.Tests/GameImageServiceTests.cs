@@ -5,7 +5,6 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 using CommonUtilities;
-using MyOwnGames.Services;
 using Xunit;
 
 public class GameImageServiceTests
@@ -19,8 +18,8 @@ public class GameImageServiceTests
         var oldTime = DateTime.Now.AddDays(-1);
         setupTracker.RecordFailedDownload(appId, "english", failedAt: oldTime);
 
-        var service = new GameImageService();
-        var cacheField = typeof(GameImageService).GetField("_imageCache", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        var service = new SharedImageService();
+        var cacheField = typeof(SharedImageService).GetField("_imageCache", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
         var dict = (Dictionary<string, string>)cacheField!.GetValue(service)!;
         var cacheKey = $"{appId}_english";
         var invalidPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".bin");
@@ -57,13 +56,13 @@ public class GameImageServiceTests
         cleanupTracker.RemoveFailedRecord(appId, "english");
         cleanupTracker.RemoveFailedRecord(appId, "german");
 
-        var service = new GameImageService();
+        var service = new SharedImageService();
         int eventCount = 0;
         service.ImageDownloadCompleted += (_, _) => eventCount++;
 
         await service.GetGameImageAsync(appId); // initial download in english
 
-        service.SetLanguage("german");
+        await service.SetLanguage("german");
         await service.GetGameImageAsync(appId); // download after language switch
 
         Assert.Equal(2, eventCount);

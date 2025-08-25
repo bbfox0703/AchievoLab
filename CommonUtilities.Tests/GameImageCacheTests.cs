@@ -3,9 +3,14 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Diagnostics;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 using System.Linq;
+using System.Reflection;
 using CommonUtilities;
 using Xunit;
 
@@ -189,6 +194,135 @@ public class GameImageCacheTests : IDisposable
         Assert.False(result.Downloaded);
         Assert.Empty(Directory.EnumerateFiles(Path.Combine(_baseCacheDir, language), $"{id}.*"));
         _tracker.RemoveFailedRecord(id, language);
+    }
+
+    [Fact]
+    public async Task CancelledDownloadReturnsEmptyPath()
+    {
+        var language = "english";
+        var id = Random.Shared.Next(5000000, 6000000);
+        int port;
+        using (var l = new TcpListener(IPAddress.Loopback, 0))
+        {
+            l.Start();
+            port = ((IPEndPoint)l.LocalEndpoint).Port;
+        }
+        var prefix = $"http://localhost:{port}/";
+        using var listener = new HttpListener();
+        listener.Prefixes.Add(prefix);
+        listener.Start();
+        var serverTask = Task.Run(async () =>
+        {
+            var ctx = await listener.GetContextAsync();
+            await Task.Delay(5000); // hold connection to allow cancellation
+            ctx.Response.StatusCode = 200;
+            ctx.Response.Close();
+            listener.Stop();
+        });
+
+        using var cts = new CancellationTokenSource();
+        var downloadTask = _cache.GetImagePathAsync(id.ToString(), new Uri(prefix + "slow.png"), language, id, cts.Token);
+        cts.CancelAfter(100);
+        var result = await downloadTask;
+        Assert.Equal(string.Empty, result.Path);
+        Assert.False(result.Downloaded);
+        await serverTask;
+    }
+
+    [Fact]
+    public async Task CancelledDownloadReleasesConcurrency()
+    {
+        int port;
+        using (var l = new TcpListener(IPAddress.Loopback, 0))
+        {
+            l.Start();
+            port = ((IPEndPoint)l.LocalEndpoint).Port;
+        }
+        var prefix = $"http://localhost:{port}/";
+        using var listener = new HttpListener();
+        listener.Prefixes.Add(prefix);
+        listener.Start();
+
+        var serverTask = Task.Run(async () =>
+        {
+            var ctx1 = await listener.GetContextAsync();
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(5000);
+                    ctx1.Response.StatusCode = 200;
+                    ctx1.Response.Close();
+                }
+                catch { }
+            });
+
+            var ctx2 = await listener.GetContextAsync();
+            var data = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0, 0, 0, 0 };
+            ctx2.Response.ContentType = "image/png";
+            ctx2.Response.ContentLength64 = data.Length;
+            await ctx2.Response.OutputStream.WriteAsync(data);
+            ctx2.Response.Close();
+            listener.Stop();
+        });
+
+        using var cache = new GameImageCache(_baseCacheDir, _tracker, maxConcurrency: 1, maxConcurrentRequestsPerDomain: 1, baseDomainDelay: TimeSpan.Zero, jitterSeconds: 0);
+        using var cts = new CancellationTokenSource(100);
+        _ = cache.GetImagePathAsync("slow", new Uri(prefix + "slow"), "english", null, cts.Token);
+        await Task.Delay(200);
+
+        var sw = Stopwatch.StartNew();
+        var result = await cache.GetImagePathAsync("fast", new Uri(prefix + "fast"), "english", null);
+        sw.Stop();
+
+        await serverTask;
+        Assert.True(result.Downloaded);
+        Assert.InRange(sw.ElapsedMilliseconds, 0, 1000);
+    }
+
+    [Fact]
+    public async Task RateLimiterDelayIsConfigurable()
+    {
+        int port;
+        using (var l = new TcpListener(IPAddress.Loopback, 0))
+        {
+            l.Start();
+            port = ((IPEndPoint)l.LocalEndpoint).Port;
+        }
+        var prefix = $"http://localhost:{port}/";
+        using var listener = new HttpListener();
+        listener.Prefixes.Add(prefix);
+        listener.Start();
+        var requestTimes = new List<DateTime>();
+        var serverTask = Task.Run(async () =>
+        {
+            for (int i = 0; i < 2; i++)
+            {
+                var ctx = await listener.GetContextAsync();
+                requestTimes.Add(DateTime.UtcNow);
+                var data = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0, 0, 0, 0 };
+                ctx.Response.ContentType = "image/png";
+                ctx.Response.ContentLength64 = data.Length;
+                await ctx.Response.OutputStream.WriteAsync(data);
+                ctx.Response.Close();
+            }
+            listener.Stop();
+        });
+
+        using var cache = new GameImageCache(_baseCacheDir, _tracker, baseDomainDelay: TimeSpan.FromMilliseconds(100), jitterSeconds: 0);
+
+        var id1 = Random.Shared.Next(1000000, 2000000);
+        var id2 = id1 + 1;
+        await cache.GetImagePathAsync("delay1", new Uri(prefix + "1.png"), "english", id1);
+        await cache.GetImagePathAsync("delay2", new Uri(prefix + "2.png"), "english", id2);
+
+        await serverTask;
+
+        Assert.Equal(2, requestTimes.Count);
+        var interval = requestTimes[1] - requestTimes[0];
+        Assert.InRange(interval.TotalMilliseconds, 100, 500);
+        _tracker.RemoveFailedRecord(id1, "english");
+        _tracker.RemoveFailedRecord(id2, "english");
     }
 
     [Fact]
@@ -378,5 +512,219 @@ public class GameImageCacheTests : IDisposable
         var englishFiles = Directory.EnumerateFiles(Path.Combine(_baseCacheDir, "english"), $"{id}.*");
         Assert.Empty(englishFiles);
         _tracker.RemoveFailedRecord(id, "spanish");
+    }
+
+    [Fact]
+    public async Task RetryAfterDelaysNextRequest()
+    {
+        using var cache = new GameImageCache(_baseCacheDir, _tracker, baseDomainDelay: TimeSpan.FromMilliseconds(10), jitterSeconds: 0);
+        var httpField = typeof(GameImageCache).GetField("_http", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        var responses = new[]
+        {
+            new HttpResponseMessage((HttpStatusCode)429)
+            {
+                Headers = { RetryAfter = new RetryConditionHeaderValue(TimeSpan.FromMilliseconds(200)) }
+            },
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(new byte[] { 0x89,0x50,0x4E,0x47,0,0,0,0 })
+                {
+                    Headers = { ContentType = new MediaTypeHeaderValue("image/png") }
+                }
+            }
+        };
+        var handler = new QueueMessageHandler(responses);
+        var client = new HttpClient(handler);
+        client.Timeout = TimeSpan.FromSeconds(30);
+        client.DefaultRequestHeaders.Add("User-Agent", "AchievoLab/1.0");
+        client.DefaultRequestHeaders.Add("Accept", "image/webp,image/avif,image/apng,image/svg+xml,image/*,*/*;q=0.8");
+        httpField.SetValue(cache, client);
+
+        var uri = new Uri("http://example.com/test.png");
+        await cache.GetImagePathAsync("1", uri, "english");
+
+        var sw = Stopwatch.StartNew();
+        await cache.GetImagePathAsync("2", uri, "english");
+        sw.Stop();
+        Assert.True(sw.Elapsed >= TimeSpan.FromMilliseconds(200));
+    }
+
+    [Fact]
+    public async Task ConsecutiveForbiddenIncreasesDelay()
+    {
+        using var cache = new GameImageCache(_baseCacheDir, _tracker, baseDomainDelay: TimeSpan.FromMilliseconds(50), jitterSeconds: 0);
+        var httpField = typeof(GameImageCache).GetField("_http", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        var responses = new[]
+        {
+            new HttpResponseMessage(HttpStatusCode.Forbidden),
+            new HttpResponseMessage(HttpStatusCode.Forbidden),
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(new byte[] { 0x89,0x50,0x4E,0x47,0,0,0,0 })
+                {
+                    Headers = { ContentType = new MediaTypeHeaderValue("image/png") }
+                }
+            }
+        };
+        var handler = new QueueMessageHandler(responses);
+        var client = new HttpClient(handler);
+        client.Timeout = TimeSpan.FromSeconds(30);
+        client.DefaultRequestHeaders.Add("User-Agent", "AchievoLab/1.0");
+        client.DefaultRequestHeaders.Add("Accept", "image/webp,image/avif,image/apng,image/svg+xml,image/*,*/*;q=0.8");
+        httpField.SetValue(cache, client);
+
+        var uri = new Uri("http://example.com/test2.png");
+        await cache.GetImagePathAsync("a", uri, "english");
+
+        var rateLimiterField = typeof(GameImageCache).GetField("_rateLimiter", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        var rateLimiter = rateLimiterField.GetValue(cache)!;
+        var extraField = rateLimiter.GetType().GetField("_domainExtraDelay", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        var dict = (System.Collections.IDictionary)extraField.GetValue(rateLimiter)!;
+        Assert.True(((TimeSpan)dict[uri.Host]) >= TimeSpan.FromMilliseconds(100));
+
+        await cache.GetImagePathAsync("b", uri, "english");
+        dict = (System.Collections.IDictionary)extraField.GetValue(rateLimiter)!;
+        Assert.True(((TimeSpan)dict[uri.Host]) >= TimeSpan.FromMilliseconds(200));
+
+        var sw = Stopwatch.StartNew();
+        await cache.GetImagePathAsync("c", uri, "english");
+        sw.Stop();
+        Assert.True(sw.Elapsed >= TimeSpan.FromMilliseconds(250));
+
+        dict = (System.Collections.IDictionary)extraField.GetValue(rateLimiter)!;
+        Assert.False(dict.Contains(uri.Host));
+    }
+
+    [Fact]
+    public async Task SuccessfulEnglishFallbackClearsFailureRecord()
+    {
+        var id = 440; // Known app id with English header
+
+        // Replace internal HttpClient to avoid external network dependency
+        var httpField = typeof(GameImageCache).GetField("_http", BindingFlags.NonPublic | BindingFlags.Instance);
+        var handler = new SteamFallbackHandler(new HttpClientHandler());
+        var client = new HttpClient(handler);
+        client.Timeout = TimeSpan.FromSeconds(30);
+        client.DefaultRequestHeaders.Add("User-Agent", "AchievoLab/1.0");
+        client.DefaultRequestHeaders.Add("Accept", "image/webp,image/avif,image/apng,image/svg+xml,image/*,*/*;q=0.8");
+        httpField!.SetValue(_cache, client);
+
+        // First request: localized download fails with server error to record failure
+        int port1;
+        using (var l = new TcpListener(IPAddress.Loopback, 0))
+        {
+            l.Start();
+            port1 = ((IPEndPoint)l.LocalEndpoint).Port;
+        }
+        var prefix1 = $"http://localhost:{port1}/";
+        using var listener1 = new HttpListener();
+        listener1.Prefixes.Add(prefix1);
+        listener1.Start();
+        var serverTask1 = Task.Run(async () =>
+        {
+            var ctx = await listener1.GetContextAsync();
+            ctx.Response.StatusCode = 500;
+            ctx.Response.Close();
+            listener1.Stop();
+        });
+
+        var first = await _cache.GetImagePathAsync(id.ToString(), new Uri(prefix1 + "fail.png"), "spanish", id);
+        await serverTask1;
+        Assert.Equal(string.Empty, first.Path);
+        Assert.True(_tracker.ShouldSkipDownload(id, "spanish"));
+
+        // Invoke English fallback via reflection
+        var method = typeof(GameImageCache).GetMethod("TryEnglishFallbackAsync", BindingFlags.NonPublic | BindingFlags.Instance);
+        var task = (Task<GameImageCache.ImageResult?>)method!.Invoke(
+            _cache,
+            new object?[] { id.ToString(), "spanish", id, CancellationToken.None })!;
+        var fallback = await task;
+        Assert.NotNull(fallback);
+        var spanishPath = fallback.Value.Path;
+        Assert.True(File.Exists(spanishPath));
+
+        // English cache should also contain the downloaded image
+        var englishPath = _cache.TryGetCachedPath(id.ToString(), "english", checkEnglishFallback: false);
+        Assert.NotNull(englishPath);
+        Assert.True(File.Exists(englishPath));
+
+        // Failure record for Spanish should be cleared
+        Assert.False(_tracker.ShouldSkipDownload(id, "spanish"));
+
+        // Remove files to force a new request and verify no skip occurs
+        File.Delete(spanishPath);
+        var englishCached = _cache.TryGetCachedPath(id.ToString(), "english", checkEnglishFallback: false);
+        if (englishCached != null)
+        {
+            File.Delete(englishCached);
+        }
+
+        int port2;
+        using (var l = new TcpListener(IPAddress.Loopback, 0))
+        {
+            l.Start();
+            port2 = ((IPEndPoint)l.LocalEndpoint).Port;
+        }
+        var prefix2 = $"http://localhost:{port2}/";
+        using var listener2 = new HttpListener();
+        listener2.Prefixes.Add(prefix2);
+        listener2.Start();
+        var contextTask = listener2.GetContextAsync();
+
+        var second = await _cache.GetImagePathAsync(id.ToString(), new Uri(prefix2 + "again.png"), "spanish", id);
+        await Task.Delay(200);
+        Assert.True(contextTask.IsCompleted);
+        if (contextTask.IsCompleted)
+        {
+            var ctx = await contextTask;
+            ctx.Response.StatusCode = 404;
+            ctx.Response.Close();
+        }
+        listener2.Stop();
+        Assert.Equal(string.Empty, second.Path);
+
+        _tracker.RemoveFailedRecord(id, "spanish");
+    }
+
+    private class QueueMessageHandler : HttpMessageHandler
+    {
+        private readonly Queue<HttpResponseMessage> _responses = new();
+
+        public QueueMessageHandler(IEnumerable<HttpResponseMessage> responses)
+        {
+            foreach (var r in responses)
+            {
+                _responses.Enqueue(r);
+            }
+        }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (_responses.Count > 0)
+            {
+                return Task.FromResult(_responses.Dequeue());
+            }
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+        }
+    }
+
+    private class SteamFallbackHandler : DelegatingHandler
+    {
+        public SteamFallbackHandler(HttpMessageHandler inner) : base(inner) { }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.RequestUri.Host.EndsWith("steamstatic.com", StringComparison.OrdinalIgnoreCase))
+            {
+                var data = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0, 0, 0, 0 };
+                var response = new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(data)
+                };
+                response.Content.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+                return Task.FromResult(response);
+            }
+            return base.SendAsync(request, cancellationToken);
+        }
     }
 }

@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -20,6 +21,7 @@ namespace CommonUtilities
 
         private readonly string _baseCacheDir;
         private readonly HttpClient _http;
+        private readonly bool _disposeHttpClient;
         private readonly SemaphoreSlim _concurrency;
         private readonly ConcurrentDictionary<string, Task<ImageResult>> _inFlight = new();
         private readonly TimeSpan _cacheDuration;
@@ -47,10 +49,14 @@ namespace CommonUtilities
             ImageFailureTrackingService? failureTracker = null,
             int maxConcurrency = 4,
             TimeSpan? cacheDuration = null,
-            int maxConcurrentRequestsPerDomain = 4,
-            int tokenBucketCapacity = 120,
-            double fillRatePerSecond = 2,
-            double? initialTokens = null)
+            int maxConcurrentRequestsPerDomain = 2,
+            int tokenBucketCapacity = 60,
+            double fillRatePerSecond = 1,
+            double? initialTokens = null,
+            TimeSpan? baseDomainDelay = null,
+            double jitterSeconds = 0.1,
+            HttpClient? httpClient = null,
+            bool disposeHttpClient = false)
         {
             _baseCacheDir = baseCacheDir;
             Directory.CreateDirectory(_baseCacheDir);
@@ -58,13 +64,9 @@ namespace CommonUtilities
             _concurrency = new SemaphoreSlim(maxConcurrency);
             _cacheDuration = cacheDuration ?? TimeSpan.FromDays(30);
 
-            _rateLimiter = new DomainRateLimiter(maxConcurrentRequestsPerDomain, tokenBucketCapacity, fillRatePerSecond, initialTokens ?? tokenBucketCapacity);
-
-            // Configure HttpClient with proper timeout and headers
-            _http = new HttpClient();
-            _http.Timeout = TimeSpan.FromSeconds(30);
-            _http.DefaultRequestHeaders.Add("User-Agent", "AchievoLab/1.0");
-            _http.DefaultRequestHeaders.Add("Accept", "image/webp,image/avif,image/apng,image/svg+xml,image/*,*/*;q=0.8");
+            _rateLimiter = new DomainRateLimiter(maxConcurrentRequestsPerDomain, tokenBucketCapacity, fillRatePerSecond, initialTokens ?? tokenBucketCapacity, baseDomainDelay, jitterSeconds);
+            _http = httpClient ?? HttpClientProvider.Shared;
+            _disposeHttpClient = disposeHttpClient && httpClient != null;
         }
 
         private string GetCacheDir(string language)
@@ -139,7 +141,7 @@ namespace CommonUtilities
             return null;
         }
 
-        public Task<ImageResult> GetImagePathAsync(string cacheKey, Uri uri, string language = "english", int? failureId = null)
+        public Task<ImageResult> GetImagePathAsync(string cacheKey, Uri uri, string language = "english", int? failureId = null, CancellationToken cancellationToken = default)
         {
             var cacheDir = GetCacheDir(language);
             var basePath = Path.Combine(cacheDir, cacheKey);
@@ -180,20 +182,20 @@ namespace CommonUtilities
             {
                 Interlocked.Increment(ref _totalRequests);
                 ReportProgress();
-                return DownloadAsync(cacheKey, language, uri, basePath, ext, failureId);
+                return DownloadAsync(cacheKey, language, uri, basePath, ext, failureId, cancellationToken);
             });
         }
 
-        public async Task<ImageResult?> GetImagePathAsync(string cacheKey, IEnumerable<string> uris, string language = "english", int? failureId = null)
+        public async Task<ImageResult?> GetImagePathAsync(string cacheKey, IEnumerable<string> uris, string language = "english", int? failureId = null, CancellationToken cancellationToken = default)
         {
             int notFoundCount = 0;
             var totalUrls = uris.Count();
-            
+
             foreach (var url in uris)
             {
                 if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
                 {
-                    var result = await GetImagePathAsync(cacheKey, uri, language, failureId).ConfigureAwait(false);
+                    var result = await GetImagePathAsync(cacheKey, uri, language, failureId, cancellationToken).ConfigureAwait(false);
                     if (!string.IsNullOrEmpty(result.Path))
                     {
                         return result;
@@ -209,7 +211,7 @@ namespace CommonUtilities
                         if (notFoundCount >= 2 && !string.Equals(language, "english", StringComparison.OrdinalIgnoreCase))
                         {
                             DebugLogger.LogDebug($"Switching to English fallback for {cacheKey} after {notFoundCount} 404s");
-                            return await TryEnglishFallbackAsync(cacheKey, language, failureId);
+                            return await TryEnglishFallbackAsync(cacheKey, language, failureId, cancellationToken);
                         }
                     }
                 }
@@ -235,7 +237,7 @@ namespace CommonUtilities
             _lastErrors[key] = (DateTime.UtcNow, wasNotFound);
         }
 
-        private async Task<ImageResult?> TryEnglishFallbackAsync(string cacheKey, string originalLanguage, int? failureId)
+        private async Task<ImageResult?> TryEnglishFallbackAsync(string cacheKey, string originalLanguage, int? failureId, CancellationToken cancellationToken)
         {
             DebugLogger.LogDebug($"Attempting English fallback for {cacheKey} (original: {originalLanguage})");
             
@@ -258,12 +260,17 @@ namespace CommonUtilities
             {
                 if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
                 {
-                    var result = await GetImagePathAsync(cacheKey, uri, "english", failureId).ConfigureAwait(false);
+                    var result = await GetImagePathAsync(cacheKey, uri, "english", failureId, cancellationToken).ConfigureAwait(false);
                     if (!string.IsNullOrEmpty(result.Path))
                     {
                         // Success! Copy to original language folder
                         CopyToOriginalLanguageFolder(result.Path, cacheKey, originalLanguage);
-                        
+
+                        if (failureId.HasValue)
+                        {
+                            _failureTracker?.RemoveFailedRecord(failureId.Value, originalLanguage);
+                        }
+
                         // Create result for original language
                         var originalPath = GetCacheDir(originalLanguage);
                         var finalPath = Path.Combine(originalPath, cacheKey + Path.GetExtension(result.Path));
@@ -297,85 +304,139 @@ namespace CommonUtilities
             }
         }
 
-        private async Task<ImageResult> DownloadAsync(string cacheKey, string language, Uri uri, string basePath, string ext, int? failureId)
+        private async Task<ImageResult> DownloadAsync(string cacheKey, string language, Uri uri, string basePath, string ext, int? failureId, CancellationToken cancellationToken)
         {
-            await _concurrency.WaitAsync().ConfigureAwait(false);
-            await _rateLimiter.WaitAsync(uri).ConfigureAwait(false);
             try
             {
-                using var response = await _http.GetAsync(uri).ConfigureAwait(false);
-                if (!response.IsSuccessStatusCode)
-                {
-                    throw new HttpRequestException($"Failed: {response.StatusCode}");
-                }
-
-                var mime = response.Content.Headers.ContentType?.MediaType;
-                if (!string.IsNullOrEmpty(mime) && MimeToExtension.TryGetValue(mime, out var mapped))
-                {
-                    ext = mapped;
-                }
-
-                var path = basePath + ext;
-                await using (var fs = File.Create(path))
-                {
-                    await response.Content.CopyToAsync(fs).ConfigureAwait(false);
-                }
-
-                if (!IsCacheValid(path))
-                {
-                    try { File.Delete(path); } catch { }
-                    throw new InvalidDataException("Invalid image file");
-                }
-
-                if (failureId.HasValue)
-                {
-                    _failureTracker?.RemoveFailedRecord(failureId.Value, language);
-                }
-                return new ImageResult(path, true);
+                await _concurrency.WaitAsync(cancellationToken).ConfigureAwait(false);
             }
-            catch (HttpRequestException ex)
+            catch (OperationCanceledException ex)
             {
-                // Check if it's a 404 - this is expected for many localized images
-                bool isNotFound = ex.Message.Contains("NotFound", StringComparison.OrdinalIgnoreCase);
-                RecordError(uri, isNotFound);
-                
-                if (isNotFound)
+                if (!cancellationToken.IsCancellationRequested)
                 {
-                    DebugLogger.LogDebug($"Image not found at {uri} (404) - will try fallback");
-                    // Don't record 404 as a failure for tracking purposes
+                    DebugLogger.LogDebug($"Unexpected cancellation for {uri}: {ex.Message}");
+                    if (failureId.HasValue)
+                    {
+                        _failureTracker?.RecordFailedDownload(failureId.Value, language);
+                    }
+                }
+                return new ImageResult(string.Empty, false);
+            }
+
+            try
+            {
+                bool success = false;
+                TimeSpan? retryDelay = null;
+                bool rateLimiterAcquired = false;
+                try
+                {
+                    await _rateLimiter.WaitAsync(uri, cancellationToken).ConfigureAwait(false);
+                    rateLimiterAcquired = true;
+                    DebugLogger.LogDebug($"Starting image download for {uri}");
+                    using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+                    request.Headers.Add("Accept", "image/webp,image/avif,image/apng,image/svg+xml,image/*,*/*;q=0.8");
+                    using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+
+                    if (response.StatusCode == HttpStatusCode.TooManyRequests || response.StatusCode == HttpStatusCode.Forbidden)
+                    {
+                        retryDelay = ParseRetryAfter(response);
+                        throw new HttpRequestException($"Failed: {response.StatusCode}");
+                    }
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        throw new HttpRequestException($"Failed: {response.StatusCode}");
+                    }
+
+                    var mime = response.Content.Headers.ContentType?.MediaType;
+                    if (!string.IsNullOrEmpty(mime) && MimeToExtension.TryGetValue(mime, out var mapped))
+                    {
+                        ext = mapped;
+                    }
+
+                    var path = basePath + ext;
+                    await using (var fs = File.Create(path))
+                    {
+                        await response.Content.CopyToAsync(fs, cancellationToken).ConfigureAwait(false);
+                    }
+
+                    if (!IsCacheValid(path))
+                    {
+                        try { File.Delete(path); } catch { }
+                        throw new InvalidDataException("Invalid image file");
+                    }
+
+                    if (failureId.HasValue)
+                    {
+                        _failureTracker?.RemoveFailedRecord(failureId.Value, language);
+                    }
+                    success = true;
+                    return new ImageResult(path, true);
+                }
+                catch (HttpRequestException ex)
+                {
+                    // Check if it's a 404 - this is expected for many localized images
+                    bool isNotFound = ex.Message.Contains("NotFound", StringComparison.OrdinalIgnoreCase);
+                    RecordError(uri, isNotFound);
+
+                    if (isNotFound)
+                    {
+                        DebugLogger.LogDebug($"Image not found at {uri} (404) - will try fallback");
+                        // Don't record 404 as a failure for tracking purposes
+                        return new ImageResult(string.Empty, false);
+                    }
+                    else
+                    {
+                        DebugLogger.LogDebug($"HTTP request failed for {uri}: {ex.Message}");
+                        if (failureId.HasValue)
+                        {
+                            _failureTracker?.RecordFailedDownload(failureId.Value, language);
+                        }
+                        return new ImageResult(string.Empty, false);
+                    }
+                }
+                catch (TaskCanceledException ex)
+                {
+                    if (!cancellationToken.IsCancellationRequested)
+                    {
+                        DebugLogger.LogDebug($"Request timeout for {uri}: {ex.Message}");
+                        if (failureId.HasValue)
+                        {
+                            _failureTracker?.RecordFailedDownload(failureId.Value, language);
+                        }
+                    }
                     return new ImageResult(string.Empty, false);
                 }
-                else
+                catch (OperationCanceledException ex)
                 {
-                    DebugLogger.LogDebug($"HTTP request failed for {uri}: {ex.Message}");
+                    if (!cancellationToken.IsCancellationRequested)
+                    {
+                        DebugLogger.LogDebug($"Unexpected cancellation for {uri}: {ex.Message}");
+                        if (failureId.HasValue)
+                        {
+                            _failureTracker?.RecordFailedDownload(failureId.Value, language);
+                        }
+                    }
+                    return new ImageResult(string.Empty, false);
+                }
+                catch (Exception ex)
+                {
+                    DebugLogger.LogDebug($"Unexpected error downloading {uri}: {ex.GetType().Name} - {ex.Message}");
                     if (failureId.HasValue)
                     {
                         _failureTracker?.RecordFailedDownload(failureId.Value, language);
                     }
                     return new ImageResult(string.Empty, false);
                 }
-            }
-            catch (TaskCanceledException ex)
-            {
-                DebugLogger.LogDebug($"Request timeout for {uri}: {ex.Message}");
-                if (failureId.HasValue)
+                finally
                 {
-                    _failureTracker?.RecordFailedDownload(failureId.Value, language);
+                    if (rateLimiterAcquired)
+                    {
+                        _rateLimiter.RecordCall(uri, success, retryDelay);
+                    }
                 }
-                return new ImageResult(string.Empty, false);
-            }
-            catch (Exception ex)
-            {
-                DebugLogger.LogDebug($"Unexpected error downloading {uri}: {ex.GetType().Name} - {ex.Message}");
-                if (failureId.HasValue)
-                {
-                    _failureTracker?.RecordFailedDownload(failureId.Value, language);
-                }
-                return new ImageResult(string.Empty, false);
             }
             finally
             {
-                _rateLimiter.RecordCall(uri);
                 _concurrency.Release();
                 _inFlight.TryRemove(basePath, out _);
                 Interlocked.Increment(ref _completed);
@@ -427,6 +488,23 @@ namespace CommonUtilities
             return false;
         }
 
+        private static TimeSpan? ParseRetryAfter(HttpResponseMessage response)
+        {
+            var retry = response.Headers.RetryAfter;
+            if (retry != null)
+            {
+                if (retry.Delta.HasValue)
+                    return retry.Delta;
+                if (retry.Date.HasValue)
+                {
+                    var delay = retry.Date.Value - DateTimeOffset.UtcNow;
+                    if (delay > TimeSpan.Zero)
+                        return delay;
+                }
+            }
+            return null;
+        }
+
         private void ReportProgress()
         {
             var total = Volatile.Read(ref _totalRequests);
@@ -446,7 +524,10 @@ namespace CommonUtilities
 
         public void Dispose()
         {
-            _http?.Dispose();
+            if (_disposeHttpClient)
+            {
+                _http.Dispose();
+            }
             _concurrency?.Dispose();
         }
     }

@@ -3,49 +3,68 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Linq;
-using CommonUtilities;
 
-namespace MyOwnGames.Services
+namespace CommonUtilities
 {
-    public class GameImageService : IDisposable
+    public class SharedImageService : IDisposable
     {
         private readonly HttpClient _httpClient;
         private readonly GameImageCache _cache;
+        private readonly bool _disposeHttpClient;
         private readonly Dictionary<string, string> _imageCache = new();
         private readonly ConcurrentDictionary<string, Task<string?>> _pendingRequests = new();
         private readonly HashSet<string> _completedEvents = new();
         private readonly object _eventLock = new();
+        private CancellationTokenSource _cts = new();
         private string _currentLanguage = "english";
 
         public event Action<int, string?>? ImageDownloadCompleted;
 
-        public GameImageService()
+        public SharedImageService(HttpClient? httpClient = null, GameImageCache? cache = null, bool disposeHttpClient = false)
         {
-            // Initialize the HTTP client used for downloading images.
-            _httpClient = new HttpClient();
-            _httpClient.DefaultRequestHeaders.Add("User-Agent", "MyOwnGames/1.0");
+            _httpClient = httpClient ?? HttpClientProvider.Shared;
+            _disposeHttpClient = disposeHttpClient && httpClient != null;
 
-            // Configure the local cache for storing image files.
-            var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "AchievoLab", "ImageCache");
-            _cache = new GameImageCache(baseDir, new ImageFailureTrackingService());
+            if (cache != null)
+            {
+                _cache = cache;
+            }
+            else
+            {
+                var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "AchievoLab", "ImageCache");
+                _cache = new GameImageCache(baseDir, new ImageFailureTrackingService());
+            }
         }
 
-        public void SetLanguage(string language)
+        public async Task SetLanguage(string language)
         {
             if (_currentLanguage != language)
             {
-                _currentLanguage = language;
+                // Cancel ongoing operations
+                _cts.Cancel();
+
+                // Capture pending requests before clearing
+                var pending = _pendingRequests.Values.ToArray();
+                // Don't block waiting for all requests to finish
+                _ = Task.WhenAll(pending); // 背景等待
+
+                // Now clear caches and reset state
                 _imageCache.Clear();
                 _pendingRequests.Clear();
                 lock (_eventLock)
                 {
                     _completedEvents.Clear();
                 }
+
+                _cts.Dispose();
+                _cts = new CancellationTokenSource();
+                _currentLanguage = language;
             }
         }
 
@@ -67,7 +86,15 @@ namespace MyOwnGames.Services
             // Check if there's already a request in progress for this image
             if (_pendingRequests.TryGetValue(cacheKey, out var existingTask))
             {
-                return await existingTask.ConfigureAwait(false);
+                try
+                {
+                    return await existingTask.ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (_cts.IsCancellationRequested)
+                {
+                    DebugLogger.LogDebug($"Image request for {appId} cancelled");
+                    return GetFallbackImagePath();
+                }
             }
 
             // Start a new request
@@ -78,6 +105,11 @@ namespace MyOwnGames.Services
             {
                 var result = await requestTask.ConfigureAwait(false);
                 return result;
+            }
+            catch (OperationCanceledException) when (_cts.IsCancellationRequested)
+            {
+                DebugLogger.LogDebug($"Image request for {appId} cancelled");
+                return GetFallbackImagePath();
             }
             finally
             {
@@ -101,9 +133,6 @@ namespace MyOwnGames.Services
                 // Don't record as failed download - file was corrupted, not missing
             }
 
-            // Only log when we actually need to download
-            DebugLogger.LogDebug($"Starting image download for {appId} (language: {language})");
-            
             var languageSpecificUrlMap = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 
             static void AddUrl(Dictionary<string, List<string>> map, string url)
@@ -142,7 +171,7 @@ namespace MyOwnGames.Services
                 return result;
             }
 
-            var header = await GetHeaderImageFromStoreApiAsync(appId, language);
+            var header = await GetHeaderImageFromStoreApiAsync(appId, language, _cts.Token);
             if (!string.IsNullOrEmpty(header))
             {
                 AddUrl(languageSpecificUrlMap, header);
@@ -154,17 +183,31 @@ namespace MyOwnGames.Services
             //    AddUrl(languageSpecificUrlMap, $"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/{appId}/header_{language}.jpg");
             //}
 
-            // Cloudflare CDN
-            AddUrl(languageSpecificUrlMap, $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/header_{language}.jpg");
+            if (string.Equals(language, "english", StringComparison.OrdinalIgnoreCase))
+            {
+                // Cloudflare CDN
+                AddUrl(languageSpecificUrlMap, $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg");
 
-            // Steam CDN
-            AddUrl(languageSpecificUrlMap, $"https://cdn.steamstatic.com/steam/apps/{appId}/header_{language}.jpg");
+                // Steam CDN
+                AddUrl(languageSpecificUrlMap, $"https://cdn.steamstatic.com/steam/apps/{appId}/header.jpg");
 
-            // Akamai CDN
-            AddUrl(languageSpecificUrlMap, $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/header_{language}.jpg");
+                // Akamai CDN
+                AddUrl(languageSpecificUrlMap, $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg");
+            }
+            else
+            {
+                // Cloudflare CDN
+                AddUrl(languageSpecificUrlMap, $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/header_{language}.jpg");
+
+                // Steam CDN
+                AddUrl(languageSpecificUrlMap, $"https://cdn.steamstatic.com/steam/apps/{appId}/header_{language}.jpg");
+
+                // Akamai CDN
+                AddUrl(languageSpecificUrlMap, $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/header_{language}.jpg");
+            }
 
             var languageUrls = RoundRobin(languageSpecificUrlMap);
-            var result = await _cache.GetImagePathAsync(appId.ToString(), languageUrls, language, appId);
+            var result = await _cache.GetImagePathAsync(appId.ToString(), languageUrls, language, appId, _cts.Token);
             if (!string.IsNullOrEmpty(result?.Path) && IsFreshImage(result.Value.Path))
             {
                 _imageCache[cacheKey] = result.Value.Path;
@@ -186,7 +229,7 @@ namespace MyOwnGames.Services
             AddUrl(logoUrlMap, $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/logo.png");
 
             var logoUrls = RoundRobin(logoUrlMap);
-            result = await _cache.GetImagePathAsync(appId.ToString(), logoUrls, originalLanguage, appId);
+            result = await _cache.GetImagePathAsync(appId.ToString(), logoUrls, originalLanguage, appId, _cts.Token);
             if (!string.IsNullOrEmpty(result?.Path) && IsFreshImage(result.Value.Path))
             {
                 _imageCache[cacheKey] = result.Value.Path;
@@ -237,12 +280,12 @@ namespace MyOwnGames.Services
             }
             ImageDownloadCompleted?.Invoke(appId, path);
         }
-        private async Task<string?> GetHeaderImageFromStoreApiAsync(int appId, string language)
+        private async Task<string?> GetHeaderImageFromStoreApiAsync(int appId, string language, CancellationToken cancellationToken)
         {
             try
             {
                 var storeApiUrl = $"https://store.steampowered.com/api/appdetails?appids={appId}&l={language}";
-                using var response = await _httpClient.GetAsync(storeApiUrl);
+                using var response = await _httpClient.GetAsync(storeApiUrl, cancellationToken);
                 if (!response.IsSuccessStatusCode)
                 {
                     return null;
@@ -272,6 +315,11 @@ namespace MyOwnGames.Services
             catch (JsonException ex)
             {
                 DebugLogger.LogDebug($"Malformed store API response for {appId}: {ex.Message}");
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                DebugLogger.LogDebug($"Store API request for {appId} cancelled");
+                throw;
             }
             catch (TaskCanceledException ex)
             {
@@ -317,7 +365,13 @@ namespace MyOwnGames.Services
 
         public void Dispose()
         {
-            _httpClient.Dispose();
+            _cts.Cancel();
+            _cts.Dispose();
+            if (_disposeHttpClient)
+            {
+                _httpClient.Dispose();
+            }
+            _cache.Dispose();
             _imageCache.Clear();
         }
 

@@ -30,18 +30,50 @@ namespace AnSAM.Services
             Directory.CreateDirectory(cacheDir);
             var userGamesPath = Path.Combine(cacheDir, "usergames.xml");
 
-            await GameListService.LoadAsync(cacheDir, http).ConfigureAwait(false);
+            try
+            {
+                await GameListService.LoadAsync(cacheDir, http).ConfigureAwait(false);
+            }
+            catch (GameListDownloadException ex)
+            {
+                throw new InvalidOperationException("Unable to download game list. Please try again later.", ex);
+            }
 
             var result = new List<SteamAppData>();
             if (steam.Initialized)
             {
-                foreach (var game in GameListService.Games)
+                var ids = new HashSet<int>(GameListService.Games.Select(g => g.Id));
+
+                var steamGamesPath = Path.Combine(cacheDir, "steam_games.xml");
+                if (File.Exists(steamGamesPath))
                 {
-                    uint appId = (uint)game.Id;
+                    try
+                    {
+                        var doc = XDocument.Load(steamGamesPath);
+                        foreach (var node in doc.Descendants("AppID"))
+                        {
+                            if (int.TryParse(node.Value, out var id))
+                                ids.Add(id);
+                        }
+                        foreach (var node in doc.Descendants("Game"))
+                        {
+                            if (int.TryParse(node.Attribute("AppID")?.Value, out var id))
+                                ids.Add(id);
+                        }
+                    }
+                    catch
+                    {
+                        // Ignore corrupt steam_games.xml
+                    }
+                }
+
+                foreach (var id in ids)
+                {
+                    uint appId = (uint)id;
                     if (!steam.IsSubscribedApp(appId))
                         continue;
                     var title = steam.GetAppData(appId, "name") ?? appId.ToString(CultureInfo.InvariantCulture);
-                    result.Add(new SteamAppData(game.Id, title));
+                    result.Add(new SteamAppData(id, title));
                 }
 
                 try
