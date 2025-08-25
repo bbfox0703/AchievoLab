@@ -21,7 +21,7 @@ namespace CommonUtilities
         private double _tokens;
         private DateTime _lastRefill;
 
-        public DomainRateLimiter(int maxConcurrentRequestsPerDomain = 4, double capacity = 120, double fillRatePerSecond = 2, double initialTokens = -1)
+        public DomainRateLimiter(int maxConcurrentRequestsPerDomain = 2, double capacity = 120, double fillRatePerSecond = 2, double initialTokens = -1)
         {
             _maxConcurrentRequestsPerDomain = maxConcurrentRequestsPerDomain;
             _capacity = capacity;
