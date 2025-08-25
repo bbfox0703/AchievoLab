@@ -16,21 +16,23 @@ namespace MyOwnGames
         private readonly HttpClient _httpClient;
         private readonly string _apiKey;
         private readonly RateLimiterService _rateLimiter;
+        private readonly RateLimiterService _steamRateLimiter;
         private readonly bool _disposeHttpClient;
         private bool _disposed;
 
         public SteamApiService(string apiKey)
-            : this(apiKey, HttpClientProvider.Shared, false, null)
+            : this(apiKey, HttpClientProvider.Shared, false, null, null)
         {
         }
 
-        public SteamApiService(string apiKey, HttpClient httpClient, bool disposeHttpClient = false, RateLimiterService? rateLimiter = null)
+        public SteamApiService(string apiKey, HttpClient httpClient, bool disposeHttpClient = false, RateLimiterService? rateLimiter = null, RateLimiterService? steamRateLimiter = null)
         {
             ValidateCredentials(apiKey);
             _apiKey = apiKey;
             _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
             _disposeHttpClient = disposeHttpClient;
             _rateLimiter = rateLimiter ?? RateLimiterService.FromAppSettings();
+            _steamRateLimiter = steamRateLimiter ?? _rateLimiter;
 
             if (_disposeHttpClient)
             {
@@ -59,7 +61,7 @@ namespace MyOwnGames
                 progress?.Report(10);
                 cancellationToken.ThrowIfCancellationRequested();
                 
-                await _rateLimiter.WaitAsync();
+                await _steamRateLimiter.WaitSteamAsync();
                 cancellationToken.ThrowIfCancellationRequested();
                 
                 var ownedGamesUrl = $"https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key={_apiKey}&steamid={steamId64}&format=json&include_appinfo=true";
@@ -144,7 +146,7 @@ namespace MyOwnGames
                 cancellationToken.ThrowIfCancellationRequested();
                 
                 // More aggressive rate limiting for Steam Store API
-                await _rateLimiter.WaitAsync();
+                await _steamRateLimiter.WaitSteamAsync();
                 cancellationToken.ThrowIfCancellationRequested();
                 
                 var url = $"https://store.steampowered.com/api/appdetails?appids={appId}&l={targetLanguage}";
