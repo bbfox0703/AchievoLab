@@ -311,6 +311,7 @@ namespace CommonUtilities
                 try
                 {
                     await _rateLimiter.WaitAsync(uri).ConfigureAwait(false);
+                    DebugLogger.LogDebug($"Starting image download for {uri}");
                     using var response = await _http.GetAsync(uri, cancellationToken).ConfigureAwait(false);
                     if (!response.IsSuccessStatusCode)
                     {
