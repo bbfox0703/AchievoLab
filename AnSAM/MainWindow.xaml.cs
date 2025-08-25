@@ -122,14 +122,13 @@ namespace AnSAM
             {
                 // Ignore inability to persist settings
             }
-            string initial = saved is not null &&
-                               ordered.Contains(saved, StringComparer.OrdinalIgnoreCase)
-                               ? saved
-                               : osLanguage;
-
+            // Always initialize to English, regardless of saved settings
+            string initial = "english";
+            
             LanguageComboBox.SelectedItem = initial;
             SteamLanguageResolver.OverrideLanguage = initial;
             _imageService.SetLanguage(initial).GetAwaiter().GetResult();
+            _currentLanguage = initial; // Set current language to English
             _languageInitialized = true;
         }
         private void ApplyTheme(ElementTheme theme, bool save = true)
