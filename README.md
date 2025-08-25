@@ -28,8 +28,8 @@ winget install Microsoft.DotNet.DesktopRuntime.8 Microsoft.WindowsAppSDK.1.7
    The main GUI interface.
 2. **./RunGame/RunGame.exe**  
    Invoked by *AnASM.exe* when a game cover is double-clicked. Used to manage achievements for the selected game.
-3. **./MyOwnGames/MyOwnGames.exe**  
-   Retrieves your owned game data from the Steam Web API.  
+3. **./MyOwnGames/MyOwnGames.exe**
+   Retrieves your owned game data from the Steam Web API.
    ⚠️ Note: This process may take some time. The Steam API may temporarily block your key if requests are made too frequently.
 
 ## Using *MyOwnGames*
@@ -44,6 +44,25 @@ winget install Microsoft.DotNet.DesktopRuntime.8 Microsoft.WindowsAppSDK.1.7
 4. Your 17-digit SteamID64 will be shown near the top of the page, below your username.  
 
 > If this method no longer works, please look up an updated way to obtain your SteamID64.
+
+### Tuning Steam API throttling
+
+`MyOwnGames` throttles its Steam Web API requests to avoid hitting rate limits. You can adjust these limits in `MyOwnGames/appsettings.json`:
+
+```json
+{
+  "RateLimiter": {
+    "MaxCallsPerMinute": 30,
+    "JitterMinSeconds": 1.5,
+    "JitterMaxSeconds": 3.0,
+    "SteamMaxCallsPerMinute": 12,
+    "SteamJitterMinSeconds": 5.5,
+    "SteamJitterMaxSeconds": 7.5
+  }
+}
+```
+
+The `SteamMaxCallsPerMinute` and `SteamJitter*` values let you tune Steam-specific throttling separately from the general settings.
 
 ## License
 This project is licensed under the [MIT License](LICENSE).  
