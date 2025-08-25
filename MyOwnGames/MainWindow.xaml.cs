@@ -606,7 +606,9 @@ namespace MyOwnGames
                         }
                     }
                 }, cancellationToken);
-                StatusText = $"Scanning all games for {selectedLanguage} language data...";
+                StatusText = selectedLanguage == "english" 
+                    ? "Scanning all games..."
+                    : $"Scanning all games for {selectedLanguage} language data (this will be slower to avoid Steam API rate limits)...";
 
                 // Use real Steam API service with selected language
                 _steamService = new SteamApiService(apiKey!);

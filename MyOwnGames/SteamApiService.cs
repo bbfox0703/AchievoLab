@@ -142,18 +142,34 @@ namespace MyOwnGames
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                
+                // More aggressive rate limiting for Steam Store API
                 await _rateLimiter.WaitAsync();
                 cancellationToken.ThrowIfCancellationRequested();
                 
                 var url = $"https://store.steampowered.com/api/appdetails?appids={appId}&l={targetLanguage}";
+                DebugLogger.LogDebug($"Fetching localized name for {appId} ({englishName}) in {targetLanguage}");
+                
                 var response = await _httpClient.GetStringAsync(url, cancellationToken);
                 var data = DeserializeAppDetailsResponse(response);
                 
                 if (data != null && data.TryGetValue(appId.ToString(), out var appDetails) && 
                     appDetails.success && !string.IsNullOrEmpty(appDetails.data?.name))
                 {
-                    return appDetails.data.name;
+                    var localizedName = appDetails.data.name;
+                    DebugLogger.LogDebug($"Got localized name for {appId}: '{localizedName}' (was: '{englishName}')");
+                    return localizedName;
                 }
+                else
+                {
+                    DebugLogger.LogDebug($"No localized name available for {appId} in {targetLanguage}, using English fallback");
+                }
+            }
+            catch (HttpRequestException ex) when (ex.Message.Contains("429") || ex.Message.Contains("Too Many Requests"))
+            {
+                DebugLogger.LogDebug($"Rate limited when getting localized name for {appId}, using English fallback: {ex.Message}");
+                // Wait longer on rate limit
+                await Task.Delay(TimeSpan.FromSeconds(30), cancellationToken);
             }
             catch (Exception ex)
             {

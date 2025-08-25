@@ -8,9 +8,9 @@ namespace MyOwnGames.Services
 {
     public class RateLimiterOptions
     {
-        public int MaxCallsPerMinute { get; set; } = 30;
-        public double JitterMinSeconds { get; set; } = 1.5;
-        public double JitterMaxSeconds { get; set; } = 3.0;
+        public int MaxCallsPerMinute { get; set; } = 12; // Stricter: 12 calls per minute (1 every 5 seconds)
+        public double JitterMinSeconds { get; set; } = 5.0; // More conservative delay
+        public double JitterMaxSeconds { get; set; } = 7.0; // Up to 7 seconds between calls
     }
 
     public class RateLimiterService : IDisposable
@@ -24,7 +24,7 @@ namespace MyOwnGames.Services
 
         public RateLimiterService(RateLimiterOptions options)
         {
-            options.JitterMinSeconds = Math.Max(1.5, options.JitterMinSeconds);
+            options.JitterMinSeconds = Math.Max(5.0, options.JitterMinSeconds); // Enforce minimum 5 seconds
             if (options.JitterMaxSeconds < options.JitterMinSeconds)
             {
                 options.JitterMaxSeconds = options.JitterMinSeconds;
