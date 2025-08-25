@@ -50,8 +50,7 @@ namespace CommonUtilities
             int maxConcurrentRequestsPerDomain = 2,
             int tokenBucketCapacity = 60,
             double fillRatePerSecond = 1,
-            double? initialTokens = null,
-            bool consumeTokenBeforeDomainDelay = true)
+            double? initialTokens = null)
         {
             _baseCacheDir = baseCacheDir;
             Directory.CreateDirectory(_baseCacheDir);
@@ -59,7 +58,7 @@ namespace CommonUtilities
             _concurrency = new SemaphoreSlim(maxConcurrency);
             _cacheDuration = cacheDuration ?? TimeSpan.FromDays(30);
 
-            _rateLimiter = new DomainRateLimiter(maxConcurrentRequestsPerDomain, tokenBucketCapacity, fillRatePerSecond, initialTokens ?? tokenBucketCapacity, consumeTokenBeforeDomainDelay);
+            _rateLimiter = new DomainRateLimiter(maxConcurrentRequestsPerDomain, tokenBucketCapacity, fillRatePerSecond, initialTokens ?? tokenBucketCapacity);
 
             // Configure HttpClient with proper timeout and headers
             _http = new HttpClient();
