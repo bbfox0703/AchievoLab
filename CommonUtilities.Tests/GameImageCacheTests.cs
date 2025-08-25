@@ -230,6 +230,57 @@ public class GameImageCacheTests : IDisposable
     }
 
     [Fact]
+    public async Task CancelledDownloadReleasesConcurrency()
+    {
+        int port;
+        using (var l = new TcpListener(IPAddress.Loopback, 0))
+        {
+            l.Start();
+            port = ((IPEndPoint)l.LocalEndpoint).Port;
+        }
+        var prefix = $"http://localhost:{port}/";
+        using var listener = new HttpListener();
+        listener.Prefixes.Add(prefix);
+        listener.Start();
+
+        var serverTask = Task.Run(async () =>
+        {
+            var ctx1 = await listener.GetContextAsync();
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(5000);
+                    ctx1.Response.StatusCode = 200;
+                    ctx1.Response.Close();
+                }
+                catch { }
+            });
+
+            var ctx2 = await listener.GetContextAsync();
+            var data = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0, 0, 0, 0 };
+            ctx2.Response.ContentType = "image/png";
+            ctx2.Response.ContentLength64 = data.Length;
+            await ctx2.Response.OutputStream.WriteAsync(data);
+            ctx2.Response.Close();
+            listener.Stop();
+        });
+
+        using var cache = new GameImageCache(_baseCacheDir, _tracker, maxConcurrency: 1, maxConcurrentRequestsPerDomain: 1, baseDomainDelay: TimeSpan.Zero, jitterSeconds: 0);
+        using var cts = new CancellationTokenSource(100);
+        _ = cache.GetImagePathAsync("slow", new Uri(prefix + "slow"), "english", null, cts.Token);
+        await Task.Delay(200);
+
+        var sw = Stopwatch.StartNew();
+        var result = await cache.GetImagePathAsync("fast", new Uri(prefix + "fast"), "english", null);
+        sw.Stop();
+
+        await serverTask;
+        Assert.True(result.Downloaded);
+        Assert.InRange(sw.ElapsedMilliseconds, 0, 1000);
+    }
+
+    [Fact]
     public async Task RateLimiterDelayIsConfigurable()
     {
         int port;
