@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -325,11 +326,21 @@ namespace CommonUtilities
 
             try
             {
+                bool success = false;
+                TimeSpan? retryDelay = null;
+                bool rateLimiterAcquired = false;
                 try
                 {
                     await _rateLimiter.WaitAsync(uri).ConfigureAwait(false);
+                    rateLimiterAcquired = true;
                     DebugLogger.LogDebug($"Starting image download for {uri}");
                     using var response = await _http.GetAsync(uri, cancellationToken).ConfigureAwait(false);
+
+                    if (response.StatusCode == HttpStatusCode.TooManyRequests || response.StatusCode == HttpStatusCode.Forbidden)
+                    {
+                        retryDelay = ParseRetryAfter(response);
+                        throw new HttpRequestException($"Failed: {response.StatusCode}");
+                    }
                     if (!response.IsSuccessStatusCode)
                     {
                         throw new HttpRequestException($"Failed: {response.StatusCode}");
@@ -357,6 +368,7 @@ namespace CommonUtilities
                     {
                         _failureTracker?.RemoveFailedRecord(failureId.Value, language);
                     }
+                    success = true;
                     return new ImageResult(path, true);
                 }
                 catch (HttpRequestException ex)
@@ -416,7 +428,10 @@ namespace CommonUtilities
                 }
                 finally
                 {
-                    _rateLimiter.RecordCall(uri);
+                    if (rateLimiterAcquired)
+                    {
+                        _rateLimiter.RecordCall(uri, success, retryDelay);
+                    }
                 }
             }
             finally
@@ -470,6 +485,23 @@ namespace CommonUtilities
             }
             catch { }
             return false;
+        }
+
+        private static TimeSpan? ParseRetryAfter(HttpResponseMessage response)
+        {
+            var retry = response.Headers.RetryAfter;
+            if (retry != null)
+            {
+                if (retry.Delta.HasValue)
+                    return retry.Delta;
+                if (retry.Date.HasValue)
+                {
+                    var delay = retry.Date.Value - DateTimeOffset.UtcNow;
+                    if (delay > TimeSpan.Zero)
+                        return delay;
+                }
+            }
+            return null;
         }
 
         private void ReportProgress()
