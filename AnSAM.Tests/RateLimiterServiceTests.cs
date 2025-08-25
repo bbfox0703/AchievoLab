@@ -33,5 +33,48 @@ namespace AnSAM.Tests
             Assert.True(results[1] >= TimeSpan.FromSeconds(1.5));
             Assert.True(results[2] >= TimeSpan.FromSeconds(3.0));
         }
+
+        [Fact]
+        public async Task WaitAsync_UsesConfiguredJitterRange()
+        {
+            var options = new RateLimiterOptions
+            {
+                MaxCallsPerMinute = 100,
+                JitterMinSeconds = 5,
+                JitterMaxSeconds = 6
+            };
+            using var rateLimiter = new RateLimiterService(options);
+
+            await rateLimiter.WaitAsync();
+            var stopwatch = Stopwatch.StartNew();
+            await rateLimiter.WaitAsync();
+            var elapsed = stopwatch.Elapsed;
+
+            Assert.True(elapsed >= TimeSpan.FromSeconds(5));
+            Assert.True(elapsed <= TimeSpan.FromSeconds(7));
+        }
+
+        [Fact]
+        public async Task WaitSteamAsync_UsesSteamJitterRange()
+        {
+            var options = new RateLimiterOptions
+            {
+                MaxCallsPerMinute = 100,
+                JitterMinSeconds = 5,
+                JitterMaxSeconds = 6,
+                SteamMaxCallsPerMinute = 100,
+                SteamJitterMinSeconds = 5.5,
+                SteamJitterMaxSeconds = 6.5
+            };
+            using var rateLimiter = new RateLimiterService(options);
+
+            await rateLimiter.WaitSteamAsync();
+            var stopwatch = Stopwatch.StartNew();
+            await rateLimiter.WaitSteamAsync();
+            var elapsed = stopwatch.Elapsed;
+
+            Assert.True(elapsed >= TimeSpan.FromSeconds(5.5));
+            Assert.True(elapsed <= TimeSpan.FromSeconds(7.5));
+        }
     }
 }
