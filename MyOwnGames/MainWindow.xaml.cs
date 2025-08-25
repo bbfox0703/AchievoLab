@@ -713,11 +713,8 @@ namespace MyOwnGames
                         
                         AppendLog($"Updated UI entry: {game.AppId} - {game.NameEn}");
 
-                        if (!shouldSkip)
-                        {
-                            // Reload image for current language if needed
-                            _ = LoadGameImageAsync(existingEntry, game.AppId, selectedLanguage);
-                        }
+                        // Reload image for current language if needed (use cache when available)
+                        _ = LoadGameImageAsync(existingEntry, game.AppId, selectedLanguage);
                     }
                     else
                     {
@@ -737,11 +734,8 @@ namespace MyOwnGames
                         AllGameItems.Add(newEntry);
                         AppendLog($"Added new game: {game.AppId} - {game.NameEn} ({selectedLanguage})");
 
-                        if (!shouldSkip)
-                        {
-                            // Load image asynchronously for current language
-                            _ = LoadGameImageAsync(newEntry, game.AppId, selectedLanguage);
-                        }
+                        // Load image asynchronously for current language (from cache or download)
+                        _ = LoadGameImageAsync(newEntry, game.AppId, selectedLanguage);
                     }
 
                     if (!shouldSkip)
