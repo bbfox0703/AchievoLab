@@ -596,6 +596,39 @@ public class GameImageCacheTests : IDisposable
     }
 
     [Fact]
+    public async Task NotFoundDoesNotIncreaseRateLimiterDelay()
+    {
+        using var cache = new GameImageCache(_baseCacheDir, _tracker, baseDomainDelay: TimeSpan.FromMilliseconds(10), jitterSeconds: 0);
+        var httpField = typeof(GameImageCache).GetField("_http", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        var responses = new[]
+        {
+            new HttpResponseMessage(HttpStatusCode.NotFound)
+        };
+        var handler = new QueueMessageHandler(responses);
+        var client = new HttpClient(handler);
+        client.Timeout = TimeSpan.FromSeconds(30);
+        client.DefaultRequestHeaders.Add("User-Agent", "AchievoLab/1.0");
+        client.DefaultRequestHeaders.Add("Accept", "image/webp,image/avif,image/apng,image/svg+xml,image/*,*/*;q=0.8");
+        httpField.SetValue(cache, client);
+
+        var uri = new Uri("http://example.com/missing.png");
+        var result = await cache.GetImagePathAsync("z", uri, "english");
+        Assert.Equal(string.Empty, result.Path);
+        Assert.False(result.Downloaded);
+
+        var rateLimiterField = typeof(GameImageCache).GetField("_rateLimiter", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        var rateLimiter = rateLimiterField.GetValue(cache)!;
+
+        var extraField = rateLimiter.GetType().GetField("_domainExtraDelay", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        var extraDict = (System.Collections.IDictionary)extraField.GetValue(rateLimiter)!;
+        Assert.False(extraDict.Contains(uri.Host));
+
+        var failureField = rateLimiter.GetType().GetField("_failureCounts", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        var failDict = (System.Collections.IDictionary)failureField.GetValue(rateLimiter)!;
+        Assert.False(failDict.Contains(uri.Host));
+    }
+
+    [Fact]
     public async Task SuccessfulEnglishFallbackClearsFailureRecord()
     {
         var id = 440; // Known app id with English header

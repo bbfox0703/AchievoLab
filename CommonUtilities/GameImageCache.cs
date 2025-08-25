@@ -382,6 +382,7 @@ namespace CommonUtilities
                     {
                         DebugLogger.LogDebug($"Image not found at {uri} (404) - will try fallback");
                         // Don't record 404 as a failure for tracking purposes
+                        success = true;
                         return new ImageResult(string.Empty, false);
                     }
                     else
