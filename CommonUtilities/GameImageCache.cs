@@ -47,7 +47,7 @@ namespace CommonUtilities
             ImageFailureTrackingService? failureTracker = null,
             int maxConcurrency = 4,
             TimeSpan? cacheDuration = null,
-            int maxConcurrentRequestsPerDomain = 4,
+            int maxConcurrentRequestsPerDomain = 2,
             int tokenBucketCapacity = 120,
             double fillRatePerSecond = 2,
             double? initialTokens = null)
