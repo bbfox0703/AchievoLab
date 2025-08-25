@@ -614,6 +614,7 @@ namespace MyOwnGames
                 var existingGamesData = await _dataService.LoadGamesWithLanguagesAsync();
                 var existingLocalizedNames = new Dictionary<int, string>();
                 var skipAppIds = new HashSet<int>();
+                var gamesMissingEnglishNames = new HashSet<int>();
 
                 // Process existing games on a background thread to avoid UI blocking
                 StatusText = $"Preparing existing game data ({existingGamesData.Count} entries)...";
@@ -621,6 +622,13 @@ namespace MyOwnGames
                 {
                     foreach (var game in existingGamesData)
                     {
+                        // Check if game is missing English name
+                        if (string.IsNullOrEmpty(game.NameEn))
+                        {
+                            gamesMissingEnglishNames.Add(game.AppId);
+                            AppendLog($"Game {game.AppId} missing English name, will force English data update");
+                        }
+
                         if (game.LocalizedNames != null && game.LocalizedNames.TryGetValue(selectedLanguage, out var name) &&
                             !string.IsNullOrEmpty(name))
                         {
@@ -632,6 +640,50 @@ namespace MyOwnGames
                         }
                     }
                 }, cancellationToken);
+
+                // If we're selecting non-English language but have games missing English names,
+                // we need to force English data update first
+                bool needsEnglishUpdate = selectedLanguage != "english" && 
+                                        (existingGamesData.Count == 0 || gamesMissingEnglishNames.Count > 0);
+                
+                if (needsEnglishUpdate)
+                {
+                    AppendLog($"Found {gamesMissingEnglishNames.Count} games missing English names. Forcing English data update first...");
+                    StatusText = "First updating English game names (required for localization)...";
+                    
+                    // Force English update first
+                    var englishTotal = await _steamService.GetOwnedGamesAsync(steamId64!, "english", async englishGame =>
+                    {
+                        // Always update English data for games missing it
+                        if (gamesMissingEnglishNames.Contains(englishGame.AppId) || existingGamesData.Count == 0)
+                        {
+                            await _dataService.AppendGameAsync(englishGame, steamId64!, apiKey!, "english");
+                            AppendLog($"Updated English data for {englishGame.AppId} - {englishGame.NameEn}");
+                        }
+                    }, progress, existingAppIds: null, existingLocalizedNames: null, cancellationToken);
+                    
+                    // Reload the games data after English update
+                    existingGamesData = await _dataService.LoadGamesWithLanguagesAsync();
+                    existingLocalizedNames.Clear();
+                    gamesMissingEnglishNames.Clear();
+                    
+                    // Reprocess the updated data
+                    await Task.Run(() =>
+                    {
+                        foreach (var game in existingGamesData)
+                        {
+                            if (game.LocalizedNames != null && game.LocalizedNames.TryGetValue(selectedLanguage, out var name) &&
+                                !string.IsNullOrEmpty(name))
+                            {
+                                existingLocalizedNames[game.AppId] = name;
+                                if (_imageService.HasImage(game.AppId, selectedLanguage))
+                                {
+                                    skipAppIds.Add(game.AppId);
+                                }
+                            }
+                        }
+                    }, cancellationToken);
+                }
                 StatusText = selectedLanguage == "english" 
                     ? "Scanning all games..."
                     : $"Scanning all games for {selectedLanguage} language data (this will be slower to avoid Steam API rate limits)...";
