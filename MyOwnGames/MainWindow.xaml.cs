@@ -53,7 +53,8 @@ namespace MyOwnGames
         private readonly object _imageLoadingLock = new();
         private readonly Dictionary<string, DateTime> _duplicateImageLogTimes = new();
 
-        private readonly string _defaultLanguage = GetDefaultLanguage();
+        private readonly string _detectedLanguage = GetDefaultLanguage();
+        private readonly string _defaultLanguage = "english"; // Always default to English for selection
 
         private readonly AppWindow _appWindow;
 
@@ -197,12 +198,37 @@ namespace MyOwnGames
                 return "english";
             return "english";
         }
+
+        private void ReorderLanguageOptions()
+        {
+            // Skip reordering if detected language is already "english" (already first in XAML)
+            if (_detectedLanguage == "english")
+                return;
+
+            // Find the detected language item
+            var detectedItem = LanguageComboBox.Items
+                .OfType<ComboBoxItem>()
+                .FirstOrDefault(i => string.Equals(i.Content?.ToString(), _detectedLanguage, StringComparison.OrdinalIgnoreCase));
+
+            if (detectedItem != null)
+            {
+                // Remove it from current position
+                LanguageComboBox.Items.Remove(detectedItem);
+                // Insert at the beginning (position 0)
+                LanguageComboBox.Items.Insert(0, detectedItem);
+                AppendLog($"Moved detected language '{_detectedLanguage}' to first position, but defaulting to English");
+            }
+        }
         public MainWindow()
         {
             InitializeComponent();
             this.ExtendsContentIntoTitleBar = true;
             this.AppWindow.Title = "My Own Steam Games";
 
+            // Rearrange language options: move detected OS language to first position
+            ReorderLanguageOptions();
+
+            // Set default selection to English
             var defaultItem = LanguageComboBox.Items
                 .OfType<ComboBoxItem>()
                 .FirstOrDefault(i => string.Equals(i.Content?.ToString(), _defaultLanguage, StringComparison.OrdinalIgnoreCase));
