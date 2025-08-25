@@ -588,17 +588,25 @@ namespace MyOwnGames
                 var existingGamesData = await _dataService.LoadGamesWithLanguagesAsync();
                 var existingLocalizedNames = new Dictionary<int, string>();
                 var skipAppIds = new HashSet<int>();
-                foreach (var game in existingGamesData)
+
+                // Process existing games on a background thread to avoid UI blocking
+                StatusText = $"Preparing existing game data ({existingGamesData.Count} entries)...";
+                await Task.Run(() =>
                 {
-                    if (game.LocalizedNames != null && game.LocalizedNames.TryGetValue(selectedLanguage, out var name) && !string.IsNullOrEmpty(name))
+                    foreach (var game in existingGamesData)
                     {
-                        existingLocalizedNames[game.AppId] = name;
-                        if (_imageService.HasImage(game.AppId, selectedLanguage))
+                        if (game.LocalizedNames != null && game.LocalizedNames.TryGetValue(selectedLanguage, out var name) &&
+                            !string.IsNullOrEmpty(name))
                         {
-                            skipAppIds.Add(game.AppId);
+                            existingLocalizedNames[game.AppId] = name;
+                            if (_imageService.HasImage(game.AppId, selectedLanguage))
+                            {
+                                skipAppIds.Add(game.AppId);
+                            }
                         }
                     }
-                }
+                }, cancellationToken);
+                StatusText = $"Scanning all games for {selectedLanguage} language data...";
 
                 // Use real Steam API service with selected language
                 _steamService = new SteamApiService(apiKey!);
