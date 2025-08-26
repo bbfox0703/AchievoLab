@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 using CommonUtilities;
@@ -18,7 +19,7 @@ public class GameImageServiceTests
         var oldTime = DateTime.Now.AddDays(-1);
         setupTracker.RecordFailedDownload(appId, "english", failedAt: oldTime);
 
-        var service = new SharedImageService();
+        var service = new SharedImageService(new HttpClient(), disposeHttpClient: true);
         var cacheField = typeof(SharedImageService).GetField("_imageCache", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
         var dict = (Dictionary<string, string>)cacheField!.GetValue(service)!;
         var cacheKey = $"{appId}_english";
@@ -56,7 +57,7 @@ public class GameImageServiceTests
         cleanupTracker.RemoveFailedRecord(appId, "english");
         cleanupTracker.RemoveFailedRecord(appId, "german");
 
-        var service = new SharedImageService();
+        var service = new SharedImageService(new HttpClient(), disposeHttpClient: true);
         int eventCount = 0;
         service.ImageDownloadCompleted += (_, _) => eventCount++;
 
