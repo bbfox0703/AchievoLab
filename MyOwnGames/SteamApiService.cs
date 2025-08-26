@@ -1,9 +1,8 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.Net.Http;
 using System.Text.Json;
-using System.Text.Json.Serialization.Metadata;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Globalization;
@@ -21,11 +20,8 @@ namespace MyOwnGames
         private readonly bool _disposeHttpClient;
         private bool _disposed;
 
-        private static readonly JsonSerializerOptions JsonOptions = new()
-        {
-            PropertyNameCaseInsensitive = true,
-            TypeInfoResolver = new DefaultJsonTypeInfoResolver()
-        };
+        private static readonly JsonSerializerOptions JsonOptions =
+            new() { TypeInfoResolver = SteamApiJsonContext.Default };
 
         public SteamApiService(string apiKey)
             : this(apiKey, HttpClientProvider.Shared, false, null, null)
@@ -200,16 +196,14 @@ namespace MyOwnGames
             return $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/header_{language}.jpg";
         }
 
-        [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "The types used in JSON deserialization are explicitly referenced and won't be trimmed")]
         private static OwnedGamesResponse? DeserializeOwnedGamesResponse(string json)
         {
-            return JsonSerializer.Deserialize<OwnedGamesResponse>(json, JsonOptions);
+            return JsonSerializer.Deserialize(json, SteamApiJsonContext.Default.OwnedGamesResponse);
         }
 
-        [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "The types used in JSON deserialization are explicitly referenced and won't be trimmed")]
         private static Dictionary<string, AppDetailsResponse>? DeserializeAppDetailsResponse(string json)
         {
-            return JsonSerializer.Deserialize<Dictionary<string, AppDetailsResponse>>(json, JsonOptions);
+            return JsonSerializer.Deserialize(json, SteamApiJsonContext.Default.DictionaryStringAppDetailsResponse);
         }
 
         public void Dispose()
