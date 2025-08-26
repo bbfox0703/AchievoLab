@@ -42,7 +42,7 @@ namespace CommonUtilities
             }
         }
 
-        public async Task SetLanguage(string language)
+        public Task SetLanguage(string language)
         {
             if (_currentLanguage != language)
             {
@@ -66,6 +66,7 @@ namespace CommonUtilities
                 _cts = new CancellationTokenSource();
                 _currentLanguage = language;
             }
+            return Task.CompletedTask;
         }
 
         public string GetCurrentLanguage() => _currentLanguage;
