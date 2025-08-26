@@ -25,10 +25,10 @@ namespace CommonUtilities
 
         public event Action<int, string?>? ImageDownloadCompleted;
 
-        public SharedImageService(HttpClient? httpClient = null, GameImageCache? cache = null, bool disposeHttpClient = false)
+        public SharedImageService(HttpClient httpClient, GameImageCache? cache = null, bool disposeHttpClient = false)
         {
-            _httpClient = httpClient ?? HttpClientProvider.Shared;
-            _disposeHttpClient = disposeHttpClient && httpClient != null;
+            _httpClient = httpClient;
+            _disposeHttpClient = disposeHttpClient;
 
             if (cache != null)
             {

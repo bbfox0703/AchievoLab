@@ -16,6 +16,7 @@ using System.ComponentModel;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Threading;
@@ -41,7 +42,8 @@ namespace MyOwnGames
         public ObservableCollection<GameEntry> GameItems { get; } = new();
         private List<GameEntry> AllGameItems { get; } = new();
         public ObservableCollection<string> LogEntries { get; } = new();
-        private readonly SharedImageService _imageService = new();
+        private readonly HttpClient _imageHttpClient = new();
+        private readonly SharedImageService _imageService;
         private readonly GameDataService _dataService = new();
         private readonly Action<string> _logHandler;
         private SteamApiService? _steamService;
@@ -221,6 +223,7 @@ namespace MyOwnGames
         }
         public MainWindow()
         {
+            _imageService = new SharedImageService(_imageHttpClient);
             InitializeComponent();
             this.ExtendsContentIntoTitleBar = true;
             this.AppWindow.Title = "My Own Steam Games";
@@ -1159,6 +1162,7 @@ namespace MyOwnGames
                     _imageService.ImageDownloadCompleted -= OnImageDownloadCompleted;
                     _imageService.Dispose();
                 }
+                _imageHttpClient.Dispose();
             }
             catch (Exception ex)
             {

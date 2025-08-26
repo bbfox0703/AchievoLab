@@ -40,7 +40,8 @@ namespace AnSAM
         private readonly List<GameItem> _allGames = new();
         private readonly SteamClient _steamClient;
         private readonly AppWindow _appWindow;
-        private readonly SharedImageService _imageService = new();
+        private readonly HttpClient _imageHttpClient = new();
+        private readonly SharedImageService _imageService;
         private string _currentLanguage = "english";
 
         private bool _autoLoaded;
@@ -51,6 +52,7 @@ namespace AnSAM
         public MainWindow(SteamClient steamClient, ElementTheme theme)
         {
             _steamClient = steamClient;
+            _imageService = new SharedImageService(_imageHttpClient);
             InitializeComponent();
 
             _uiSettings.ColorValuesChanged += UiSettings_ColorValuesChanged;
@@ -368,6 +370,7 @@ namespace AnSAM
             _uiSettings.ColorValuesChanged -= UiSettings_ColorValuesChanged;
             Activated -= OnWindowActivated;
             _imageService.Dispose();
+            _imageHttpClient.Dispose();
 
             if (Content is FrameworkElement root)
             {

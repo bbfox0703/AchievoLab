@@ -101,7 +101,7 @@ public class GameCacheServiceTests
             var pngData = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg==");
             File.WriteAllBytes(cachedImagePath, pngData);
 
-            var service = new SharedImageService();
+            var service = new SharedImageService(new HttpClient(), disposeHttpClient: true);
             var path = await service.GetGameImageAsync(570);
             Assert.Equal(cachedImagePath, path);
             service.Dispose();
