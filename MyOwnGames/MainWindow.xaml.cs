@@ -1284,12 +1284,17 @@ namespace MyOwnGames
 
                 AppendLog($"Found {visibleItems.Count} visible games, {hiddenItems.Count} hidden games");
 
-                // 2. 清空所有隱藏項目的圖片（設置為預設圖片）
+                // 2. 清空所有隱藏項目的圖片（設置為預設圖片）並移除成功載入記錄
                 this.DispatcherQueue.TryEnqueue(() =>
                 {
                     foreach (var hiddenItem in hiddenItems)
                     {
                         hiddenItem.IconUri = "ms-appx:///Assets/no_icon.png";
+                        var key = $"{hiddenItem.AppId}_{newLanguage}";
+                        lock (_imageLoadingLock)
+                        {
+                            _imagesSuccessfullyLoaded.Remove(key);
+                        }
                     }
                 });
 
