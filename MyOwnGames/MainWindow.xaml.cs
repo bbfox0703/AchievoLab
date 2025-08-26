@@ -740,20 +740,6 @@ namespace MyOwnGames
                     ? "Scanning all games..."
                     : $"Scanning all games for {selectedLanguage} language data (this will be slower to avoid Steam API rate limits)...";
 
-                // Preload cached images for games we'll skip so they display during the API scan
-                AppendLog($"Preloading cached images for {skipAppIds.Count} skipped games...");
-                foreach (var appId in skipAppIds)
-                {
-                    if (_imageService.IsImageCached(appId, selectedLanguage))
-                    {
-                        var entry = AllGameItems.FirstOrDefault(g => g.AppId == appId);
-                        if (entry != null)
-                        {
-                            _ = LoadGameImageAsync(entry, appId, selectedLanguage, forceImmediate: true);
-                        }
-                    }
-                }
-
                 // Use real Steam API service with selected language
                 _steamService = new SteamApiService(apiKey!);
                 var total = await _steamService.GetOwnedGamesAsync(steamId64!, selectedLanguage, async game =>
@@ -778,9 +764,6 @@ namespace MyOwnGames
                         existingEntry.CurrentLanguage = selectedLanguage; // Update display language
                         
                         AppendLog($"Updated UI entry: {game.AppId} - {game.NameEn}");
-
-                        // Reload image for current language if needed (use cache when available)
-                        _ = LoadGameImageAsync(existingEntry, game.AppId, selectedLanguage, forceImmediate: true);
                     }
                     else
                     {
@@ -799,9 +782,6 @@ namespace MyOwnGames
                         GameItems.Add(newEntry);
                         AllGameItems.Add(newEntry);
                         AppendLog($"Added new game: {game.AppId} - {game.NameEn} ({selectedLanguage})");
-
-                        // Load image asynchronously for current language (from cache or download)
-                        _ = LoadGameImageAsync(newEntry, game.AppId, selectedLanguage, forceImmediate: true);
                     }
 
                     if (!shouldSkip)
@@ -831,9 +811,6 @@ namespace MyOwnGames
                                 // Update existing UI entry for current language
                                 existingEntry.SetLocalizedName(selectedLanguage, localizedName);
                                 existingEntry.CurrentLanguage = selectedLanguage;
-                                
-                                // Load cached image if available for current language
-                                _ = LoadGameImageAsync(existingEntry, skippedAppId, selectedLanguage, forceImmediate: true);
                                 AppendLog($"Updated existing UI entry for game {skippedAppId} ({selectedLanguage})");
                             }
                             else
@@ -851,9 +828,7 @@ namespace MyOwnGames
 
                                 GameItems.Add(newEntry);
                                 AllGameItems.Add(newEntry);
-                                
-                                // Load cached image if available for current language
-                                _ = LoadGameImageAsync(newEntry, skippedAppId, selectedLanguage, forceImmediate: true);
+
                                 AppendLog($"Added UI entry for skipped game {skippedAppId} ({selectedLanguage})");
                             }
                         }
@@ -1031,6 +1006,24 @@ namespace MyOwnGames
                     // Launch RunGame with the selected game ID
                     LaunchRunGame(gameEntry.AppId);
                 }
+            }
+        }
+
+        private void GamesGridView_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs e)
+        {
+            if (e.InRecycleQueue)
+                return;
+
+            if (e.Phase == 0)
+            {
+                e.RegisterUpdateCallback(GamesGridView_ContainerContentChanging);
+                e.Handled = true;
+            }
+            else if (e.Phase == 1 && e.Item is GameEntry entry)
+            {
+                var language = entry.CurrentLanguage ?? _imageService.GetCurrentLanguage();
+                bool isCached = _imageService.IsImageCached(entry.AppId, language);
+                _ = LoadGameImageAsync(entry, entry.AppId, language, forceImmediate: isCached);
             }
         }
 

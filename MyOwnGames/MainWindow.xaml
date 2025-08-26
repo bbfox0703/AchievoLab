@@ -136,6 +136,7 @@
                   IsItemClickEnabled="False"
                   IsTabStop="False"
                   DoubleTapped="GamesGridView_DoubleTapped"
+                  ContainerContentChanging="GamesGridView_ContainerContentChanging"
                   ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                   ScrollViewer.HorizontalScrollMode="Disabled">
             
