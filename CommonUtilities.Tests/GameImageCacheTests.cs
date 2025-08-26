@@ -627,11 +627,15 @@ public class GameImageCacheTests : IDisposable
         var rateLimiter = rateLimiterField.GetValue(cache)!;
         var extraField = rateLimiter.GetType().GetField("_domainExtraDelay", BindingFlags.NonPublic | BindingFlags.Instance)!;
         var dict = (System.Collections.IDictionary)extraField.GetValue(rateLimiter)!;
-        Assert.True(((TimeSpan)dict[uri.Host]) >= TimeSpan.FromMilliseconds(100));
+        Assert.True(dict.Contains(uri.Host));
+        var delay = (TimeSpan)dict[uri.Host]!;
+        Assert.True(delay >= TimeSpan.FromMilliseconds(100));
 
         await cache.GetImagePathAsync("b", uri, "english");
         dict = (System.Collections.IDictionary)extraField.GetValue(rateLimiter)!;
-        Assert.True(((TimeSpan)dict[uri.Host]) >= TimeSpan.FromMilliseconds(200));
+        Assert.True(dict.Contains(uri.Host));
+        delay = (TimeSpan)dict[uri.Host]!;
+        Assert.True(delay >= TimeSpan.FromMilliseconds(200));
 
         var sw = Stopwatch.StartNew();
         await cache.GetImagePathAsync("c", uri, "english");
