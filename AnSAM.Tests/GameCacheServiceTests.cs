@@ -89,7 +89,8 @@ public class GameCacheServiceTests
             var userGamesPath = Path.Combine(cacheDir, "usergames.xml");
             var doc = XDocument.Load(userGamesPath);
             var ids = doc.Root?.Elements("game").Select(g => (int?)g.Attribute("id")).Where(i => i.HasValue).Select(i => i!.Value).ToArray();
-            Assert.Contains(570, ids);
+            Assert.NotNull(ids);
+            Assert.Contains(570, ids!);
 
             var tracker = new ImageFailureTrackingService();
             tracker.RemoveFailedRecord(570, "english");
