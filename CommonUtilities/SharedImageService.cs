@@ -7,7 +7,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Text.Json.Serialization.Metadata;
 using System.Linq;
 
 namespace CommonUtilities
@@ -24,11 +23,8 @@ namespace CommonUtilities
         private CancellationTokenSource _cts = new();
         private string _currentLanguage = "english";
 
-        private static readonly JsonSerializerOptions JsonOptions = new()
-        {
-            PropertyNameCaseInsensitive = true,
-            TypeInfoResolver = new DefaultJsonTypeInfoResolver()
-        };
+        private static readonly JsonSerializerOptions JsonOptions =
+            new() { TypeInfoResolver = StoreApiJsonContext.Default };
 
         public event Action<int, string?>? ImageDownloadCompleted;
 
@@ -288,7 +284,7 @@ namespace CommonUtilities
                 }
 
                 var jsonContent = await response.Content.ReadAsStringAsync();
-                var storeData = JsonSerializer.Deserialize<Dictionary<string, StoreApiResponse>>(jsonContent, JsonOptions);
+                var storeData = JsonSerializer.Deserialize(jsonContent, StoreApiJsonContext.Default.DictionaryStringStoreApiResponse);
 
                 if (storeData != null && storeData.TryGetValue(appId.ToString(), out var app) && app.Success)
                 {
@@ -393,7 +389,10 @@ namespace CommonUtilities
 
     internal class StoreApiResponse
     {
+        [JsonPropertyName("success")]
         public bool Success { get; set; }
+
+        [JsonPropertyName("data")]
         public StoreApiData? Data { get; set; }
     }
 
