@@ -798,7 +798,7 @@ public class GameImageCacheTests : IDisposable
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            if (request.RequestUri.Host.EndsWith("steamstatic.com", StringComparison.OrdinalIgnoreCase))
+            if (request.RequestUri != null && request.RequestUri.Host.EndsWith("steamstatic.com", StringComparison.OrdinalIgnoreCase))
             {
                 var data = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0, 0, 0, 0 };
                 var response = new HttpResponseMessage(HttpStatusCode.OK)
