@@ -1415,27 +1415,28 @@ namespace MyOwnGames
 
         private void GamesGridView_ViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
         {
-            if (_isLoading || sender is not ScrollViewer scrollViewer)
+            if (sender is not ScrollViewer scrollViewer)
                 return;
 
             try
             {
                 // 獲取當前語言
                 var currentLanguage = _imageService?.GetCurrentLanguage() ?? "english";
-                
+
                 // 找出新進入可見範圍的項目
                 var visibleItems = GetCurrentlyVisibleItems(scrollViewer);
-                
+
                 // 只載入那些圖片為預設圖片（即之前被清空）的項目
-                var itemsNeedingImages = visibleItems.Where(item => 
+                var itemsNeedingImages = visibleItems.Where(item =>
                     item.IconUri == "ms-appx:///Assets/no_icon.png").ToList();
 
                 if (itemsNeedingImages.Any())
                 {
                     // 小批次載入，避免影響滾動性能
+                    bool skipDownloads = _isLoading;
                     _ = Task.Run(async () =>
                     {
-                        await LoadOnDemandImages(itemsNeedingImages, currentLanguage);
+                        await LoadOnDemandImages(itemsNeedingImages, currentLanguage, skipDownloads);
                     });
                 }
             }
@@ -1469,12 +1470,12 @@ namespace MyOwnGames
             return visibleItems;
         }
 
-        private async Task LoadOnDemandImages(List<GameEntry> items, string language)
+        private async Task LoadOnDemandImages(List<GameEntry> items, string language, bool skipNetworkDownloads = false)
         {
             // First, load all cached images immediately without delay
             var cachedItems = new List<GameEntry>();
             var nonCachedItems = new List<GameEntry>();
-            
+
             foreach (var item in items)
             {
                 if (_imageService.IsImageCached(item.AppId, language))
@@ -1486,21 +1487,24 @@ namespace MyOwnGames
                     nonCachedItems.Add(item);
                 }
             }
-            
+
             // Load cached images immediately without batching or delay
             if (cachedItems.Count > 0)
             {
                 var cachedTasks = cachedItems.Select(entry => LoadGameImageAsync(entry, entry.AppId, language));
                 await Task.WhenAll(cachedTasks);
             }
-            
+
+            if (skipNetworkDownloads)
+                return;
+
             // Then batch process non-cached items with longer delay (background loading)
             const int batchSize = 2;
             for (int i = 0; i < nonCachedItems.Count; i += batchSize)
             {
                 var batch = nonCachedItems.Skip(i).Take(batchSize);
                 var tasks = batch.Select(entry => LoadGameImageAsync(entry, entry.AppId, language));
-                
+
                 await Task.WhenAll(tasks);
                 await Task.Delay(100); // 較長延遲，避免影響滾動
             }
