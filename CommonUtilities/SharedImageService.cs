@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using System.Linq;
 
 namespace CommonUtilities
@@ -22,6 +23,12 @@ namespace CommonUtilities
         private readonly object _eventLock = new();
         private CancellationTokenSource _cts = new();
         private string _currentLanguage = "english";
+
+        private static readonly JsonSerializerOptions JsonOptions = new()
+        {
+            PropertyNameCaseInsensitive = true,
+            TypeInfoResolver = new DefaultJsonTypeInfoResolver()
+        };
 
         public event Action<int, string?>? ImageDownloadCompleted;
 
@@ -281,8 +288,7 @@ namespace CommonUtilities
                 }
 
                 var jsonContent = await response.Content.ReadAsStringAsync();
-                var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                var storeData = JsonSerializer.Deserialize<Dictionary<string, StoreApiResponse>>(jsonContent, options);
+                var storeData = JsonSerializer.Deserialize<Dictionary<string, StoreApiResponse>>(jsonContent, JsonOptions);
 
                 if (storeData != null && storeData.TryGetValue(appId.ToString(), out var app) && app.Success)
                 {
