@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Net.Http;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Globalization;
@@ -19,6 +20,12 @@ namespace MyOwnGames
         private readonly RateLimiterService _steamRateLimiter;
         private readonly bool _disposeHttpClient;
         private bool _disposed;
+
+        private static readonly JsonSerializerOptions JsonOptions = new()
+        {
+            PropertyNameCaseInsensitive = true,
+            TypeInfoResolver = new DefaultJsonTypeInfoResolver()
+        };
 
         public SteamApiService(string apiKey)
             : this(apiKey, HttpClientProvider.Shared, false, null, null)
@@ -196,13 +203,13 @@ namespace MyOwnGames
         [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "The types used in JSON deserialization are explicitly referenced and won't be trimmed")]
         private static OwnedGamesResponse? DeserializeOwnedGamesResponse(string json)
         {
-            return JsonSerializer.Deserialize<OwnedGamesResponse>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            return JsonSerializer.Deserialize<OwnedGamesResponse>(json, JsonOptions);
         }
 
         [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "The types used in JSON deserialization are explicitly referenced and won't be trimmed")]
         private static Dictionary<string, AppDetailsResponse>? DeserializeAppDetailsResponse(string json)
         {
-            return JsonSerializer.Deserialize<Dictionary<string, AppDetailsResponse>>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            return JsonSerializer.Deserialize<Dictionary<string, AppDetailsResponse>>(json, JsonOptions);
         }
 
         public void Dispose()
