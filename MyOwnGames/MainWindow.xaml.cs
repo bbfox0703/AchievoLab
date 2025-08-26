@@ -704,8 +704,9 @@ namespace MyOwnGames
                 {
                     AppendLog($"Found {gamesMissingEnglishNames.Count} games missing English names. Forcing English data update first...");
                     StatusText = "First updating English game names (required for localization)...";
-                    
+
                     // Force English update first
+                    ArgumentNullException.ThrowIfNull(_steamService);
                     var englishTotal = await _steamService.GetOwnedGamesAsync(steamId64!, "english", async englishGame =>
                     {
                         // Always update English data for games missing it
