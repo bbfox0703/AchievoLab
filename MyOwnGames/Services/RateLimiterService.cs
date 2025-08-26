@@ -81,7 +81,8 @@ namespace MyOwnGames.Services
                     .AddEnvironmentVariables()
                     .Build();
                 var section = config.GetSection("RateLimiter");
-                section.Bind(options);
+                var bound = section.Get<RateLimiterOptions>();
+                if (bound != null) options = bound;
             }
             catch
             {
