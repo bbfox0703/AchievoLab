@@ -15,7 +15,7 @@ public class DomainRateLimiterTests
         var limiter = Activator.CreateInstance(type, new object[] { 1, 60d, 1d, 60d, TimeSpan.FromMilliseconds(200), 0d })!;
         var uri = new Uri("http://example.com");
         var recordCall = type.GetMethod("RecordCall")!;
-        recordCall.Invoke(limiter, new object[] { uri, true, null });
+        recordCall.Invoke(limiter, new object?[] { uri, true, null });
 
         var waitMethod = type.GetMethod("WaitAsync", new[] { typeof(Uri), typeof(CancellationToken) })!;
 
@@ -31,7 +31,7 @@ public class DomainRateLimiterTests
         sw2.Stop();
         Assert.InRange(sw2.ElapsedMilliseconds, 100, 500);
 
-        recordCall.Invoke(limiter, new object[] { uri, true, null });
+        recordCall.Invoke(limiter, new object?[] { uri, true, null });
     }
 
     [Fact]
@@ -57,7 +57,7 @@ public class DomainRateLimiterTests
         Assert.InRange(sw2.ElapsedMilliseconds, 0, 150);
 
         var recordCall = type.GetMethod("RecordCall")!;
-        recordCall.Invoke(limiter, new object[] { uri, true, null });
+        recordCall.Invoke(limiter, new object?[] { uri, true, null });
     }
 
     [Fact]
@@ -70,7 +70,7 @@ public class DomainRateLimiterTests
 
         for (int i = 0; i < 5; i++)
         {
-            recordCall.Invoke(limiter, new object[] { uri, false, null });
+            recordCall.Invoke(limiter, new object?[] { uri, false, null });
         }
 
         var field = type.GetField("_domainExtraDelay", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
