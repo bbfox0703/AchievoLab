@@ -872,15 +872,42 @@ namespace AnSAM
                 if (_coverPath != value)
                 {
                     _coverPath = value;
+                    _coverImage = null;
                     PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(CoverPath)));
                     PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(CoverImage)));
                 }
             }
         }
 
-        public ImageSource? CoverImage => _coverPath != null ? new BitmapImage(_coverPath) : null;
+        public ImageSource? CoverImage
+        {
+            get
+            {
+                if (_coverImage != null)
+                {
+                    return _coverImage;
+                }
+
+                if (_coverPath == null)
+                {
+                    return null;
+                }
+
+                try
+                {
+                    _coverImage = new BitmapImage(_coverPath);
+                }
+                catch
+                {
+                    _coverImage = null;
+                }
+
+                return _coverImage;
+            }
+        }
 
         private Uri? _coverPath;
+        private BitmapImage? _coverImage;
 
         public string? ExePath { get; set; }
         public string? Arguments { get; set; }
