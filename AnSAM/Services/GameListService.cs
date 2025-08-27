@@ -11,7 +11,7 @@ using CommonUtilities;
 namespace AnSAM.Services
 {
     /// <summary>
-    /// Downloads and caches the global game list used by SAM.
+    /// Downloads and caches the global game list.
     /// </summary>
     public static class GameListService
     {
@@ -31,7 +31,7 @@ namespace AnSAM.Services
         public static event Action<string>? StatusChanged;
 
         /// <summary>
-        /// Represents a parsed game entry from the SAM game list.
+        /// Represents a parsed game entry from the downloaded game list.
         /// </summary>
         public readonly record struct GameInfo(int Id, string Name, string Type);
 
@@ -140,6 +140,9 @@ namespace AnSAM.Services
             return data;
         }
 
+        /// <summary>
+        /// Falls back to a cached game list if the download fails.
+        /// </summary>
         private static byte[] HandleDownloadFailure(string cachePath, Exception ex)
         {
             if (File.Exists(cachePath))
@@ -189,6 +192,9 @@ namespace AnSAM.Services
             }
         }
 
+        /// <summary>
+        /// Determines whether a cached game list exists and is within the freshness window.
+        /// </summary>
         private static bool TryGetValidCache(string cachePath, out byte[] data)
         {
             data = Array.Empty<byte>();
@@ -207,6 +213,9 @@ namespace AnSAM.Services
             return true;
         }
 
+        /// <summary>
+        /// Validates the XML game list and populates <see cref="Games"/>.
+        /// </summary>
         private static void ValidateAndParse(byte[] data)
         {
             using var ms = new MemoryStream(data);
@@ -259,8 +268,14 @@ namespace AnSAM.Services
 #endif
         }
 
+        /// <summary>
+        /// Raises the <see cref="ProgressChanged"/> event.
+        /// </summary>
         private static void ReportProgress(double value) => ProgressChanged?.Invoke(value);
 
+        /// <summary>
+        /// Raises the <see cref="StatusChanged"/> event.
+        /// </summary>
         private static void ReportStatus(string message) => StatusChanged?.Invoke(message);
     }
 

@@ -221,6 +221,9 @@ namespace AnSAM.Steam
         }
 
 
+        /// <summary>
+        /// Creates a local Steam user for the given account type.
+        /// </summary>
         public int CreateLocalUser(ref int pipe, AccountType type)
         {
             if (!Initialized)
@@ -242,6 +245,9 @@ namespace AnSAM.Steam
             return _createLocalUser(_client, ref pipe, type);
         }
 
+        /// <summary>
+        /// Sets the local IP binding for the Steam client.
+        /// </summary>
         public void SetLocalIPBinding(uint host, ushort port)
         {
             if (!Initialized)
@@ -263,6 +269,9 @@ namespace AnSAM.Steam
             _setLocalIPBinding(_client, host, port);
         }
 
+        /// <summary>
+        /// Consumes pending Steam callbacks to keep the client responsive.
+        /// </summary>
         private void PumpCallbacks()
         {
             while (Steam_BGetCallback(_pipe, out var msg, out _))
@@ -289,6 +298,9 @@ namespace AnSAM.Steam
             }
         }
 
+        /// <summary>
+        /// Resolves the path to steamclient64.dll when the native library loader requests it.
+        /// </summary>
         private static IntPtr ResolveSteamClient(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
         {
             if (!libraryName.Equals("steamclient64", StringComparison.OrdinalIgnoreCase))
@@ -322,6 +334,9 @@ namespace AnSAM.Steam
                 Native.LoadLibrarySearchDefaultDirs | Native.LoadLibrarySearchUserDirs);
         }
 
+        /// <summary>
+        /// Attempts to locate the Steam installation directory via the registry.
+        /// </summary>
         private static string? GetSteamPath()
         {
             const string subKey = @"Software\\Valve\\Steam";
