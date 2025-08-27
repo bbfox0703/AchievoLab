@@ -42,9 +42,9 @@ winget install Microsoft.DotNet.DesktopRuntime.8 Microsoft.WindowsAppSDK.1.7
 ## Screenshots
 
 ### AnSAM
-<img src="./docs/images/AnSAM_Eng.png" alt="English titles/images" width="400"/>  
-<img src="./docs/images/AnSAM_Cht.png" alt="TChinese titles/images" width="400"/>  
-<img src="./docs/images/AnSAM_Jpn.png" alt="Japanese titles/images" width="400"/>  
+<img src="./docs/images/AnSAM_Eng.png" alt="English titles/images"/>  
+<img src="./docs/images/AnSAM_Cht.png" alt="TChinese titles/images"/>  
+<img src="./docs/images/AnSAM_Jpn.png" alt="Japanese titles/images"/>  
 
 ## Using *MyOwnGames*
 1. Obtain a Steam API key from [Steam Developer](https://steamcommunity.com/dev/apikey).  
