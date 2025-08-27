@@ -81,7 +81,12 @@ namespace MyOwnGames.Services
                     .AddEnvironmentVariables()
                     .Build();
                 var section = config.GetSection("RateLimiter");
-                options = section.Get<RateLimiterOptions>() ?? new RateLimiterOptions();
+                options.MaxCallsPerMinute = section.GetValue<int>(nameof(RateLimiterOptions.MaxCallsPerMinute), options.MaxCallsPerMinute);
+                options.JitterMinSeconds = section.GetValue<double>(nameof(RateLimiterOptions.JitterMinSeconds), options.JitterMinSeconds);
+                options.JitterMaxSeconds = section.GetValue<double>(nameof(RateLimiterOptions.JitterMaxSeconds), options.JitterMaxSeconds);
+                options.SteamMaxCallsPerMinute = section.GetValue<int>(nameof(RateLimiterOptions.SteamMaxCallsPerMinute), options.SteamMaxCallsPerMinute);
+                options.SteamJitterMinSeconds = section.GetValue<double>(nameof(RateLimiterOptions.SteamJitterMinSeconds), options.SteamJitterMinSeconds);
+                options.SteamJitterMaxSeconds = section.GetValue<double>(nameof(RateLimiterOptions.SteamJitterMaxSeconds), options.SteamJitterMaxSeconds);
             }
             catch
             {
