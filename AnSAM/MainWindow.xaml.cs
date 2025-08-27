@@ -42,6 +42,7 @@ namespace AnSAM
         private readonly AppWindow _appWindow;
         private readonly HttpClient _imageHttpClient = new();
         private readonly SharedImageService _imageService;
+        private readonly DispatcherQueue _dispatcher;
         private string _currentLanguage = "english";
 
         private bool _autoLoaded;
@@ -54,6 +55,7 @@ namespace AnSAM
             _steamClient = steamClient;
             _imageService = new SharedImageService(_imageHttpClient);
             InitializeComponent();
+            _dispatcher = DispatcherQueue;
 
             _uiSettings.ColorValuesChanged += UiSettings_ColorValuesChanged;
 
@@ -520,7 +522,7 @@ namespace AnSAM
                 var allGames = new List<GameItem>();
                 foreach (var app in apps)
                 {
-                    allGames.Add(GameItem.FromSteamApp(app));
+                    allGames.Add(GameItem.FromSteamApp(app, _dispatcher));
                 }
 
                 allGames.Sort((a, b) => string.Compare(a.Title, b.Title, StringComparison.OrdinalIgnoreCase));
@@ -885,6 +887,7 @@ namespace AnSAM
         public string? UriScheme { get; set; }
         public bool IsSamGameAvailable => GameLauncher.IsSamGameAvailable;
 
+        private readonly DispatcherQueue _dispatcher;
         private bool _coverLoading;
         public bool IsCoverLoading => _coverLoading;
 
@@ -892,6 +895,7 @@ namespace AnSAM
 
         public GameItem(string title,
                          int id,
+                         DispatcherQueue dispatcher,
                          Uri? coverPath = null,
                          string? exePath = null,
                          string? arguments = null,
@@ -900,6 +904,7 @@ namespace AnSAM
             EnglishTitle = title; // Store original English title
             _displayTitle = title; // Initialize display title
             ID = id;
+            _dispatcher = dispatcher;
             CoverPath = coverPath;
             ExePath = exePath;
             Arguments = arguments;
@@ -935,7 +940,6 @@ namespace AnSAM
             }
 
             _coverLoading = true;
-            var dispatcher = DispatcherQueue.GetForCurrentThread();
             var coverAssigned = false;
 
             try
@@ -946,11 +950,7 @@ namespace AnSAM
                 if (!string.IsNullOrEmpty(path) && Uri.TryCreate(path, UriKind.Absolute, out var localUri))
                 {
                     coverAssigned = true;
-                    if (dispatcher != null)
-                    {
-                        _ = dispatcher.TryEnqueue(() => CoverPath = localUri);
-                    }
-                    else
+                    if (!_dispatcher.TryEnqueue(() => CoverPath = localUri))
                     {
                         CoverPath = localUri;
                     }
@@ -967,11 +967,7 @@ namespace AnSAM
                 if (!coverAssigned && CoverPath == null)
                 {
                     var fallback = new Uri("ms-appx:///Assets/no_icon.png", UriKind.Absolute);
-                    if (dispatcher != null)
-                    {
-                        _ = dispatcher.TryEnqueue(() => CoverPath = fallback);
-                    }
-                    else
+                    if (!_dispatcher.TryEnqueue(() => CoverPath = fallback))
                     {
                         CoverPath = fallback;
                     }
@@ -981,13 +977,14 @@ namespace AnSAM
             }
         }
 
-        public static GameItem FromSteamApp(SteamAppData app)
+        public static GameItem FromSteamApp(SteamAppData app, DispatcherQueue dispatcher)
         {
 #if DEBUG
             DebugLogger.LogDebug($"Creating GameItem for {app.AppId} - {app.Title}");
 #endif
             return new GameItem(app.Title,
                                 app.AppId,
+                                dispatcher,
                                 null,
                                 app.ExePath,
                                 app.Arguments,
