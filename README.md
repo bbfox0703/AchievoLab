@@ -10,6 +10,7 @@ A 64-bit Steam achievement management GUI built with WinUI 3 and .NET 8, compati
 - Fetches, caches, and reuses cover icons for games.
 - Allows launching games directly from the GUI via right-click context menu.
 - Retrieves your owned game list and localized game titles (if available) through the Steam Web API.
+- Multi-language support for game title / image, if present.
 
 ## Technical Notes
 - Built with .NET 8 and the Windows App SDK (WinUI 3).
@@ -37,6 +38,13 @@ winget install Microsoft.DotNet.DesktopRuntime.8 Microsoft.WindowsAppSDK.1.7
 3. **./MyOwnGames/MyOwnGames.exe**
    Retrieves your owned game data from the Steam Web API.
    ⚠️ Note: This process may take some time. The Steam API may temporarily block your key if requests are made too frequently.
+
+## Screenshots
+
+### AnSAM
+<img src="./docs/images/AnSAM_Eng.png" alt="English titles/images" width="400"/>  
+<img src="./docs/images/AnSAM_Cht.png" alt="TChinese titles/images" width="400"/>  
+<img src="./docs/images/AnSAM_Jpn.png" alt="Japanese titles/images" width="400"/>  
 
 ## Using *MyOwnGames*
 1. Obtain a Steam API key from [Steam Developer](https://steamcommunity.com/dev/apikey).  
