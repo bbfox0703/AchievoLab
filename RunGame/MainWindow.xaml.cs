@@ -604,7 +604,7 @@ namespace RunGame
                         if (DebugLogger.IsDebugMode)
                         {
                             StatusLabel.Text = $"[DEBUG MODE] Fake stored {achievementCount} achievements and {statCount} statistics (not written to Steam). Refreshing to show actual state...";
-                            // Refresh in debug mode to show that changes weren't actually applied (like Legacy SAM.Game)
+                            // Refresh in debug mode to show that changes weren't actually applied
                             _ = Task.Run(async () =>
                             {
                                 await Task.Delay(500); // Brief delay to show status message
@@ -614,7 +614,7 @@ namespace RunGame
                         else
                         {
                             StatusLabel.Text = $"Successfully stored {achievementCount} achievements and {statCount} statistics to Steam. Refreshing...";
-                            // Reload data from Steam after successful store (like Legacy SAM.Game)
+                            // Reload data from Steam after successful store
                             _ = Task.Run(async () =>
                             {
                                 await Task.Delay(500); // Brief delay to allow Steam to update
@@ -625,7 +625,7 @@ namespace RunGame
                 }
                 else
                 {
-                    // Silent mode: always refresh after store (like Legacy SAM.Game)
+                    // Silent mode: always refresh after store
                     _ = LoadStatsAsync();
                 }
             }

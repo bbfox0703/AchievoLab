@@ -134,6 +134,9 @@ namespace CommonUtilities
             }
         }
 
+        /// <summary>
+        /// Retrieves the semaphore guarding concurrent requests for a host, creating it if necessary.
+        /// </summary>
         private SemaphoreSlim GetOrCreateDomainSemaphore(string host)
         {
             lock (_lock)
@@ -191,6 +194,9 @@ namespace CommonUtilities
             }
         }
 
+        /// <summary>
+        /// Replenishes tokens in the global bucket based on elapsed time.
+        /// </summary>
         private void RefillTokens(DateTime now)
         {
             var elapsed = (now - _lastRefill).TotalSeconds;

@@ -11,9 +11,11 @@ namespace AnSAM.Services
     public static class GameLauncher
     {
         private static readonly string RunGamePath = Path.Combine(AppContext.BaseDirectory, "..", "RunGame", "RunGame.exe");
-        private static readonly string SamGamePath = Path.Combine(AppContext.BaseDirectory, "SAM", "SAM.Game.exe");
 
-        public static bool IsSamGameAvailable => File.Exists(RunGamePath) || File.Exists(SamGamePath);
+        /// <summary>
+        /// Indicates whether the bundled achievement manager executable is available.
+        /// </summary>
+        public static bool IsManagerAvailable => File.Exists(RunGamePath);
 
         /// <summary>
         /// Launches the given <see cref="GameItem"/> by trying, in order:
@@ -50,32 +52,22 @@ namespace AnSAM.Services
         }
 
         /// <summary>
-        /// Launches the achievement manager for the given <see cref="GameItem"/>.
-        /// Tries RunGame.exe first, then falls back to SAM.Game.exe if available.
+        /// Launches the bundled achievement manager for the given <see cref="GameItem"/>.
         /// </summary>
         /// <param name="item">Game item containing launch information.</param>
-        public static void LaunchSamGame(GameItem item)
+        public static void LaunchAchievementManager(GameItem item)
         {
             if (item == null)
             {
                 return;
             }
 
-            if (!IsSamGameAvailable)
+            if (!IsManagerAvailable)
             {
                 return;
             }
 
-            // Try RunGame.exe first (modern implementation)
-            if (File.Exists(RunGamePath))
-            {
-                TryStart(RunGamePath, item.ID.ToString(CultureInfo.InvariantCulture));
-            }
-            // Fall back to SAM.Game.exe (legacy implementation)
-            else if (File.Exists(SamGamePath))
-            {
-                TryStart(SamGamePath, item.ID.ToString(CultureInfo.InvariantCulture));
-            }
+            TryStart(RunGamePath, item.ID.ToString(CultureInfo.InvariantCulture));
         }
 
         private static bool TryStart(string fileName, string? arguments = null)

@@ -64,9 +64,9 @@
     <UseWindowsForms>False</UseWindowsForms>
     <StartupObject></StartupObject>
     <Title>AchievoLab Main</Title>
-    <PackageProjectUrl>https://github.com/bbfox0703/SteamAchievementManagerX2</PackageProjectUrl>
+    <PackageProjectUrl>https://github.com/bbfox0703/AchievoLab</PackageProjectUrl>
     <Copyright>bbfox</Copyright>
-    <RepositoryUrl>https://github.com/bbfox0703/SteamAchievementManagerX2</RepositoryUrl>
+    <RepositoryUrl>https://github.com/bbfox0703/AchievoLab</RepositoryUrl>
     <ApplicationIcon>Assets\AnSAM.ico</ApplicationIcon>
     <!-- Self-contained deployment for consistency -->
     <SelfContained>true</SelfContained>
