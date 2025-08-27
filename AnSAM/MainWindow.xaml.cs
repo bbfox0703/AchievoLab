@@ -210,9 +210,12 @@ namespace AnSAM
                     
                     // Update game titles for the new language
                     UpdateAllGameTitles(lang);
-                    
-                    StatusText.Text = lang == "english" 
-                        ? $"Switched to English - displaying original titles" 
+
+                    // Refresh game images for the selected language
+                    await RefreshGameImages(lang);
+
+                    StatusText.Text = lang == "english"
+                        ? $"Switched to English - displaying original titles"
                         : $"Switched to {lang} - using localized titles where available";
                 }
                 catch (Exception ex)
@@ -743,6 +746,94 @@ namespace AnSAM
             
             _currentLanguage = language;
             DebugLogger.LogDebug($"Updated all game titles to language: {language}");
+        }
+
+        /// <summary>
+        /// Refresh all game cover images when switching languages.
+        /// Visible items are processed first to reduce UI freezes.
+        /// </summary>
+        private async Task RefreshGameImages(string language)
+        {
+            DebugLogger.LogDebug($"Refreshing game images for {language}");
+
+            var (visibleGames, hiddenGames) = GetVisibleAndHiddenGames();
+
+            // Clear current images so new ones will load for the selected language
+            foreach (var game in _allGames)
+            {
+                game.CoverPath = null;
+            }
+
+            // Load visible images first in small batches
+            const int batchSize = 3;
+            for (int i = 0; i < visibleGames.Count; i += batchSize)
+            {
+                var batch = visibleGames.Skip(i).Take(batchSize)
+                                         .Select(g => g.LoadCoverAsync(_imageService));
+                await Task.WhenAll(batch);
+                await Task.Delay(30);
+            }
+
+            // Load remaining images in the background
+            _ = Task.Run(async () =>
+            {
+                foreach (var game in hiddenGames)
+                {
+                    await game.LoadCoverAsync(_imageService);
+                }
+            });
+        }
+
+        /// <summary>
+        /// Determine which games are currently visible in the UI to prioritize image loading.
+        /// </summary>
+        private (List<GameItem> visible, List<GameItem> hidden) GetVisibleAndHiddenGames()
+        {
+            var visible = new List<GameItem>();
+            var hidden = new List<GameItem>();
+
+            var sv = _gamesScrollViewer ??= FindScrollViewer(GamesView);
+            if (GamesView.ItemsPanelRoot is ItemsWrapGrid wrapGrid && sv != null)
+            {
+                var itemHeight = wrapGrid.ItemHeight;
+                var itemWidth = wrapGrid.ItemWidth;
+                var itemsPerRow = Math.Max(1, (int)(sv.ViewportWidth / itemWidth));
+
+                var firstVisibleRow = Math.Max(0, (int)(sv.VerticalOffset / itemHeight));
+                var lastVisibleRow = (int)((sv.VerticalOffset + sv.ViewportHeight) / itemHeight) + 1;
+                var firstIndex = firstVisibleRow * itemsPerRow;
+                var lastIndex = Math.Min(Games.Count - 1, (lastVisibleRow + 1) * itemsPerRow);
+
+                var visibleSet = new HashSet<GameItem>();
+                for (int i = 0; i < Games.Count; i++)
+                {
+                    var game = Games[i];
+                    if (i >= firstIndex && i <= lastIndex)
+                    {
+                        visible.Add(game);
+                        visibleSet.Add(game);
+                    }
+                }
+
+                foreach (var game in _allGames)
+                {
+                    if (!visibleSet.Contains(game))
+                        hidden.Add(game);
+                }
+            }
+            else
+            {
+                // Fallback when we cannot determine visibility: assume first 20 are visible
+                for (int i = 0; i < _allGames.Count; i++)
+                {
+                    if (i < 20)
+                        visible.Add(_allGames[i]);
+                    else
+                        hidden.Add(_allGames[i]);
+                }
+            }
+
+            return (visible, hidden);
         }
 
     }
