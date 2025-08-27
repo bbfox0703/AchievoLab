@@ -45,6 +45,9 @@ namespace AnSAM
             _window.Activate();
         }
 
+        /// <summary>
+        /// Attempts to load a previously saved theme preference from local settings.
+        /// </summary>
         private static ElementTheme? LoadThemePreference()
         {
             try
@@ -63,6 +66,9 @@ namespace AnSAM
             return null;
         }
 
+        /// <summary>
+        /// Determines the current system theme from the Windows registry.
+        /// </summary>
         internal static ElementTheme GetSystemTheme()
         {
             try
@@ -81,6 +87,9 @@ namespace AnSAM
             return ElementTheme.Light;
         }
 
+        /// <summary>
+        /// Converts an <see cref="ElementTheme"/> to the corresponding <see cref="ApplicationTheme"/>.
+        /// </summary>
         internal static ApplicationTheme ToApplicationTheme(ElementTheme theme)
         {
             var resolved = theme == ElementTheme.Default ? GetSystemTheme() : theme;

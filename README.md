@@ -10,7 +10,13 @@ A 64-bit Steam achievement management GUI built with WinUI 3 and .NET 8, compati
 - Fetches, caches, and reuses cover icons for games.
 - Allows launching games directly from the GUI via right-click context menu.
 - Retrieves your owned game list and localized game titles (if available) through the Steam Web API.
- 
+
+## Technical Notes
+- Built with .NET 8 and the Windows App SDK (WinUI 3).
+- Interfaces with Steamworks by loading `steamclient64.dll` directly.
+- Caches global game data and cover images on disk for faster subsequent launches.
+- Consists of three executables: the main UI, a per-game achievement manager, and a Steam Web API fetcher.
+
 ## Prerequisites
 These apps use framework-dependent deployments. Ensure the target machine has the following runtimes installed:
 
@@ -65,6 +71,5 @@ winget install Microsoft.DotNet.DesktopRuntime.8 Microsoft.WindowsAppSDK.1.7
 The `SteamMaxCallsPerMinute` and `SteamJitter*` values let you tune Steam-specific throttling separately from the general settings.
 
 ## License
-This project is licensed under the [MIT License](LICENSE).  
-It also makes use of cloud game data from [SteamAchievementManager](https://github.com/gibbed/SteamAchievementManager), which is licensed under Zlib.
+This project is licensed under the [MIT License](LICENSE).
 

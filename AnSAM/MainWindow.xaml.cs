@@ -90,6 +90,9 @@ namespace AnSAM
             Closed += OnWindowClosed;
         }
 
+        /// <summary>
+        /// Populates the language selector and applies the initial language.
+        /// </summary>
         private void InitializeLanguageComboBox()
         {
             var languages = SteamLanguageResolver.SupportedLanguages;
@@ -135,6 +138,9 @@ namespace AnSAM
             _currentLanguage = initial; // Set current language to English
             _languageInitialized = true;
         }
+        /// <summary>
+        /// Applies a theme to the window and optionally persists the choice.
+        /// </summary>
         private void ApplyTheme(ElementTheme theme, bool save = true)
         {
             if (Content is FrameworkElement root)
@@ -167,10 +173,16 @@ namespace AnSAM
 
             // Don't set Application.RequestedTheme to avoid COMException in WinUI 3
         }
+        /// <summary>Switches to the system theme.</summary>
         private void Theme_Default_Click(object sender, RoutedEventArgs e) => ApplyTheme(ElementTheme.Default);
+        /// <summary>Switches to the light theme.</summary>
         private void Theme_Light_Click(object sender, RoutedEventArgs e) => ApplyTheme(ElementTheme.Light);
+        /// <summary>Switches to the dark theme.</summary>
         private void Theme_Dark_Click(object sender, RoutedEventArgs e) => ApplyTheme(ElementTheme.Dark);
 
+        /// <summary>
+        /// Handles language changes and reloads localized resources.
+        /// </summary>
         private async void LanguageComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (!_languageInitialized)
@@ -243,6 +255,9 @@ namespace AnSAM
             }
         }
 
+        /// <summary>
+        /// Updates title bar colors for the specified theme.
+        /// </summary>
         private void UpdateTitleBar(ElementTheme theme)
         {
             if (!AppWindowTitleBar.IsCustomizationSupported())
@@ -298,6 +313,9 @@ namespace AnSAM
             }
         }
 
+        /// <summary>
+        /// Applies the accent color brush to the window.
+        /// </summary>
         private void ApplyAccentBrush(FrameworkElement root)
         {
             var accent = _uiSettings.GetColorValue(UIColorType.Accent);
@@ -306,6 +324,9 @@ namespace AnSAM
             StatusText.Foreground = brush;
         }
 
+        /// <summary>
+        /// Responds to system color changes by updating accent brushes and title bar.
+        /// </summary>
         private void UiSettings_ColorValuesChanged(UISettings sender, object args)
         {
             DispatcherQueue.TryEnqueue(() =>
@@ -323,6 +344,9 @@ namespace AnSAM
         //    && Enum.TryParse<ElementTheme>(t?.ToString(), out var saved)) {
         //    ApplyTheme(saved);
         //}
+        /// <summary>
+        /// Performs a refresh when the window is first activated.
+        /// </summary>
         private void OnWindowActivated(object sender, WindowActivatedEventArgs args)
         {
             if (_autoLoaded) return;
@@ -330,6 +354,9 @@ namespace AnSAM
             DispatcherQueue.TryEnqueue(async () => await RefreshAsync());
         }
 
+        /// <summary>
+        /// Handles page navigation keys for the games list.
+        /// </summary>
         private void OnWindowKeyDown(object sender, KeyRoutedEventArgs e)
         {
             if (e.Key != Windows.System.VirtualKey.PageDown &&
@@ -368,6 +395,9 @@ namespace AnSAM
             }
         }
 
+        /// <summary>
+        /// Unsubscribes from events and disposes resources when closing.
+        /// </summary>
         private void OnWindowClosed(object sender, WindowEventArgs args)
         {
             GameListService.StatusChanged -= OnGameListStatusChanged;
@@ -383,6 +413,9 @@ namespace AnSAM
             }
         }
 
+        /// <summary>
+        /// Lazily loads cover images as items appear in the list.
+        /// </summary>
         private async void GamesView_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs e)
         {
             if (e.InRecycleQueue || e.Item is not GameItem game)
@@ -394,13 +427,16 @@ namespace AnSAM
         }
 
 
+        /// <summary>
+        /// Opens the achievement manager when a game card is double-tapped.
+        /// </summary>
         private void GameCard_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
         {
             if (sender is FrameworkElement element && element.DataContext is GameItem game)
             {
-                if (game.IsSamGameAvailable)
+                if (game.IsManagerAvailable)
                 {
-                    StartSamGame(game);
+                    StartAchievementManager(game);
                 }
                 else
                 {
@@ -410,13 +446,16 @@ namespace AnSAM
         }
 
 
-        private void OnLaunchSamGameClicked(object sender, RoutedEventArgs e)
+        /// <summary>
+        /// Handles the context menu command to launch the achievement manager for a game.
+        /// </summary>
+        private void OnLaunchManagerClicked(object sender, RoutedEventArgs e)
         {
             if (sender is FrameworkElement element && element.DataContext is GameItem game)
             {
-                if (game.IsSamGameAvailable)
+                if (game.IsManagerAvailable)
                 {
-                    StartSamGame(game);
+                    StartAchievementManager(game);
                 }
                 else
                 {
@@ -425,6 +464,9 @@ namespace AnSAM
             }
         }
 
+        /// <summary>
+        /// Launches the selected game via the context menu.
+        /// </summary>
         private void OnLaunchGameClicked(object sender, RoutedEventArgs e)
         {
             if (sender is FrameworkElement element && element.DataContext is GameItem game)
@@ -433,16 +475,22 @@ namespace AnSAM
             }
         }
 
-        private void StartSamGame(GameItem game)
+        /// <summary>
+        /// Launches the bundled achievement manager for the specified game and updates status text.
+        /// </summary>
+        private void StartAchievementManager(GameItem game)
         {
             StatusText.Text = $"Launching achievement manager for {game.Title}...";
             StatusProgress.IsIndeterminate = true;
             StatusExtra.Text = string.Empty;
-            GameLauncher.LaunchSamGame(game);
+            GameLauncher.LaunchAchievementManager(game);
             StatusProgress.IsIndeterminate = false;
             StatusText.Text = "Ready";
         }
 
+        /// <summary>
+        /// Launches the specified game and updates status indicators.
+        /// </summary>
         private void StartGame(GameItem game)
         {
             StatusText.Text = $"Launching {game.Title}...";
@@ -454,6 +502,9 @@ namespace AnSAM
         }
 
 
+        /// <summary>
+        /// Retrieves game data and rebuilds the game list UI.
+        /// </summary>
         private async Task RefreshAsync()
         {
             if (!_steamClient.Initialized)
@@ -515,6 +566,9 @@ namespace AnSAM
             });
         }
 
+        /// <summary>
+        /// Builds the game item collection and returns the complete and filtered lists.
+        /// </summary>
         private Task<(List<GameItem> allGames, List<GameItem> filteredGames)> BuildGameListAsync(IEnumerable<SteamAppData> apps, string? keyword)
         {
             return Task.Run(() =>
@@ -544,12 +598,18 @@ namespace AnSAM
         }
 
 
+        /// <summary>
+        /// Filters games when the user submits a search query.
+        /// </summary>
         private void SearchBox_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
         {
             var keyword = args.QueryText?.Trim();
             FilterGames(keyword);
         }
 
+        /// <summary>
+        /// Provides autocomplete suggestions as the search text changes.
+        /// </summary>
         private void SearchBox_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
         {
             if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput)
@@ -580,6 +640,9 @@ namespace AnSAM
             }
         }
 
+        /// <summary>
+        /// Focuses the game corresponding to a chosen suggestion.
+        /// </summary>
         private void SearchBox_SuggestionChosen(AutoSuggestBox sender, AutoSuggestBoxSuggestionChosenEventArgs args)
         {
             if (args.SelectedItem is string title)
@@ -597,6 +660,9 @@ namespace AnSAM
             }
         }
 
+        /// <summary>
+        /// Filters the displayed games by keyword without rebuilding the entire list.
+        /// </summary>
         private void FilterGames(string? keyword)
         {
             string kw = keyword ?? string.Empty;
@@ -635,11 +701,17 @@ namespace AnSAM
 #endif
         }
 
+        /// <summary>
+        /// Updates the status text when game list operations report progress.
+        /// </summary>
         private void OnGameListStatusChanged(string message)
         {
             _ = DispatcherQueue.TryEnqueue(() => StatusText.Text = message);
         }
 
+        /// <summary>
+        /// Updates the progress bar for game list downloads.
+        /// </summary>
         private void OnGameListProgressChanged(double progress)
         {
             _ = DispatcherQueue.TryEnqueue(() =>
@@ -649,6 +721,9 @@ namespace AnSAM
             });
         }
 
+        /// <summary>
+        /// Recursively searches the visual tree for a <see cref="ScrollViewer"/>.
+        /// </summary>
         private static ScrollViewer? FindScrollViewer(DependencyObject root)
         {
             if (root is ScrollViewer sv)
@@ -665,7 +740,7 @@ namespace AnSAM
         }
 
         /// <summary>
-        /// Load localized game titles from MyOwnGames steam_games.xml
+        /// Loads localized game titles from the cached steam_games.xml file.
         /// </summary>
         private void LoadLocalizedTitlesFromXml()
         {
@@ -731,7 +806,7 @@ namespace AnSAM
         }
 
         /// <summary>
-        /// Update all games to display titles in the specified language
+        /// Updates all games to display titles in the specified language.
         /// </summary>
         private void UpdateAllGameTitles(string language)
         {
@@ -751,7 +826,7 @@ namespace AnSAM
         }
 
         /// <summary>
-        /// Refresh all game cover images when switching languages.
+        /// Refreshes game cover images when switching languages.
         /// Visible items are processed first to reduce UI freezes.
         /// </summary>
         private async Task RefreshGameImages(string language)
@@ -912,7 +987,10 @@ namespace AnSAM
         public string? ExePath { get; set; }
         public string? Arguments { get; set; }
         public string? UriScheme { get; set; }
-        public bool IsSamGameAvailable => GameLauncher.IsSamGameAvailable;
+        /// <summary>
+        /// Indicates whether the bundled achievement manager is available.
+        /// </summary>
+        public bool IsManagerAvailable => GameLauncher.IsManagerAvailable;
 
         private readonly DispatcherQueue _dispatcher;
         private bool _coverLoading;
@@ -920,6 +998,9 @@ namespace AnSAM
 
         public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
 
+        /// <summary>
+        /// Initializes a new game item with optional launch information and cover path.
+        /// </summary>
         public GameItem(string title,
                          int id,
                          DispatcherQueue dispatcher,
@@ -959,6 +1040,9 @@ namespace AnSAM
             }
         }
 
+        /// <summary>
+        /// Asynchronously loads the game's cover image using the shared image service.
+        /// </summary>
         public async Task LoadCoverAsync(SharedImageService imageService)
         {
             if (CoverPath != null || _coverLoading)

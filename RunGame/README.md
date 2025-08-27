@@ -1,6 +1,6 @@
-# AnSAM_RunGame
+# RunGame
 
-AnSAM_RunGame 是使用 .NET 8 和 WinUI 3 重新實作的 SAM.Game 替代品，提供現代化的成就管理界面。
+RunGame 是使用 .NET 8 和 WinUI 3 開發的成就管理工具，提供現代化的成就管理界面。
 
 ## 功能特色
 
@@ -16,9 +16,9 @@ AnSAM_RunGame 是使用 .NET 8 和 WinUI 3 重新實作的 SAM.Game 替代品，
 
 ```bash
 # 直接從命令行啟動（需要遊戲ID）
-AnSAM_RunGame.exe <GameID>
+RunGame.exe <GameID>
 
-# 或由 AnSAM 主程式調用
+# 或由主程式調用
 ```
 
 ## 架構設計
@@ -39,19 +39,6 @@ AnSAM_RunGame.exe <GameID>
 - **Steam 集成**：直接 P/Invoke steamclient64.dll
 - **主題支持**：讀取 Windows 註冊表自動切換主題
 
-## 與原版 SAM.Game 的對比
-
-| 功能 | SAM.Game | AnSAM_RunGame |
-|------|----------|---------------|
-| UI 框架 | WinForms | WinUI 3 |
-| 主題支持 | 手動切換 | 自動跟隨系統 |
-| 工具欄 | ToolStrip | CommandBar |
-| 數據綁定 | 手動更新 | MVVM 自動綁定 |
-| 圖標緩存 | 是 | 待實作 |
-| 多語言 | 是 | 是 |
-| 計時器 | 是 | 是 |
-| 滑鼠防閒置 | 是 | 是 |
-
 ## 構建要求
 
 - Windows 10 17763 或更高版本
@@ -60,5 +47,5 @@ AnSAM_RunGame.exe <GameID>
 
 構建命令：
 ```bash
-dotnet build AnSAM_RunGame.csproj -p:EnableWindowsTargeting=true
+dotnet build RunGame.csproj -p:EnableWindowsTargeting=true
 ```
