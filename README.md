@@ -72,4 +72,4 @@ The `SteamMaxCallsPerMinute` and `SteamJitter*` values let you tune Steam-specif
 
 ## License
 This project is licensed under the [MIT License](LICENSE).
-
+It also makes use of cloud game data from [SteamAchievementManager](https://github.com/gibbed/SteamAchievementManager), which is licensed under Zlib.
