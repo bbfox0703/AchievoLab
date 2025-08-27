@@ -81,12 +81,35 @@ namespace MyOwnGames.Services
                     .AddEnvironmentVariables()
                     .Build();
                 var section = config.GetSection("RateLimiter");
-                options.MaxCallsPerMinute = section.GetValue<int>(nameof(RateLimiterOptions.MaxCallsPerMinute), options.MaxCallsPerMinute);
-                options.JitterMinSeconds = section.GetValue<double>(nameof(RateLimiterOptions.JitterMinSeconds), options.JitterMinSeconds);
-                options.JitterMaxSeconds = section.GetValue<double>(nameof(RateLimiterOptions.JitterMaxSeconds), options.JitterMaxSeconds);
-                options.SteamMaxCallsPerMinute = section.GetValue<int>(nameof(RateLimiterOptions.SteamMaxCallsPerMinute), options.SteamMaxCallsPerMinute);
-                options.SteamJitterMinSeconds = section.GetValue<double>(nameof(RateLimiterOptions.SteamJitterMinSeconds), options.SteamJitterMinSeconds);
-                options.SteamJitterMaxSeconds = section.GetValue<double>(nameof(RateLimiterOptions.SteamJitterMaxSeconds), options.SteamJitterMaxSeconds);
+                if (int.TryParse(section[nameof(RateLimiterOptions.MaxCallsPerMinute)], out int maxCalls))
+                {
+                    options.MaxCallsPerMinute = maxCalls;
+                }
+
+                if (double.TryParse(section[nameof(RateLimiterOptions.JitterMinSeconds)], out double jitterMin))
+                {
+                    options.JitterMinSeconds = jitterMin;
+                }
+
+                if (double.TryParse(section[nameof(RateLimiterOptions.JitterMaxSeconds)], out double jitterMax))
+                {
+                    options.JitterMaxSeconds = jitterMax;
+                }
+
+                if (int.TryParse(section[nameof(RateLimiterOptions.SteamMaxCallsPerMinute)], out int steamMaxCalls))
+                {
+                    options.SteamMaxCallsPerMinute = steamMaxCalls;
+                }
+
+                if (double.TryParse(section[nameof(RateLimiterOptions.SteamJitterMinSeconds)], out double steamJitterMin))
+                {
+                    options.SteamJitterMinSeconds = steamJitterMin;
+                }
+
+                if (double.TryParse(section[nameof(RateLimiterOptions.SteamJitterMaxSeconds)], out double steamJitterMax))
+                {
+                    options.SteamJitterMaxSeconds = steamJitterMax;
+                }
             }
             catch
             {
