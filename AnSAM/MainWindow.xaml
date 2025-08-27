@@ -34,8 +34,6 @@
                           SelectionChanged="LanguageComboBox_SelectionChanged"/>
             </AppBarElementContainer>
             <AppBarSeparator/>
-            <AppBarButton x:Name="RefreshButton" Icon="Sync"   Label="Refresh" Click="OnRefreshClicked"/>
-            <AppBarButton Icon="Remove"   Label="Clear Cache" Click="OnClearCacheClicked"/>
             <!-- ▼ 主題切換下拉 -->
             <AppBarButton Icon="Setting" Label="Theme">
                 <AppBarButton.Flyout>

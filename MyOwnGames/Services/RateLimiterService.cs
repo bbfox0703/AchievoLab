@@ -8,9 +8,12 @@ namespace MyOwnGames.Services
 {
     public class RateLimiterOptions
     {
-        public int MaxCallsPerMinute { get; set; } = 30;
-        public double JitterMinSeconds { get; set; } = 1.5;
-        public double JitterMaxSeconds { get; set; } = 3.0;
+        public int MaxCallsPerMinute { get; set; } = 30; // Stricter: 30 calls per minute (1 every 5 seconds)
+        public double JitterMinSeconds { get; set; } = 1.5; // More conservative delay
+        public double JitterMaxSeconds { get; set; } = 3; // Up to 3 seconds between calls
+        public int SteamMaxCallsPerMinute { get; set; } = 12; // Stricter: 12 calls per minute (1 every 5 seconds)
+        public double SteamJitterMinSeconds { get; set; } = 5.5; // More conservative delay
+        public double SteamJitterMaxSeconds { get; set; } = 7.5; // Up to 7 seconds between calls
     }
 
     public class RateLimiterService : IDisposable
@@ -20,18 +23,32 @@ namespace MyOwnGames.Services
         private readonly double _maxDelaySeconds;
         private readonly SemaphoreSlim _semaphore = new(1, 1);
         private DateTime _lastCall = DateTime.MinValue;
+
+        private readonly TokenBucketRateLimiter _steamLimiter;
+        private readonly double _steamMinDelaySeconds;
+        private readonly double _steamMaxDelaySeconds;
+        private readonly SemaphoreSlim _steamSemaphore = new(1, 1);
+        private DateTime _steamLastCall = DateTime.MinValue;
         private bool _disposed;
 
         public RateLimiterService(RateLimiterOptions options)
         {
-            options.JitterMinSeconds = Math.Max(1.5, options.JitterMinSeconds);
+            options.JitterMinSeconds = Math.Max(5.0, options.JitterMinSeconds); // Enforce minimum 5 seconds
             if (options.JitterMaxSeconds < options.JitterMinSeconds)
             {
                 options.JitterMaxSeconds = options.JitterMinSeconds;
             }
 
+            options.SteamJitterMinSeconds = Math.Max(5.0, options.SteamJitterMinSeconds);
+            if (options.SteamJitterMaxSeconds < options.SteamJitterMinSeconds)
+            {
+                options.SteamJitterMaxSeconds = options.SteamJitterMinSeconds;
+            }
+
             _minDelaySeconds = options.JitterMinSeconds;
             _maxDelaySeconds = options.JitterMaxSeconds;
+            _steamMinDelaySeconds = options.SteamJitterMinSeconds;
+            _steamMaxDelaySeconds = options.SteamJitterMaxSeconds;
 
             _limiter = new TokenBucketRateLimiter(new TokenBucketRateLimiterOptions
             {
@@ -41,6 +58,16 @@ namespace MyOwnGames.Services
                 AutoReplenishment = true,
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                 QueueLimit = options.MaxCallsPerMinute
+            });
+
+            _steamLimiter = new TokenBucketRateLimiter(new TokenBucketRateLimiterOptions
+            {
+                TokenLimit = options.SteamMaxCallsPerMinute,
+                TokensPerPeriod = options.SteamMaxCallsPerMinute,
+                ReplenishmentPeriod = TimeSpan.FromMinutes(1),
+                AutoReplenishment = true,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = options.SteamMaxCallsPerMinute
             });
         }
 
@@ -54,7 +81,7 @@ namespace MyOwnGames.Services
                     .AddEnvironmentVariables()
                     .Build();
                 var section = config.GetSection("RateLimiter");
-                section.Bind(options);
+                options = section.Get<RateLimiterOptions>() ?? new RateLimiterOptions();
             }
             catch
             {
@@ -91,6 +118,34 @@ namespace MyOwnGames.Services
             }
         }
 
+        public async Task WaitSteamAsync(CancellationToken cancellationToken = default)
+        {
+            var lease = await _steamLimiter.AcquireAsync(1, cancellationToken);
+            if (!lease.IsAcquired)
+            {
+                throw new InvalidOperationException("Unable to acquire rate limiter lease.");
+            }
+
+            await _steamSemaphore.WaitAsync(cancellationToken);
+            try
+            {
+                var now = DateTime.UtcNow;
+                var elapsed = now - _steamLastCall;
+                var jitterSeconds = _steamMinDelaySeconds + Random.Shared.NextDouble() * (_steamMaxDelaySeconds - _steamMinDelaySeconds);
+                var delay = TimeSpan.FromSeconds(jitterSeconds);
+                if (elapsed < delay)
+                {
+                    await Task.Delay(delay - elapsed, cancellationToken);
+                }
+                _steamLastCall = DateTime.UtcNow;
+            }
+            finally
+            {
+                _steamSemaphore.Release();
+                lease.Dispose();
+            }
+        }
+
         public void Dispose()
         {
             if (_disposed)
@@ -98,7 +153,9 @@ namespace MyOwnGames.Services
                 return;
             }
             _limiter.Dispose();
+            _steamLimiter.Dispose();
             _semaphore.Dispose();
+            _steamSemaphore.Dispose();
             _disposed = true;
         }
     }

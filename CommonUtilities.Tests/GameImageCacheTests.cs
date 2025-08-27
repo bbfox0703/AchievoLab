@@ -627,11 +627,15 @@ public class GameImageCacheTests : IDisposable
         var rateLimiter = rateLimiterField.GetValue(cache)!;
         var extraField = rateLimiter.GetType().GetField("_domainExtraDelay", BindingFlags.NonPublic | BindingFlags.Instance)!;
         var dict = (System.Collections.IDictionary)extraField.GetValue(rateLimiter)!;
-        Assert.True(((TimeSpan)dict[uri.Host]) >= TimeSpan.FromMilliseconds(100));
+        Assert.True(dict.Contains(uri.Host));
+        var delay = (TimeSpan)dict[uri.Host]!;
+        Assert.True(delay >= TimeSpan.FromMilliseconds(100));
 
         await cache.GetImagePathAsync("b", uri, "english");
         dict = (System.Collections.IDictionary)extraField.GetValue(rateLimiter)!;
-        Assert.True(((TimeSpan)dict[uri.Host]) >= TimeSpan.FromMilliseconds(200));
+        Assert.True(dict.Contains(uri.Host));
+        delay = (TimeSpan)dict[uri.Host]!;
+        Assert.True(delay >= TimeSpan.FromMilliseconds(200));
 
         var sw = Stopwatch.StartNew();
         await cache.GetImagePathAsync("c", uri, "english");
@@ -794,7 +798,7 @@ public class GameImageCacheTests : IDisposable
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            if (request.RequestUri.Host.EndsWith("steamstatic.com", StringComparison.OrdinalIgnoreCase))
+            if (request.RequestUri != null && request.RequestUri.Host.EndsWith("steamstatic.com", StringComparison.OrdinalIgnoreCase))
             {
                 var data = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0, 0, 0, 0 };
                 var response = new HttpResponseMessage(HttpStatusCode.OK)

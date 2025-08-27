@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.Net.Http;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Globalization;
@@ -16,21 +16,26 @@ namespace MyOwnGames
         private readonly HttpClient _httpClient;
         private readonly string _apiKey;
         private readonly RateLimiterService _rateLimiter;
+        private readonly RateLimiterService _steamRateLimiter;
         private readonly bool _disposeHttpClient;
         private bool _disposed;
 
+        private static readonly JsonSerializerOptions JsonOptions =
+            new() { TypeInfoResolver = SteamApiJsonContext.Default };
+
         public SteamApiService(string apiKey)
-            : this(apiKey, HttpClientProvider.Shared, false, null)
+            : this(apiKey, HttpClientProvider.Shared, false, null, null)
         {
         }
 
-        public SteamApiService(string apiKey, HttpClient httpClient, bool disposeHttpClient = false, RateLimiterService? rateLimiter = null)
+        public SteamApiService(string apiKey, HttpClient httpClient, bool disposeHttpClient = false, RateLimiterService? rateLimiter = null, RateLimiterService? steamRateLimiter = null)
         {
             ValidateCredentials(apiKey);
             _apiKey = apiKey;
             _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
             _disposeHttpClient = disposeHttpClient;
             _rateLimiter = rateLimiter ?? RateLimiterService.FromAppSettings();
+            _steamRateLimiter = steamRateLimiter ?? _rateLimiter;
 
             if (_disposeHttpClient)
             {
@@ -59,7 +64,7 @@ namespace MyOwnGames
                 progress?.Report(10);
                 cancellationToken.ThrowIfCancellationRequested();
                 
-                await _rateLimiter.WaitAsync();
+                await _steamRateLimiter.WaitSteamAsync();
                 cancellationToken.ThrowIfCancellationRequested();
                 
                 var ownedGamesUrl = $"https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key={_apiKey}&steamid={steamId64}&format=json&include_appinfo=true";
@@ -142,18 +147,34 @@ namespace MyOwnGames
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                await _rateLimiter.WaitAsync();
+                
+                // More aggressive rate limiting for Steam Store API
+                await _steamRateLimiter.WaitSteamAsync();
                 cancellationToken.ThrowIfCancellationRequested();
                 
                 var url = $"https://store.steampowered.com/api/appdetails?appids={appId}&l={targetLanguage}";
+                DebugLogger.LogDebug($"Fetching localized name for {appId} ({englishName}) in {targetLanguage}");
+                
                 var response = await _httpClient.GetStringAsync(url, cancellationToken);
                 var data = DeserializeAppDetailsResponse(response);
                 
                 if (data != null && data.TryGetValue(appId.ToString(), out var appDetails) && 
                     appDetails.success && !string.IsNullOrEmpty(appDetails.data?.name))
                 {
-                    return appDetails.data.name;
+                    var localizedName = appDetails.data.name;
+                    DebugLogger.LogDebug($"Got localized name for {appId}: '{localizedName}' (was: '{englishName}')");
+                    return localizedName;
                 }
+                else
+                {
+                    DebugLogger.LogDebug($"No localized name available for {appId} in {targetLanguage}, using English fallback");
+                }
+            }
+            catch (HttpRequestException ex) when (ex.Message.Contains("429") || ex.Message.Contains("Too Many Requests"))
+            {
+                DebugLogger.LogDebug($"Rate limited when getting localized name for {appId}, using English fallback: {ex.Message}");
+                // Wait longer on rate limit
+                await Task.Delay(TimeSpan.FromSeconds(75), cancellationToken);
             }
             catch (Exception ex)
             {
@@ -175,16 +196,14 @@ namespace MyOwnGames
             return $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/header_{language}.jpg";
         }
 
-        [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "The types used in JSON deserialization are explicitly referenced and won't be trimmed")]
         private static OwnedGamesResponse? DeserializeOwnedGamesResponse(string json)
         {
-            return JsonSerializer.Deserialize<OwnedGamesResponse>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            return JsonSerializer.Deserialize(json, SteamApiJsonContext.Default.OwnedGamesResponse);
         }
 
-        [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "The types used in JSON deserialization are explicitly referenced and won't be trimmed")]
         private static Dictionary<string, AppDetailsResponse>? DeserializeAppDetailsResponse(string json)
         {
-            return JsonSerializer.Deserialize<Dictionary<string, AppDetailsResponse>>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            return JsonSerializer.Deserialize(json, SteamApiJsonContext.Default.DictionaryStringAppDetailsResponse);
         }
 
         public void Dispose()

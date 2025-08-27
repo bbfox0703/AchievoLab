@@ -23,12 +23,15 @@ namespace CommonUtilities
         private CancellationTokenSource _cts = new();
         private string _currentLanguage = "english";
 
+        private static readonly JsonSerializerOptions JsonOptions =
+            new() { TypeInfoResolver = StoreApiJsonContext.Default };
+
         public event Action<int, string?>? ImageDownloadCompleted;
 
-        public SharedImageService(HttpClient? httpClient = null, GameImageCache? cache = null, bool disposeHttpClient = false)
+        public SharedImageService(HttpClient httpClient, GameImageCache? cache = null, bool disposeHttpClient = false)
         {
-            _httpClient = httpClient ?? HttpClientProvider.Shared;
-            _disposeHttpClient = disposeHttpClient && httpClient != null;
+            _httpClient = httpClient;
+            _disposeHttpClient = disposeHttpClient;
 
             if (cache != null)
             {
@@ -42,7 +45,7 @@ namespace CommonUtilities
             }
         }
 
-        public async Task SetLanguage(string language)
+        public Task SetLanguage(string language)
         {
             if (_currentLanguage != language)
             {
@@ -66,6 +69,7 @@ namespace CommonUtilities
                 _cts = new CancellationTokenSource();
                 _currentLanguage = language;
             }
+            return Task.CompletedTask;
         }
 
         public string GetCurrentLanguage() => _currentLanguage;
@@ -131,6 +135,21 @@ namespace CommonUtilities
                 try { File.Delete(cached); } catch { }
                 _imageCache.Remove(cacheKey);
                 // Don't record as failed download - file was corrupted, not missing
+            }
+
+            // Check the on-disk cache before making any network calls
+            var diskCachedPath = _cache.TryGetCachedPath(appId.ToString(), language, checkEnglishFallback: false);
+            if (!string.IsNullOrEmpty(diskCachedPath))
+            {
+                if (IsFreshImage(diskCachedPath))
+                {
+                    _imageCache[cacheKey] = diskCachedPath;
+                    TriggerImageDownloadCompletedEvent(appId, diskCachedPath);
+                    return diskCachedPath;
+                }
+
+                try { File.Delete(diskCachedPath); } catch { }
+                // Don't record as failed download - file was corrupted or expired
             }
 
             var languageSpecificUrlMap = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
@@ -265,8 +284,7 @@ namespace CommonUtilities
                 }
 
                 var jsonContent = await response.Content.ReadAsStringAsync();
-                var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                var storeData = JsonSerializer.Deserialize<Dictionary<string, StoreApiResponse>>(jsonContent, options);
+                var storeData = JsonSerializer.Deserialize(jsonContent, StoreApiJsonContext.Default.DictionaryStringStoreApiResponse);
 
                 if (storeData != null && storeData.TryGetValue(appId.ToString(), out var app) && app.Success)
                 {
@@ -371,7 +389,10 @@ namespace CommonUtilities
 
     internal class StoreApiResponse
     {
+        [JsonPropertyName("success")]
         public bool Success { get; set; }
+
+        [JsonPropertyName("data")]
         public StoreApiData? Data { get; set; }
     }
 
