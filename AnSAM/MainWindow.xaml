@@ -7,7 +7,7 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
-    Title="AnSAM">
+    Title="AchievoLab:Main">
 
     <Window.SystemBackdrop>
         <MicaBackdrop />
@@ -28,9 +28,22 @@
                     </AutoSuggestBox.QueryIcon>
                 </AutoSuggestBox>
             </CommandBar.Content>
+            <AppBarElementContainer>
+                <ComboBox x:Name="LanguageComboBox"
+                          Width="150"
+                          SelectionChanged="LanguageComboBox_SelectionChanged"/>
+            </AppBarElementContainer>
             <AppBarSeparator/>
-            <AppBarButton Icon="Sync"   Label="Refresh" Click="OnRefreshClicked"/>
-            <!--AppBarButton Icon="Find" Label="Search" Click="OnSearchClicked"/-->
+            <!-- ▼ 主題切換下拉 -->
+            <AppBarButton Icon="Setting" Label="Theme">
+                <AppBarButton.Flyout>
+                    <MenuFlyout>
+                        <MenuFlyoutItem Text="Use system (Default)" Click="Theme_Default_Click"/>
+                        <MenuFlyoutItem Text="Light" Click="Theme_Light_Click"/>
+                        <MenuFlyoutItem Text="Dark" Click="Theme_Dark_Click"/>
+                    </MenuFlyout>
+                </AppBarButton.Flyout>
+            </AppBarButton>
         </CommandBar>
         <Grid Grid.Row="1" x:Name="CenterPanel"
       Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
@@ -38,30 +51,36 @@
               ItemsSource="{x:Bind Games}"
               SelectionMode="None"
               IsItemClickEnabled="False"
-              ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+              ContainerContentChanging="GamesView_ContainerContentChanging">
                 <!-- 自動換行的磁磚排版 -->
                 <GridView.ItemsPanel>
                     <ItemsPanelTemplate>
                         <ItemsWrapGrid Orientation="Horizontal"
-                               ItemWidth="180"
-                               ItemHeight="240"/>
+                               ItemWidth="240"
+                               ItemHeight="180"/>
                     </ItemsPanelTemplate>
                 </GridView.ItemsPanel>
 
                 <!-- 卡片樣板：封面 + 標題（整張卡片支援 DoubleTapped） -->
                 <GridView.ItemTemplate>
                     <DataTemplate x:DataType="local:GameItem">
-                        <StackPanel Width="180" DoubleTapped="GameCard_DoubleTapped">
-                            <Border Height="200" CornerRadius="8"
-                            Background="{ThemeResource SystemFillColorSolidNeutralBackgroundBrush}">
-                                <!--
-                                <Image from game object"
-                               Stretch="UniformToFill"/>
-                                -->
+                        <StackPanel Width="231" DoubleTapped="GameCard_DoubleTapped">
+                            <StackPanel.ContextFlyout>
+                                <MenuFlyout>
+                                    <MenuFlyoutItem Text="Launch Achievement Manager" Click="OnLaunchManagerClicked" IsEnabled="{x:Bind IsManagerAvailable}"/>
+                                    <MenuFlyoutItem Text="Launch Game" Click="OnLaunchGameClicked"/>
+                                </MenuFlyout>
+                            </StackPanel.ContextFlyout>
+                            <Border Height="100" CornerRadius="8"
+                            Background="{ThemeResource SystemFillColorSolidNeutralBackgroundBrush}" HorizontalAlignment="Center">
+                                <Image Source="{x:Bind CoverImage, Mode=OneWay}" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
-                            <TextBlock Text="{x:Bind Title}"
-                               Margin="0,8,0,0"
-                               TextTrimming="CharacterEllipsis"/>
+                            <TextBlock Text="{x:Bind Title, Mode=OneWay}"
+                               Margin="2,8,0,0"
+                               TextWrapping="Wrap"
+                               TextTrimming="CharacterEllipsis"
+                               MaxLines="3"/>
                         </StackPanel>
                     </DataTemplate>
                 </GridView.ItemTemplate>

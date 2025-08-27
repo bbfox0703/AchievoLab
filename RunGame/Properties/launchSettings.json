@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "RunGame": {
+      "commandName": "Project",
+      "commandLineArgs": "597180"
+    }
+  }
+}
