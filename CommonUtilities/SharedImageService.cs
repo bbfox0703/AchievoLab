@@ -124,7 +124,7 @@ namespace CommonUtilities
 
         private async Task<string?> GetGameImageInternalAsync(int appId, string language, string originalLanguage, string cacheKey)
         {
-
+            // Check in-memory cache first
             if (_imageCache.TryGetValue(cacheKey, out var cached))
             {
                 if (IsFreshImage(cached))
@@ -137,7 +137,14 @@ namespace CommonUtilities
                 // Don't record as failed download - file was corrupted, not missing
             }
 
-            // Check the on-disk cache before making any network calls
+            // Step 1: Check failure tracking - if failed within 7 days for this language, skip to English fallback
+            if (_cache.ShouldSkipDownload(appId, language))
+            {
+                DebugLogger.LogDebug($"Skipping {language} download for {appId} due to recent failure, checking English fallback");
+                return await TryEnglishFallbackAsync(appId, language, cacheKey);
+            }
+
+            // Step 2: Check language-specific cache
             var diskCachedPath = _cache.TryGetCachedPath(appId.ToString(), language, checkEnglishFallback: false);
             if (!string.IsNullOrEmpty(diskCachedPath))
             {
@@ -150,6 +157,31 @@ namespace CommonUtilities
 
                 try { File.Delete(diskCachedPath); } catch { }
                 // Don't record as failed download - file was corrupted or expired
+            }
+
+            // Step 3: Try to download language-specific image
+            var downloadResult = await TryDownloadLanguageSpecificImageAsync(appId, language, cacheKey);
+            if (downloadResult != null)
+            {
+                // Step 4: Download successful - remove failure record if exists and return
+                _cache.RemoveFailedRecord(appId, language);
+                return downloadResult;
+            }
+
+            // Step 5: Language-specific download failed - record failure and proceed to English fallback
+            _cache.RecordFailedDownload(appId, language);
+            DebugLogger.LogDebug($"Failed to download {language} image for {appId}, trying English fallback");
+
+            // Step 6-8: English fallback logic
+            return await TryEnglishFallbackAsync(appId, language, cacheKey);
+        }
+
+        private async Task<string?> TryDownloadLanguageSpecificImageAsync(int appId, string language, string cacheKey)
+        {
+            // Don't try to download English via this method - it has its own flow
+            if (string.Equals(language, "english", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
             }
 
             var languageSpecificUrlMap = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
@@ -226,7 +258,8 @@ namespace CommonUtilities
             }
 
             var languageUrls = RoundRobin(languageSpecificUrlMap);
-            var result = await _cache.GetImagePathAsync(appId.ToString(), languageUrls, language, appId, _cts.Token, checkEnglishFallback: false);
+            // Disable English fallback here - we want to handle it explicitly in our main flow
+            var result = await _cache.GetImagePathAsync(appId.ToString(), languageUrls, language, appId, _cts.Token, tryEnglishFallback: false, checkEnglishFallback: false);
             if (!string.IsNullOrEmpty(result?.Path) && IsFreshImage(result.Value.Path))
             {
                 _imageCache[cacheKey] = result.Value.Path;
@@ -237,18 +270,115 @@ namespace CommonUtilities
                 return result.Value.Path;
             }
 
+            // Clean up any invalid result
             if (!string.IsNullOrEmpty(result?.Path))
             {
                 try { File.Delete(result.Value.Path); } catch { }
             }
 
-            var noIconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "no_icon.png");
-            if (File.Exists(noIconPath))
+            return null;
+        }
+
+        private async Task<string?> TryEnglishFallbackAsync(int appId, string targetLanguage, string cacheKey)
+        {
+            // Step 6: Check English cache first
+            var englishCachedPath = _cache.TryGetCachedPath(appId.ToString(), "english", checkEnglishFallback: false);
+            if (!string.IsNullOrEmpty(englishCachedPath) && IsFreshImage(englishCachedPath))
             {
-                return noIconPath;
+                DebugLogger.LogDebug($"Found English cached image for {appId}, displaying it");
+                _imageCache[cacheKey] = englishCachedPath;
+                TriggerImageDownloadCompletedEvent(appId, englishCachedPath);
+                return englishCachedPath;
             }
 
-            TriggerImageDownloadCompletedEvent(appId, null);
+            // Step 7: Download English image
+            var englishDownloadResult = await TryDownloadEnglishImageAsync(appId, cacheKey);
+            if (englishDownloadResult != null)
+            {
+                DebugLogger.LogDebug($"Downloaded English image for {appId}");
+                return englishDownloadResult;
+            }
+
+            // Step 8: English download failed - show fallback
+            return GetFallbackImagePath();
+        }
+
+        private async Task<string?> TryDownloadEnglishImageAsync(int appId, string cacheKey)
+        {
+            var languageSpecificUrlMap = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+
+            static void AddUrl(Dictionary<string, List<string>> map, string url)
+            {
+                if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+                {
+                    var domain = uri.Host;
+                    if (!map.TryGetValue(domain, out var list))
+                    {
+                        list = new List<string>();
+                        map[domain] = list;
+                    }
+                    list.Add(url);
+                }
+            }
+
+            static List<string> RoundRobin(Dictionary<string, List<string>> map)
+            {
+                var domainQueues = map.ToDictionary(kv => kv.Key, kv => new Queue<string>(kv.Value));
+                var keys = domainQueues.Keys.ToList();
+                var result = new List<string>();
+                bool added;
+                do
+                {
+                    added = false;
+                    foreach (var key in keys)
+                    {
+                        var queue = domainQueues[key];
+                        if (queue.Count > 0)
+                        {
+                            result.Add(queue.Dequeue());
+                            added = true;
+                        }
+                    }
+                } while (added);
+                return result;
+            }
+
+            // Get English header from Store API
+            var header = await GetHeaderImageFromStoreApiAsync(appId, "english", _cts.Token);
+            if (!string.IsNullOrEmpty(header))
+            {
+                AddUrl(languageSpecificUrlMap, header);
+            }
+
+            // Cloudflare CDN
+            AddUrl(languageSpecificUrlMap, $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg");
+
+            // Steam CDN
+            AddUrl(languageSpecificUrlMap, $"https://cdn.steamstatic.com/steam/apps/{appId}/header.jpg");
+
+            // Akamai CDN
+            AddUrl(languageSpecificUrlMap, $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg");
+
+            var englishUrls = RoundRobin(languageSpecificUrlMap);
+            var result = await _cache.GetImagePathAsync(appId.ToString(), englishUrls, "english", appId, _cts.Token, tryEnglishFallback: false, checkEnglishFallback: false);
+            if (!string.IsNullOrEmpty(result?.Path) && IsFreshImage(result.Value.Path))
+            {
+                _imageCache[cacheKey] = result.Value.Path;
+                if (result.Value.Downloaded)
+                {
+                    TriggerImageDownloadCompletedEvent(appId, result.Value.Path);
+                }
+                return result.Value.Path;
+            }
+
+            // Clean up any invalid result and record failure
+            if (!string.IsNullOrEmpty(result?.Path))
+            {
+                try { File.Delete(result.Value.Path); } catch { }
+            }
+
+            // Record English download failure
+            _cache.RecordFailedDownload(appId, "english");
             return null;
         }
 

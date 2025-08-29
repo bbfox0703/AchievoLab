@@ -26,7 +26,7 @@ public class GameImageServiceLanguageTests : IDisposable
 
         _imageHandler = new FakeImageHandler();
         var cacheClient = new HttpClient(_imageHandler);
-        _cache = new GameImageCache(_tempDir, new ImageFailureTrackingService(), httpClient: cacheClient, disposeHttpClient: true);
+        _cache = new GameImageCache(_tempDir, new ImageFailureTrackingService(_tempDir), httpClient: cacheClient, disposeHttpClient: true);
 
         var storeClient = new HttpClient(new FakeStoreApiHandler());
         _service = new SharedImageService(storeClient, _cache, disposeHttpClient: true);
