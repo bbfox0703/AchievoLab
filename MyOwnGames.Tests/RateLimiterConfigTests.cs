@@ -14,7 +14,7 @@ public class RateLimiterConfigTests
           "RateLimiter": {
             "SteamMaxCallsPerMinute": 15,
             "SteamJitterMinSeconds": 6.5,
-            "SteamJitterMaxSeconds": 7.5
+            "SteamJitterMaxSeconds": 8
           }
         }
         """;

@@ -22,6 +22,10 @@ namespace CommonUtilities
         private readonly object _eventLock = new();
         private CancellationTokenSource _cts = new();
         private string _currentLanguage = "english";
+        
+        // Concurrency limiter to prevent resource exhaustion
+        private const int MAX_CONCURRENT_DOWNLOADS = 10;
+        private readonly SemaphoreSlim _downloadSemaphore = new(MAX_CONCURRENT_DOWNLOADS, MAX_CONCURRENT_DOWNLOADS);
 
         private static readonly JsonSerializerOptions JsonOptions =
             new() { TypeInfoResolver = StoreApiJsonContext.Default };
@@ -49,6 +53,8 @@ namespace CommonUtilities
         {
             if (_currentLanguage != language)
             {
+                DebugLogger.LogDebug($"Switching language from {_currentLanguage} to {language}. Pending requests: {_pendingRequests.Count}");
+                
                 // Cancel ongoing operations
                 _cts.Cancel();
 
@@ -68,11 +74,40 @@ namespace CommonUtilities
                 _cts.Dispose();
                 _cts = new CancellationTokenSource();
                 _currentLanguage = language;
+                
+                DebugLogger.LogDebug($"Language switch completed. Reset state for {language}");
             }
             return Task.CompletedTask;
         }
 
         public string GetCurrentLanguage() => _currentLanguage;
+        
+        // Resource monitoring methods
+        public int GetPendingRequestsCount() => _pendingRequests.Count;
+        public int GetAvailableDownloadSlots() => _downloadSemaphore.CurrentCount;
+        
+        // Cleanup method for stale pending requests
+        public void CleanupStaleRequests()
+        {
+            var staleKeys = new List<string>();
+            foreach (var kvp in _pendingRequests)
+            {
+                if (kvp.Value.IsCompleted || kvp.Value.IsCanceled || kvp.Value.IsFaulted)
+                {
+                    staleKeys.Add(kvp.Key);
+                }
+            }
+            
+            foreach (var key in staleKeys)
+            {
+                _pendingRequests.TryRemove(key, out _);
+            }
+            
+            if (staleKeys.Count > 0)
+            {
+                DebugLogger.LogDebug($"Cleaned up {staleKeys.Count} stale pending requests. Remaining: {_pendingRequests.Count}");
+            }
+        }
 
         public bool HasImage(int appId, string language)
         {
@@ -168,23 +203,38 @@ namespace CommonUtilities
                 return downloadResult;
             }
 
-            // Step 5: Language-specific download failed - record failure and proceed to English fallback
-            _cache.RecordFailedDownload(appId, language);
-            DebugLogger.LogDebug($"Failed to download {language} image for {appId}, trying English fallback");
+            // Step 5: Language-specific download failed - record failure only if not cancelled
+            if (!_cts.IsCancellationRequested)
+            {
+                _cache.RecordFailedDownload(appId, language);
+                DebugLogger.LogDebug($"Failed to download {language} image for {appId}");
+            }
+            else
+            {
+                DebugLogger.LogDebug($"Download for {appId} ({language}) was cancelled, not recording failure");
+            }
 
-            // Step 6-8: English fallback logic
-            return await TryEnglishFallbackAsync(appId, language, cacheKey);
+            // Step 6-8: English fallback logic (only for non-English languages)
+            if (!string.Equals(language, "english", StringComparison.OrdinalIgnoreCase))
+            {
+                return await TryEnglishFallbackAsync(appId, language, cacheKey);
+            }
+
+            // If we reach here, English download failed - return fallback image
+            return GetFallbackImagePath();
         }
 
         private async Task<string?> TryDownloadLanguageSpecificImageAsync(int appId, string language, string cacheKey)
         {
-            // Don't try to download English via this method - it has its own flow
-            if (string.Equals(language, "english", StringComparison.OrdinalIgnoreCase))
-            {
-                return null;
-            }
 
-            var languageSpecificUrlMap = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            // Wait for available download slot
+            await _downloadSemaphore.WaitAsync(_cts.Token);
+            var pending = _pendingRequests.Count;
+            var available = _downloadSemaphore.CurrentCount;
+            DebugLogger.LogDebug($"Starting download for {appId} ({language}) - Pending: {pending}, Available slots: {available}");
+            try
+            {
+                var languageSpecificUrlMap = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 
             static void AddUrl(Dictionary<string, List<string>> map, string url)
             {
@@ -257,26 +307,31 @@ namespace CommonUtilities
                 AddUrl(languageSpecificUrlMap, $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/header_{language}.jpg");
             }
 
-            var languageUrls = RoundRobin(languageSpecificUrlMap);
-            // Disable English fallback here - we want to handle it explicitly in our main flow
-            var result = await _cache.GetImagePathAsync(appId.ToString(), languageUrls, language, appId, _cts.Token, tryEnglishFallback: false, checkEnglishFallback: false);
-            if (!string.IsNullOrEmpty(result?.Path) && IsFreshImage(result.Value.Path))
-            {
-                _imageCache[cacheKey] = result.Value.Path;
-                if (result.Value.Downloaded)
+                var languageUrls = RoundRobin(languageSpecificUrlMap);
+                // Disable English fallback here - we want to handle it explicitly in our main flow
+                var result = await _cache.GetImagePathAsync(appId.ToString(), languageUrls, language, appId, _cts.Token, tryEnglishFallback: false, checkEnglishFallback: false);
+                if (!string.IsNullOrEmpty(result?.Path) && IsFreshImage(result.Value.Path))
                 {
-                    TriggerImageDownloadCompletedEvent(appId, result.Value.Path);
+                    _imageCache[cacheKey] = result.Value.Path;
+                    if (result.Value.Downloaded)
+                    {
+                        TriggerImageDownloadCompletedEvent(appId, result.Value.Path);
+                    }
+                    return result.Value.Path;
                 }
-                return result.Value.Path;
-            }
 
-            // Clean up any invalid result
-            if (!string.IsNullOrEmpty(result?.Path))
+                // Clean up any invalid result
+                if (!string.IsNullOrEmpty(result?.Path))
+                {
+                    try { File.Delete(result.Value.Path); } catch { }
+                }
+
+                return null;
+            }
+            finally
             {
-                try { File.Delete(result.Value.Path); } catch { }
+                _downloadSemaphore.Release();
             }
-
-            return null;
         }
 
         private async Task<string?> TryEnglishFallbackAsync(int appId, string targetLanguage, string cacheKey)
@@ -305,7 +360,14 @@ namespace CommonUtilities
 
         private async Task<string?> TryDownloadEnglishImageAsync(int appId, string cacheKey)
         {
-            var languageSpecificUrlMap = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            // Wait for available download slot
+            await _downloadSemaphore.WaitAsync(_cts.Token);
+            var pending = _pendingRequests.Count;
+            var available = _downloadSemaphore.CurrentCount;
+            DebugLogger.LogDebug($"Starting English download for {appId} - Pending: {pending}, Available slots: {available}");
+            try
+            {
+                var languageSpecificUrlMap = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 
             static void AddUrl(Dictionary<string, List<string>> map, string url)
             {
@@ -359,27 +421,35 @@ namespace CommonUtilities
             // Akamai CDN
             AddUrl(languageSpecificUrlMap, $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg");
 
-            var englishUrls = RoundRobin(languageSpecificUrlMap);
-            var result = await _cache.GetImagePathAsync(appId.ToString(), englishUrls, "english", appId, _cts.Token, tryEnglishFallback: false, checkEnglishFallback: false);
-            if (!string.IsNullOrEmpty(result?.Path) && IsFreshImage(result.Value.Path))
-            {
-                _imageCache[cacheKey] = result.Value.Path;
-                if (result.Value.Downloaded)
+                var englishUrls = RoundRobin(languageSpecificUrlMap);
+                var result = await _cache.GetImagePathAsync(appId.ToString(), englishUrls, "english", appId, _cts.Token, tryEnglishFallback: false, checkEnglishFallback: false);
+                if (!string.IsNullOrEmpty(result?.Path) && IsFreshImage(result.Value.Path))
                 {
-                    TriggerImageDownloadCompletedEvent(appId, result.Value.Path);
+                    _imageCache[cacheKey] = result.Value.Path;
+                    if (result.Value.Downloaded)
+                    {
+                        TriggerImageDownloadCompletedEvent(appId, result.Value.Path);
+                    }
+                    return result.Value.Path;
                 }
-                return result.Value.Path;
-            }
 
-            // Clean up any invalid result and record failure
-            if (!string.IsNullOrEmpty(result?.Path))
+                // Clean up any invalid result and record failure
+                if (!string.IsNullOrEmpty(result?.Path))
+                {
+                    try { File.Delete(result.Value.Path); } catch { }
+                }
+
+                // Record English download failure only if not cancelled
+                if (!_cts.IsCancellationRequested)
+                {
+                    _cache.RecordFailedDownload(appId, "english");
+                }
+                return null;
+            }
+            finally
             {
-                try { File.Delete(result.Value.Path); } catch { }
+                _downloadSemaphore.Release();
             }
-
-            // Record English download failure
-            _cache.RecordFailedDownload(appId, "english");
-            return null;
         }
 
         private string? GetFallbackImagePath()
@@ -488,6 +558,7 @@ namespace CommonUtilities
         {
             _cts.Cancel();
             _cts.Dispose();
+            _downloadSemaphore.Dispose();
             if (_disposeHttpClient)
             {
                 _httpClient.Dispose();

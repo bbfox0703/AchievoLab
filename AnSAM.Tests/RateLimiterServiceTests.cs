@@ -64,7 +64,7 @@ namespace AnSAM.Tests
                 JitterMaxSeconds = 6,
                 SteamMaxCallsPerMinute = 100,
                 SteamJitterMinSeconds = 5.5,
-                SteamJitterMaxSeconds = 6.5
+                SteamJitterMaxSeconds = 8
             };
             using var rateLimiter = new RateLimiterService(options);
 
