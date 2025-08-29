@@ -31,7 +31,7 @@
             <!-- Left content (search) -->
             <CommandBar.Content>
                 <AutoSuggestBox x:Name="KeywordBox"
-                                Width="320"
+                                Width="240"
                                 PlaceholderText="Keyword search"
                                 QuerySubmitted="KeywordBox_QuerySubmitted"
                                 TextChanged="KeywordBox_TextChanged">
@@ -49,7 +49,7 @@
                     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                         <TextBlock Text="Steam API Key" VerticalAlignment="Center"/>
                         <PasswordBox x:Name="ApiKeyBox"
-                                     Width="340"
+                                     Width="240"
                                      PasswordChar="*"
                                      PlaceholderText="Your Steam Web API Key"
                                      IsPasswordRevealButtonEnabled="True"
@@ -62,7 +62,7 @@
                     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                         <TextBlock Text="SteamID_64" VerticalAlignment="Center"/>
                         <PasswordBox x:Name="SteamIdBox"
-                                     Width="260"
+                                     Width="180"
                                      PasswordChar="*"
                                      PlaceholderText="7656119xxxxxxxxxx"
                                      IsPasswordRevealButtonEnabled="True"
