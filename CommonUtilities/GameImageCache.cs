@@ -141,7 +141,7 @@ namespace CommonUtilities
             return null;
         }
 
-        public Task<ImageResult> GetImagePathAsync(string cacheKey, Uri uri, string language = "english", int? failureId = null, CancellationToken cancellationToken = default)
+        public Task<ImageResult> GetImagePathAsync(string cacheKey, Uri uri, string language = "english", int? failureId = null, CancellationToken cancellationToken = default, bool checkEnglishFallback = true)
         {
             var cacheDir = GetCacheDir(language);
             var basePath = Path.Combine(cacheDir, cacheKey);
@@ -151,7 +151,7 @@ namespace CommonUtilities
                 return existing;
             }
 
-            var cached = TryGetCachedPath(cacheKey, language);
+            var cached = TryGetCachedPath(cacheKey, language, checkEnglishFallback);
             if (cached != null)
             {
                 Interlocked.Increment(ref _totalRequests);
@@ -186,16 +186,17 @@ namespace CommonUtilities
             });
         }
 
-        public async Task<ImageResult?> GetImagePathAsync(string cacheKey, IEnumerable<string> uris, string language = "english", int? failureId = null, CancellationToken cancellationToken = default, bool tryEnglishFallback = true)
+        public async Task<ImageResult?> GetImagePathAsync(string cacheKey, IEnumerable<string> uris, string language = "english", int? failureId = null, CancellationToken cancellationToken = default, bool tryEnglishFallback = true, bool checkEnglishFallback = true)
         {
+            var urlList = uris as IList<string> ?? uris.ToList();
             int notFoundCount = 0;
-            var totalUrls = uris.Count();
+            var totalUrls = urlList.Count;
 
-            foreach (var url in uris)
+            foreach (var url in urlList)
             {
                 if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
                 {
-                    var result = await GetImagePathAsync(cacheKey, uri, language, failureId, cancellationToken).ConfigureAwait(false);
+                    var result = await GetImagePathAsync(cacheKey, uri, language, failureId, cancellationToken, checkEnglishFallback).ConfigureAwait(false);
                     if (!string.IsNullOrEmpty(result.Path))
                     {
                         return result;
