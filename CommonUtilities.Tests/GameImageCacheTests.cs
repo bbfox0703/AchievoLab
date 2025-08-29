@@ -583,7 +583,7 @@ public class GameImageCacheTests : IDisposable
         var handler = new QueueMessageHandler(responses);
         var client = new HttpClient(handler);
         client.Timeout = TimeSpan.FromSeconds(30);
-        client.DefaultRequestHeaders.Add("User-Agent", "AchievoLab/1.0");
+        client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
         client.DefaultRequestHeaders.Add("Accept", "image/webp,image/avif,image/apng,image/svg+xml,image/*,*/*;q=0.8");
         httpField.SetValue(cache, client);
 
@@ -616,7 +616,7 @@ public class GameImageCacheTests : IDisposable
         var handler = new QueueMessageHandler(responses);
         var client = new HttpClient(handler);
         client.Timeout = TimeSpan.FromSeconds(30);
-        client.DefaultRequestHeaders.Add("User-Agent", "AchievoLab/1.0");
+        client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
         client.DefaultRequestHeaders.Add("Accept", "image/webp,image/avif,image/apng,image/svg+xml,image/*,*/*;q=0.8");
         httpField.SetValue(cache, client);
 
@@ -658,7 +658,7 @@ public class GameImageCacheTests : IDisposable
         var handler = new QueueMessageHandler(responses);
         var client = new HttpClient(handler);
         client.Timeout = TimeSpan.FromSeconds(30);
-        client.DefaultRequestHeaders.Add("User-Agent", "AchievoLab/1.0");
+        client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
         client.DefaultRequestHeaders.Add("Accept", "image/webp,image/avif,image/apng,image/svg+xml,image/*,*/*;q=0.8");
         httpField.SetValue(cache, client);
 
@@ -689,7 +689,7 @@ public class GameImageCacheTests : IDisposable
         var handler = new SteamFallbackHandler(new HttpClientHandler());
         var client = new HttpClient(handler);
         client.Timeout = TimeSpan.FromSeconds(30);
-        client.DefaultRequestHeaders.Add("User-Agent", "AchievoLab/1.0");
+        client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
         client.DefaultRequestHeaders.Add("Accept", "image/webp,image/avif,image/apng,image/svg+xml,image/*,*/*;q=0.8");
         httpField!.SetValue(_cache, client);
 

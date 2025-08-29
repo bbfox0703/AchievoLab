@@ -42,7 +42,7 @@ namespace MyOwnGames
                 _httpClient.Timeout = TimeSpan.FromSeconds(30);
                 if (!_httpClient.DefaultRequestHeaders.Contains("User-Agent"))
                 {
-                    _httpClient.DefaultRequestHeaders.Add("User-Agent", "MyOwnGames/1.0");
+                    _httpClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
                 }
             }
         }
