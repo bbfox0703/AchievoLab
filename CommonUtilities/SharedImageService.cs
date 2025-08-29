@@ -226,7 +226,7 @@ namespace CommonUtilities
             }
 
             var languageUrls = RoundRobin(languageSpecificUrlMap);
-            var result = await _cache.GetImagePathAsync(appId.ToString(), languageUrls, language, appId, _cts.Token);
+            var result = await _cache.GetImagePathAsync(appId.ToString(), languageUrls, language, appId, _cts.Token, checkEnglishFallback: false);
             if (!string.IsNullOrEmpty(result?.Path) && IsFreshImage(result.Value.Path))
             {
                 _imageCache[cacheKey] = result.Value.Path;
