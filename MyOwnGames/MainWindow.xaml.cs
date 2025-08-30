@@ -146,7 +146,11 @@ namespace MyOwnGames
 
                         try
                         {
-                            LogScrollViewer?.ScrollToVerticalOffset(LogScrollViewer.ScrollableHeight);
+                            // Scroll ListView to last item
+                            if (LogEntries.Count > 0)
+                            {
+                                LogList?.ScrollIntoView(LogEntries[LogEntries.Count - 1]);
+                            }
                         }
                         catch (System.Runtime.InteropServices.COMException)
                         {
@@ -154,16 +158,7 @@ namespace MyOwnGames
                         }
                         catch
                         {
-                            // Fallback: scroll ListView to last item
-                            try
-                            {
-                                LogList?.ScrollIntoView(LogEntries[LogEntries.Count - 1]);
-                            }
-                            catch (System.Runtime.InteropServices.COMException)
-                            {
-                                // Ignore COM exceptions during shutdown
-                            }
-                            catch { }
+                            // Ignore other exceptions during UI updates
                         }
                     });
                 }

@@ -141,7 +141,7 @@ namespace CommonUtilities
             return null;
         }
 
-        public Task<ImageResult> GetImagePathAsync(string cacheKey, Uri uri, string language = "english", int? failureId = null, CancellationToken cancellationToken = default)
+        public Task<ImageResult> GetImagePathAsync(string cacheKey, Uri uri, string language = "english", int? failureId = null, CancellationToken cancellationToken = default, bool checkEnglishFallback = true)
         {
             var cacheDir = GetCacheDir(language);
             var basePath = Path.Combine(cacheDir, cacheKey);
@@ -151,7 +151,7 @@ namespace CommonUtilities
                 return existing;
             }
 
-            var cached = TryGetCachedPath(cacheKey, language);
+            var cached = TryGetCachedPath(cacheKey, language, checkEnglishFallback);
             if (cached != null)
             {
                 Interlocked.Increment(ref _totalRequests);
@@ -186,16 +186,18 @@ namespace CommonUtilities
             });
         }
 
-        public async Task<ImageResult?> GetImagePathAsync(string cacheKey, IEnumerable<string> uris, string language = "english", int? failureId = null, CancellationToken cancellationToken = default, bool tryEnglishFallback = true)
+        public async Task<ImageResult?> GetImagePathAsync(string cacheKey, IEnumerable<string> uris, string language = "english", int? failureId = null, CancellationToken cancellationToken = default, bool tryEnglishFallback = true, bool checkEnglishFallback = true)
         {
+            var urlList = uris as IList<string> ?? uris.ToList();
             int notFoundCount = 0;
-            var totalUrls = uris.Count();
+            var totalUrls = urlList.Count;
+            
 
-            foreach (var url in uris)
+            foreach (var url in urlList)
             {
                 if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
                 {
-                    var result = await GetImagePathAsync(cacheKey, uri, language, failureId, cancellationToken).ConfigureAwait(false);
+                    var result = await GetImagePathAsync(cacheKey, uri, language, failureId, cancellationToken, checkEnglishFallback).ConfigureAwait(false);
                     if (!string.IsNullOrEmpty(result.Path))
                     {
                         return result;
@@ -225,7 +227,40 @@ namespace CommonUtilities
                     }
                 }
             }
-            if (notFoundCount == totalUrls && failureId.HasValue)
+            // If we got enough 404s, try English fallback
+            if (tryEnglishFallback && notFoundCount >= 2 && failureId.HasValue && !string.Equals(language, "english", StringComparison.OrdinalIgnoreCase))
+            {
+                DebugLogger.LogDebug($"Trying English fallback for {cacheKey} after {notFoundCount} 404s");
+                var fallback = await TryEnglishFallbackAsync(cacheKey, language, failureId, cancellationToken).ConfigureAwait(false);
+                if (fallback != null)
+                {
+                    return fallback;
+                }
+            }
+            
+            // If no 404s but all URLs failed and we haven't tried English fallback yet, try it as a last resort
+            // But be careful not to record this as a failure if it's due to cancellation
+            if (tryEnglishFallback && notFoundCount == 0 && failureId.HasValue && !string.Equals(language, "english", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    DebugLogger.LogDebug($"All {totalUrls} URLs failed for {cacheKey} in {language} with no 404s, trying English fallback as last resort");
+                    var fallback = await TryEnglishFallbackAsync(cacheKey, language, failureId, cancellationToken).ConfigureAwait(false);
+                    if (fallback != null)
+                    {
+                        return fallback;
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    // Don't record failure for cancelled operations
+                    throw;
+                }
+            }
+            
+            // Only record failure if operation wasn't cancelled
+            if (failureId.HasValue && !cancellationToken.IsCancellationRequested)
             {
                 _failureTracker?.RecordFailedDownload(failureId.Value, language);
             }
@@ -257,6 +292,21 @@ namespace CommonUtilities
             if (!failureId.HasValue)
             {
                 return null;
+            }
+
+            // First, check if there's already a valid English cached image
+            var existingEnglishPath = TryGetCachedPath(cacheKey, "english", checkEnglishFallback: false);
+            if (!string.IsNullOrEmpty(existingEnglishPath) && IsCacheValid(existingEnglishPath))
+            {
+                DebugLogger.LogDebug($"Found existing English cached image for {cacheKey}, copying to {originalLanguage}");
+                CopyToOriginalLanguageFolder(existingEnglishPath, cacheKey, originalLanguage);
+
+                _failureTracker?.RemoveFailedRecord(failureId.Value, originalLanguage);
+
+                var originalPath = GetCacheDir(originalLanguage);
+                var finalPath = Path.Combine(originalPath, cacheKey + Path.GetExtension(existingEnglishPath));
+
+                return new ImageResult(finalPath, false); // Not downloaded, but copied from existing
             }
 
             // Generate English header URLs
@@ -565,6 +615,21 @@ namespace CommonUtilities
                 catch { }
             }
         }
+
+        /// <summary>
+        /// Checks if we should skip downloading for a specific App ID and language due to recent failures
+        /// </summary>
+        public bool ShouldSkipDownload(int appId, string language) => _failureTracker?.ShouldSkipDownload(appId, language) ?? false;
+
+        /// <summary>
+        /// Records a failed download attempt for specific language
+        /// </summary>
+        public void RecordFailedDownload(int appId, string language) => _failureTracker?.RecordFailedDownload(appId, language);
+
+        /// <summary>
+        /// Removes a failed download record for specific language (called when download succeeds)
+        /// </summary>
+        public void RemoveFailedRecord(int appId, string language) => _failureTracker?.RemoveFailedRecord(appId, language);
 
         public void Dispose()
         {

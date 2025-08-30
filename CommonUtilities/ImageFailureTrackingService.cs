@@ -25,6 +25,12 @@ namespace CommonUtilities
             _xmlFilePath = Path.Combine(cacheDirectory, "games_image_failed_log.xml");
         }
 
+        public ImageFailureTrackingService(string customCacheDirectory)
+        {
+            Directory.CreateDirectory(customCacheDirectory);
+            _xmlFilePath = Path.Combine(customCacheDirectory, "games_image_failed_log.xml");
+        }
+
         /// <summary>
         /// Checks if we should skip downloading for a specific App ID and language
         /// </summary>

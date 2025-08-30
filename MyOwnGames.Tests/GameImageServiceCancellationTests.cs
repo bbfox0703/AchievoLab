@@ -25,7 +25,7 @@ public class GameImageServiceCancellationTests : IDisposable
         Environment.SetEnvironmentVariable("XDG_DATA_HOME", _tempDir);
 
         // Setup cache with hanging image handler
-        _tracker = new ImageFailureTrackingService();
+        _tracker = new ImageFailureTrackingService(_tempDir);
         var cacheClient = new HttpClient(new HangingImageHandler());
         var cache = new GameImageCache(_tempDir, _tracker, httpClient: cacheClient, disposeHttpClient: true);
 
@@ -75,6 +75,7 @@ public class GameImageServiceCancellationTests : IDisposable
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            // Make ALL image download requests hang for 10 seconds to simulate slow download
             await Task.Delay(TimeSpan.FromSeconds(10), cancellationToken);
             var resp = new HttpResponseMessage(HttpStatusCode.OK)
             {

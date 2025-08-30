@@ -31,7 +31,7 @@
             <!-- Left content (search) -->
             <CommandBar.Content>
                 <AutoSuggestBox x:Name="KeywordBox"
-                                Width="320"
+                                Width="240"
                                 PlaceholderText="Keyword search"
                                 QuerySubmitted="KeywordBox_QuerySubmitted"
                                 TextChanged="KeywordBox_TextChanged">
@@ -49,7 +49,7 @@
                     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                         <TextBlock Text="Steam API Key" VerticalAlignment="Center"/>
                         <PasswordBox x:Name="ApiKeyBox"
-                                     Width="340"
+                                     Width="240"
                                      PasswordChar="*"
                                      PlaceholderText="Your Steam Web API Key"
                                      IsPasswordRevealButtonEnabled="True"
@@ -62,7 +62,7 @@
                     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                         <TextBlock Text="SteamID_64" VerticalAlignment="Center"/>
                         <PasswordBox x:Name="SteamIdBox"
-                                     Width="260"
+                                     Width="180"
                                      PasswordChar="*"
                                      PlaceholderText="7656119xxxxxxxxxx"
                                      IsPasswordRevealButtonEnabled="True"
@@ -241,25 +241,32 @@
                         <TextBlock Text="{Binding ProgressPercentText}" VerticalAlignment="Center"/>
                     </StackPanel>
                 </Grid>
-                <ScrollViewer x:Name="LogScrollViewer" 
-                              Grid.Row="1" 
-                              MaxHeight="200" 
-                              VerticalScrollBarVisibility="Auto"
-                              HorizontalScrollBarVisibility="Disabled"
-                              ZoomMode="Disabled">
-                    <ListView x:Name="LogList" 
-                              ItemsSource="{Binding LogEntries}"
-                              ScrollViewer.VerticalScrollBarVisibility="Disabled"
-                              ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-                        <ListView.ItemTemplate>
-                            <DataTemplate>
-                                <TextBlock Text="{Binding}" 
-                                           TextWrapping="Wrap"
-                                           Margin="4,2"/>
-                            </DataTemplate>
-                        </ListView.ItemTemplate>
-                    </ListView>
-                </ScrollViewer>
+                <ListView x:Name="LogList" 
+                          Grid.Row="1" 
+                          ItemsSource="{Binding LogEntries}"
+                          MaxHeight="140"
+                          ScrollViewer.VerticalScrollBarVisibility="Auto"
+                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                          ScrollViewer.ZoomMode="Disabled"
+                          Padding="4,2">
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding}" 
+                                       TextWrapping="Wrap"
+                                       FontSize="12"
+                                       LineHeight="16"
+                                       Margin="0"/>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="Padding" Value="4,1"/>
+                            <Setter Property="Margin" Value="0"/>
+                            <Setter Property="MinHeight" Value="0"/>
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                </ListView>
             </Grid>
         </Border>
 
