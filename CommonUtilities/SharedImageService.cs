@@ -22,6 +22,7 @@ namespace CommonUtilities
         private readonly object _eventLock = new();
         private CancellationTokenSource _cts = new();
         private string _currentLanguage = "english";
+        private int _requestCount = 0;
 
         // Concurrency limiter to prevent resource exhaustion
         private const int MAX_CONCURRENT_DOWNLOADS = 10;
@@ -122,6 +123,12 @@ namespace CommonUtilities
 
         public async Task<string?> GetGameImageAsync(int appId, string? language = null)
         {
+            // Auto-cleanup stale pending requests every 100 calls
+            if (Interlocked.Increment(ref _requestCount) % 100 == 0)
+            {
+                CleanupStaleRequests();
+            }
+
             language ??= _currentLanguage;
             var originalLanguage = language;
             var cacheKey = $"{appId}_{language}";

@@ -360,7 +360,27 @@ namespace AnSAM
         {
             if (_autoLoaded) return;
             _autoLoaded = true;
-            DispatcherQueue.TryEnqueue(async () => await RefreshAsync());
+            DispatcherQueue.TryEnqueue(async () =>
+            {
+                // Run cleanup in background on first startup
+                _ = Task.Run(() =>
+                {
+                    try
+                    {
+                        var duplicates = _imageService.CleanupDuplicatedEnglishImages(dryRun: false);
+                        if (duplicates > 0)
+                        {
+                            DebugLogger.LogDebug($"Startup cleanup: removed {duplicates} duplicated images");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        DebugLogger.LogDebug($"Cleanup error: {ex.Message}");
+                    }
+                });
+
+                await RefreshAsync();
+            });
         }
 
         /// <summary>
