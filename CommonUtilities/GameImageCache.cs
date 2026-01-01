@@ -298,15 +298,12 @@ namespace CommonUtilities
             var existingEnglishPath = TryGetCachedPath(cacheKey, "english", checkEnglishFallback: false);
             if (!string.IsNullOrEmpty(existingEnglishPath) && IsCacheValid(existingEnglishPath))
             {
-                DebugLogger.LogDebug($"Found existing English cached image for {cacheKey}, copying to {originalLanguage}");
-                CopyToOriginalLanguageFolder(existingEnglishPath, cacheKey, originalLanguage);
+                DebugLogger.LogDebug($"Found existing English cached image for {cacheKey}, using directly as fallback");
 
                 _failureTracker?.RemoveFailedRecord(failureId.Value, originalLanguage);
 
-                var originalPath = GetCacheDir(originalLanguage);
-                var finalPath = Path.Combine(originalPath, cacheKey + Path.GetExtension(existingEnglishPath));
-
-                return new ImageResult(finalPath, false); // Not downloaded, but copied from existing
+                // Return English image path directly - no copying needed
+                return new ImageResult(existingEnglishPath, false);
             }
 
             // Generate English header URLs
@@ -325,14 +322,10 @@ namespace CommonUtilities
                     var result = await GetImagePathAsync(cacheKey, uri, "english", failureId, cancellationToken).ConfigureAwait(false);
                     if (!string.IsNullOrEmpty(result.Path))
                     {
-                        CopyToOriginalLanguageFolder(result.Path, cacheKey, originalLanguage);
-
                         _failureTracker?.RemoveFailedRecord(failureId.Value, originalLanguage);
 
-                        var originalPath = GetCacheDir(originalLanguage);
-                        var finalPath = Path.Combine(originalPath, cacheKey + Path.GetExtension(result.Path));
-
-                        return new ImageResult(finalPath, true);
+                        // Return English image path directly - no copying needed
+                        return new ImageResult(result.Path, true);
                     }
 
                     if (IsRecentNotFoundError(uri))
@@ -358,14 +351,10 @@ namespace CommonUtilities
                         var result = await GetImagePathAsync(cacheKey, uri, "english", failureId, cancellationToken).ConfigureAwait(false);
                         if (!string.IsNullOrEmpty(result.Path))
                         {
-                            CopyToOriginalLanguageFolder(result.Path, cacheKey, originalLanguage);
-
                             _failureTracker?.RemoveFailedRecord(failureId.Value, originalLanguage);
 
-                            var originalPath = GetCacheDir(originalLanguage);
-                            var finalPath = Path.Combine(originalPath, cacheKey + Path.GetExtension(result.Path));
-
-                            return new ImageResult(finalPath, true);
+                            // Return English image path directly - no copying needed
+                            return new ImageResult(result.Path, true);
                         }
                     }
                 }
@@ -376,26 +365,6 @@ namespace CommonUtilities
             return null;
         }
 
-        private void CopyToOriginalLanguageFolder(string englishImagePath, string cacheKey, string originalLanguage)
-        {
-            try
-            {
-                var originalDir = GetCacheDir(originalLanguage);
-                var extension = Path.GetExtension(englishImagePath);
-                var targetPath = Path.Combine(originalDir, cacheKey + extension);
-                
-                DebugLogger.LogDebug($"Copying English image to {originalLanguage} folder: {targetPath}");
-                
-                // Copy the file
-                File.Copy(englishImagePath, targetPath, overwrite: true);
-                
-                DebugLogger.LogDebug($"Successfully copied English image for {cacheKey} to both folders");
-            }
-            catch (Exception ex)
-            {
-                DebugLogger.LogDebug($"Failed to copy English image to original language folder: {ex.Message}");
-            }
-        }
 
         private async Task<ImageResult> DownloadAsync(string cacheKey, string language, Uri uri, string basePath, string ext, int? failureId, CancellationToken cancellationToken)
         {
@@ -560,6 +529,100 @@ namespace CommonUtilities
                 }
             }
             catch { }
+        }
+
+        /// <summary>
+        /// Cleanup duplicated English images that were copied to language-specific folders.
+        /// This removes files from language folders that are identical to English versions,
+        /// saving disk space and ensuring cache consistency.
+        /// </summary>
+        /// <param name="dryRun">If true, only reports what would be deleted without actually deleting</param>
+        /// <returns>Number of duplicated files found (and deleted if not dry run)</returns>
+        public int CleanupDuplicatedEnglishImages(bool dryRun = false)
+        {
+            var languages = new[] { "tchinese", "schinese", "japanese", "korean", "koreana" };
+            var englishDir = GetCacheDir("english");
+            int duplicatesFound = 0;
+            long spaceReclaimed = 0;
+
+            if (!Directory.Exists(englishDir))
+            {
+                DebugLogger.LogDebug("English cache directory does not exist, nothing to cleanup");
+                return 0;
+            }
+
+            foreach (var language in languages)
+            {
+                var languageDir = GetCacheDir(language);
+                if (!Directory.Exists(languageDir))
+                    continue;
+
+                var languageFiles = Directory.GetFiles(languageDir);
+                DebugLogger.LogDebug($"Checking {languageFiles.Length} files in {language} folder for duplicates");
+
+                foreach (var languageFile in languageFiles)
+                {
+                    try
+                    {
+                        var fileName = Path.GetFileName(languageFile);
+                        var englishFile = Path.Combine(englishDir, fileName);
+
+                        // If English version exists
+                        if (File.Exists(englishFile))
+                        {
+                            // Compare file sizes first (faster than content comparison)
+                            var languageInfo = new FileInfo(languageFile);
+                            var englishInfo = new FileInfo(englishFile);
+
+                            if (languageInfo.Length == englishInfo.Length)
+                            {
+                                // Compare file content to confirm they're identical
+                                var languageBytes = File.ReadAllBytes(languageFile);
+                                var englishBytes = File.ReadAllBytes(englishFile);
+
+                                if (languageBytes.SequenceEqual(englishBytes))
+                                {
+                                    duplicatesFound++;
+                                    spaceReclaimed += languageInfo.Length;
+
+                                    if (dryRun)
+                                    {
+                                        DebugLogger.LogDebug($"[DRY RUN] Would delete duplicated English image: {languageFile} ({languageInfo.Length} bytes)");
+                                    }
+                                    else
+                                    {
+                                        File.Delete(languageFile);
+                                        DebugLogger.LogDebug($"Deleted duplicated English image: {languageFile} ({languageInfo.Length} bytes)");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        DebugLogger.LogDebug($"Error processing {languageFile}: {ex.Message}");
+                    }
+                }
+            }
+
+            if (duplicatesFound > 0)
+            {
+                var spaceMB = spaceReclaimed / (1024.0 * 1024.0);
+                if (dryRun)
+                {
+                    DebugLogger.LogDebug($"[DRY RUN] Found {duplicatesFound} duplicated files ({spaceMB:F2} MB that could be reclaimed)");
+                }
+                else
+                {
+                    DebugLogger.LogDebug($"Cleaned up {duplicatesFound} duplicated files, reclaimed {spaceMB:F2} MB of disk space");
+                }
+            }
+            else
+            {
+                DebugLogger.LogDebug("No duplicated English images found");
+            }
+
+            return duplicatesFound;
         }
 
         private bool IsCacheValid(string path)

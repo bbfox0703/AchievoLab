@@ -20,6 +20,10 @@ namespace MyOwnGames
         private readonly bool _disposeHttpClient;
         private bool _disposed;
 
+        // Steam API rate limit tracking
+        private DateTime? _steamApiBlockedUntil = null;
+        private readonly object _blockLock = new();
+
         private static readonly JsonSerializerOptions JsonOptions =
             new() { TypeInfoResolver = SteamApiJsonContext.Default };
 
@@ -58,17 +62,24 @@ namespace MyOwnGames
         public async Task<int> GetOwnedGamesAsync(string steamId64, string targetLanguage = "english", Func<SteamGame, Task>? onGameRetrieved = null, IProgress<double>? progress = null, ISet<int>? existingAppIds = null, IDictionary<int, string>? existingLocalizedNames = null, CancellationToken cancellationToken = default)
         {
             ValidateCredentials(_apiKey, steamId64);
+
+            // Check if Steam API is currently blocked
+            if (IsSteamApiBlocked())
+            {
+                throw new InvalidOperationException("Steam API is currently blocked due to rate limiting. Please wait 30 minutes before trying again.");
+            }
+
             try
             {
                 // Step 1: Get owned games with throttling
                 progress?.Report(10);
                 cancellationToken.ThrowIfCancellationRequested();
-                
+
                 await _steamRateLimiter.WaitSteamAsync();
                 cancellationToken.ThrowIfCancellationRequested();
-                
+
                 var ownedGamesUrl = $"https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key={_apiKey}&steamid={steamId64}&format=json&include_appinfo=true";
-                var ownedGamesResponse = await _httpClient.GetStringAsync(ownedGamesUrl, cancellationToken);
+                var ownedGamesResponse = await GetStringWithRateLimitCheckAsync(ownedGamesUrl, cancellationToken);
                 var ownedGamesData = DeserializeOwnedGamesResponse(ownedGamesResponse);
 
                 if (ownedGamesData?.response?.games == null)
@@ -154,8 +165,8 @@ namespace MyOwnGames
                 
                 var url = $"https://store.steampowered.com/api/appdetails?appids={appId}&l={targetLanguage}";
                 DebugLogger.LogDebug($"Fetching localized name for {appId} ({englishName}) in {targetLanguage}");
-                
-                var response = await _httpClient.GetStringAsync(url, cancellationToken);
+
+                var response = await GetStringWithRateLimitCheckAsync(url, cancellationToken);
                 var data = DeserializeAppDetailsResponse(response);
                 
                 if (data != null && data.TryGetValue(appId.ToString(), out var appDetails) && 
@@ -170,11 +181,10 @@ namespace MyOwnGames
                     DebugLogger.LogDebug($"No localized name available for {appId} in {targetLanguage}, using English fallback");
                 }
             }
-            catch (HttpRequestException ex) when (ex.Message.Contains("429") || ex.Message.Contains("Too Many Requests"))
+            catch (HttpRequestException ex) when (ex.Message.Contains("429") || ex.Message.Contains("Too Many Requests") || ex.Message.Contains("rate limit", StringComparison.OrdinalIgnoreCase))
             {
-                DebugLogger.LogDebug($"Rate limited when getting localized name for {appId}, using English fallback: {ex.Message}");
-                // Wait longer on rate limit
-                await Task.Delay(TimeSpan.FromSeconds(75), cancellationToken);
+                // 429 already recorded by GetStringWithRateLimitCheckAsync, Steam API blocked for 30 minutes
+                DebugLogger.LogDebug($"Rate limited when getting localized name for {appId}, using English fallback. Steam API blocked for 30 minutes.");
             }
             catch (Exception ex)
             {
@@ -194,6 +204,61 @@ namespace MyOwnGames
             }
 
             return $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/header_{language}.jpg";
+        }
+
+        /// <summary>
+        /// Check if Steam API is currently blocked due to 429 rate limit
+        /// </summary>
+        private bool IsSteamApiBlocked()
+        {
+            lock (_blockLock)
+            {
+                if (_steamApiBlockedUntil.HasValue)
+                {
+                    if (DateTime.UtcNow < _steamApiBlockedUntil.Value)
+                    {
+                        var timeRemaining = _steamApiBlockedUntil.Value - DateTime.UtcNow;
+                        DebugLogger.LogDebug($"Steam API is blocked for {timeRemaining.TotalMinutes:F1} more minutes");
+                        return true;
+                    }
+                    else
+                    {
+                        // Block has expired
+                        _steamApiBlockedUntil = null;
+                        DebugLogger.LogDebug("Steam API block has expired");
+                    }
+                }
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Record that Steam API returned 429 and block it for 30 minutes
+        /// </summary>
+        private void RecordSteamApiRateLimit()
+        {
+            lock (_blockLock)
+            {
+                _steamApiBlockedUntil = DateTime.UtcNow.AddMinutes(30);
+                DebugLogger.LogDebug($"Steam API blocked until {_steamApiBlockedUntil.Value:HH:mm:ss} (30 minutes)");
+            }
+        }
+
+        /// <summary>
+        /// Safe HTTP GET with 429 detection
+        /// </summary>
+        private async Task<string> GetStringWithRateLimitCheckAsync(string url, CancellationToken cancellationToken = default)
+        {
+            using var response = await _httpClient.GetAsync(url, cancellationToken);
+
+            if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+            {
+                RecordSteamApiRateLimit();
+                throw new HttpRequestException($"Steam API rate limit exceeded (429). Blocked for 30 minutes.");
+            }
+
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadAsStringAsync(cancellationToken);
         }
 
         private static OwnedGamesResponse? DeserializeOwnedGamesResponse(string json)
