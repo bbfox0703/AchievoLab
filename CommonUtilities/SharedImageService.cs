@@ -39,7 +39,7 @@ namespace CommonUtilities
         {
             _httpClient = httpClient;
             _disposeHttpClient = disposeHttpClient;
-            _cdnLoadBalancer = new CdnLoadBalancer(maxConcurrentPerDomain: 2);
+            _cdnLoadBalancer = new CdnLoadBalancer(maxConcurrentPerDomain: 4);
 
             if (cache != null)
             {
@@ -49,7 +49,7 @@ namespace CommonUtilities
             {
                 var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                     "AchievoLab", "ImageCache");
-                _cache = new GameImageCache(baseDir, new ImageFailureTrackingService());
+                _cache = new GameImageCache(baseDir, new ImageFailureTrackingService(), maxConcurrentRequestsPerDomain: 4);
             }
         }
 

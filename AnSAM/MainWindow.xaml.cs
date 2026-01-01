@@ -49,6 +49,7 @@ namespace AnSAM
         private bool _languageInitialized;
         private ScrollViewer? _gamesScrollViewer;
         private readonly UISettings _uiSettings = new();
+        private readonly DispatcherTimer _cdnStatsTimer;
 
         public MainWindow(SteamClient steamClient, ElementTheme theme)
         {
@@ -88,6 +89,14 @@ namespace AnSAM
             GameListService.ProgressChanged += OnGameListProgressChanged;
             Activated += OnWindowActivated;
             Closed += OnWindowClosed;
+
+            // Initialize CDN statistics timer
+            _cdnStatsTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(2)
+            };
+            _cdnStatsTimer.Tick += CdnStatsTimer_Tick;
+            _cdnStatsTimer.Start();
         }
 
         /// <summary>
@@ -396,10 +405,72 @@ namespace AnSAM
         }
 
         /// <summary>
+        /// Updates CDN statistics display
+        /// </summary>
+        private void CdnStatsTimer_Tick(object? sender, object e)
+        {
+            try
+            {
+                var stats = _imageService.GetCdnStats();
+                if (stats.Count == 0)
+                {
+                    StatusCdn.Text = "";
+                    return;
+                }
+
+                var cdnNames = new Dictionary<string, string>
+                {
+                    ["shared.cloudflare.steamstatic.com"] = "CF",
+                    ["cdn.steamstatic.com"] = "Steam",
+                    ["shared.akamai.steamstatic.com"] = "Akamai"
+                };
+
+                var statParts = new List<string>();
+                foreach (var kvp in stats.OrderByDescending(x => x.Value.Active))
+                {
+                    var domain = kvp.Key;
+                    var (active, isBlocked, successRate) = kvp.Value;
+
+                    var name = cdnNames.ContainsKey(domain) ? cdnNames[domain] : domain.Split('.')[0];
+
+                    if (active > 0 || isBlocked)
+                    {
+                        var blockedIndicator = isBlocked ? "⚠" : "";
+                        statParts.Add($"{name}:{active}{blockedIndicator}");
+                    }
+                }
+
+                // Calculate overall success rate
+                var totalSuccess = stats.Values.Sum(s => s.SuccessRate * 100);
+                var avgSuccessRate = stats.Count > 0 ? totalSuccess / stats.Count : 0;
+
+                if (statParts.Count > 0)
+                {
+                    StatusCdn.Text = $"CDN: {string.Join(" ", statParts)} ({avgSuccessRate:0}%)";
+                }
+                else if (stats.Any(s => s.Value.SuccessRate > 0))
+                {
+                    StatusCdn.Text = $"CDN OK ({avgSuccessRate:0}%)";
+                }
+                else
+                {
+                    StatusCdn.Text = "";
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"CDN stats update error: {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// Unsubscribes from events and disposes resources when closing.
         /// </summary>
         private void OnWindowClosed(object sender, WindowEventArgs args)
         {
+            _cdnStatsTimer.Stop();
+            _cdnStatsTimer.Tick -= CdnStatsTimer_Tick;
+
             GameListService.StatusChanged -= OnGameListStatusChanged;
             GameListService.ProgressChanged -= OnGameListProgressChanged;
             _uiSettings.ColorValuesChanged -= UiSettings_ColorValuesChanged;
