@@ -22,10 +22,13 @@ namespace CommonUtilities
         private readonly object _eventLock = new();
         private CancellationTokenSource _cts = new();
         private string _currentLanguage = "english";
-        
+
         // Concurrency limiter to prevent resource exhaustion
         private const int MAX_CONCURRENT_DOWNLOADS = 10;
         private readonly SemaphoreSlim _downloadSemaphore = new(MAX_CONCURRENT_DOWNLOADS, MAX_CONCURRENT_DOWNLOADS);
+
+        // CDN load balancer for intelligent CDN selection
+        private readonly CdnLoadBalancer _cdnLoadBalancer;
 
         private static readonly JsonSerializerOptions JsonOptions =
             new() { TypeInfoResolver = StoreApiJsonContext.Default };
@@ -36,6 +39,7 @@ namespace CommonUtilities
         {
             _httpClient = httpClient;
             _disposeHttpClient = disposeHttpClient;
+            _cdnLoadBalancer = new CdnLoadBalancer(maxConcurrentPerDomain: 2);
 
             if (cache != null)
             {
@@ -308,8 +312,10 @@ namespace CommonUtilities
             }
 
                 var languageUrls = RoundRobin(languageSpecificUrlMap);
-                // Disable English fallback here - we want to handle it explicitly in our main flow
-                var result = await _cache.GetImagePathAsync(appId.ToString(), languageUrls, language, appId, _cts.Token, tryEnglishFallback: false, checkEnglishFallback: false);
+
+                // Use CDN load balancer with failover strategy
+                var result = await TryDownloadWithCdnFailover(appId.ToString(), languageUrls, language, appId, _cts.Token);
+
                 if (!string.IsNullOrEmpty(result?.Path) && IsFreshImage(result.Value.Path))
                 {
                     _imageCache[cacheKey] = result.Value.Path;
@@ -422,7 +428,10 @@ namespace CommonUtilities
             AddUrl(languageSpecificUrlMap, $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg");
 
                 var englishUrls = RoundRobin(languageSpecificUrlMap);
-                var result = await _cache.GetImagePathAsync(appId.ToString(), englishUrls, "english", appId, _cts.Token, tryEnglishFallback: false, checkEnglishFallback: false);
+
+                // Use CDN load balancer with failover strategy
+                var result = await TryDownloadWithCdnFailover(appId.ToString(), englishUrls, "english", appId, _cts.Token);
+
                 if (!string.IsNullOrEmpty(result?.Path) && IsFreshImage(result.Value.Path))
                 {
                     _imageCache[cacheKey] = result.Value.Path;
@@ -521,6 +530,97 @@ namespace CommonUtilities
                 DebugLogger.LogDebug($"Unexpected error parsing store API response for {appId}: {ex.Message}");
             }
             return null;
+        }
+
+        /// <summary>
+        /// Download image with CDN failover strategy
+        /// </summary>
+        private async Task<GameImageCache.ImageResult?> TryDownloadWithCdnFailover(
+            string cacheKey,
+            List<string> cdnUrls,
+            string language,
+            int? failureId,
+            CancellationToken cancellationToken)
+        {
+            if (cdnUrls == null || cdnUrls.Count == 0)
+                return null;
+
+            // Try up to 3 times (at least once per CDN)
+            var attemptedUrls = new HashSet<string>();
+            for (int attempt = 0; attempt < Math.Min(3, cdnUrls.Count); attempt++)
+            {
+                // Select best available CDN
+                var availableUrls = cdnUrls.Where(u => !attemptedUrls.Contains(u)).ToList();
+                if (availableUrls.Count == 0)
+                    break;
+
+                var selectedUrl = _cdnLoadBalancer.SelectBestCdn(availableUrls);
+                attemptedUrls.Add(selectedUrl);
+
+                if (!Uri.TryCreate(selectedUrl, UriKind.Absolute, out var uri))
+                {
+                    DebugLogger.LogDebug($"Invalid URL: {selectedUrl}");
+                    continue;
+                }
+
+                var domain = uri.Host;
+                _cdnLoadBalancer.IncrementActiveRequests(domain);
+
+                try
+                {
+                    DebugLogger.LogDebug($"Attempting download from {domain} (attempt {attempt + 1}/{Math.Min(3, cdnUrls.Count)})");
+
+                    var result = await _cache.GetImagePathAsync(
+                        cacheKey,
+                        uri,
+                        language,
+                        failureId,
+                        cancellationToken,
+                        checkEnglishFallback: false);
+
+                    if (!string.IsNullOrEmpty(result.Path))
+                    {
+                        _cdnLoadBalancer.RecordSuccess(domain);
+                        DebugLogger.LogDebug($"Successfully downloaded from {domain}");
+                        return result;
+                    }
+                    else
+                    {
+                        _cdnLoadBalancer.RecordFailure(domain);
+                        DebugLogger.LogDebug($"Download failed from {domain} (empty result)");
+                    }
+                }
+                catch (HttpRequestException ex) when (
+                    ex.Message.Contains("429", StringComparison.OrdinalIgnoreCase) ||
+                    ex.Message.Contains("TooManyRequests", StringComparison.OrdinalIgnoreCase) ||
+                    ex.Message.Contains("403", StringComparison.OrdinalIgnoreCase) ||
+                    ex.Message.Contains("Forbidden", StringComparison.OrdinalIgnoreCase))
+                {
+                    // CDN returned rate limit error, mark as blocked
+                    _cdnLoadBalancer.RecordBlockedDomain(domain, TimeSpan.FromMinutes(5));
+                    DebugLogger.LogDebug($"CDN {domain} returned rate limit error ({ex.Message}), marking as blocked");
+                }
+                catch (Exception ex)
+                {
+                    _cdnLoadBalancer.RecordFailure(domain);
+                    DebugLogger.LogDebug($"Download error from {domain}: {ex.Message}");
+                }
+                finally
+                {
+                    _cdnLoadBalancer.DecrementActiveRequests(domain);
+                }
+            }
+
+            // All CDNs failed
+            return null;
+        }
+
+        /// <summary>
+        /// Get CDN statistics for monitoring
+        /// </summary>
+        public Dictionary<string, (int Active, bool IsBlocked, double SuccessRate)> GetCdnStats()
+        {
+            return _cdnLoadBalancer.GetStats();
         }
 
         public void ClearCache(string? specificLanguage = null)

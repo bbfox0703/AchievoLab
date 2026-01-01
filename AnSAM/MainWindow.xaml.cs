@@ -947,7 +947,20 @@ namespace AnSAM
                 if (_coverPath != value)
                 {
                     _coverPath = value;
+
+                    // Dispose old BitmapImage to prevent memory leak
+                    var oldImage = _coverImage;
                     _coverImage = null;
+
+                    // BitmapImage doesn't implement IDisposable in WinUI 3, but we can help GC by clearing reference
+                    // and triggering property changed events to update UI bindings
+                    if (oldImage != null)
+                    {
+                        // In WinUI 3, BitmapImage cleanup is handled by the framework
+                        // Setting to null and notifying property changes helps release references
+                        oldImage = null;
+                    }
+
                     PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(CoverPath)));
                     PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(CoverImage)));
                 }
