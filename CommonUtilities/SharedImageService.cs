@@ -654,6 +654,17 @@ namespace CommonUtilities
 
         public void ClearGeneralCache() => ClearCache();
 
+        /// <summary>
+        /// Cleanup duplicated English images that were previously copied to language-specific folders.
+        /// This removes redundant files and reclaims disk space.
+        /// </summary>
+        /// <param name="dryRun">If true, only reports what would be deleted without actually deleting</param>
+        /// <returns>Number of duplicated files found (and deleted if not dry run)</returns>
+        public int CleanupDuplicatedEnglishImages(bool dryRun = false)
+        {
+            return _cache.CleanupDuplicatedEnglishImages(dryRun);
+        }
+
         public void Dispose()
         {
             _cts.Cancel();
