@@ -48,8 +48,9 @@ namespace AnSAM
         private bool _autoLoaded;
         private bool _languageInitialized;
         private ScrollViewer? _gamesScrollViewer;
-        private readonly UISettings _uiSettings = new();
         private readonly DispatcherTimer _cdnStatsTimer;
+        private readonly ThemeManagementService _themeService = new();
+        private readonly ApplicationSettingsService _settingsService = new();
 
         public MainWindow(SteamClient steamClient, ElementTheme theme)
         {
@@ -57,8 +58,6 @@ namespace AnSAM
             _imageService = new SharedImageService(_imageHttpClient);
             InitializeComponent();
             _dispatcher = DispatcherQueue;
-
-            _uiSettings.ColorValuesChanged += UiSettings_ColorValuesChanged;
 
             InitializeLanguageComboBox();
 
@@ -73,6 +72,11 @@ namespace AnSAM
 
             if (Content is FrameworkElement root)
             {
+                // Initialize theme service
+                _themeService.Initialize(this, root);
+                var uiSettings = _themeService.GetUISettings();
+                uiSettings.ColorValuesChanged += UiSettings_ColorValuesChanged;
+
                 ApplyTheme(theme, save: false);
                 root.KeyDown += OnWindowKeyDown;
                 if (AppWindowTitleBar.IsCustomizationSupported())
@@ -128,16 +132,7 @@ namespace AnSAM
                 LanguageComboBox.Items.Add(lang);
             }
 
-            string? saved = null;
-            try
-            {
-                var settings = ApplicationData.Current.LocalSettings;
-                saved = settings.Values["Language"] as string;
-            }
-            catch (InvalidOperationException)
-            {
-                // Ignore inability to persist settings
-            }
+            _settingsService.TryGetString("Language", out var saved);
             // Always initialize to English, regardless of saved settings
             string initial = "english";
             
@@ -152,12 +147,7 @@ namespace AnSAM
         /// </summary>
         private void ApplyTheme(ElementTheme theme, bool save = true)
         {
-            if (Content is FrameworkElement root)
-            {
-                root.RequestedTheme = theme;
-                ApplyAccentBrush(root);
-                UpdateTitleBar(theme);
-            }
+            _themeService.ApplyTheme(theme);
 
             StatusText.Text = theme switch
             {
@@ -169,15 +159,7 @@ namespace AnSAM
 
             if (save)
             {
-                try
-                {
-                    var settings = ApplicationData.Current.LocalSettings;
-                    settings.Values["AppTheme"] = theme.ToString();
-                }
-                catch (InvalidOperationException)
-                {
-                    // Ignore inability to persist settings
-                }
+                _settingsService.TrySetEnum("AppTheme", theme);
             }
 
             // Don't set Application.RequestedTheme to avoid COMException in WinUI 3
@@ -213,15 +195,7 @@ namespace AnSAM
                 SteamLanguageResolver.OverrideLanguage = lang;
                 await _imageService.SetLanguage(lang);
 
-                try
-                {
-                    var settings = ApplicationData.Current.LocalSettings;
-                    settings.Values["Language"] = lang;
-                }
-                catch (InvalidOperationException)
-                {
-                    // Ignore inability to persist settings
-                }
+                _settingsService.TrySetString("Language", lang);
 
                 try
                 {
@@ -269,68 +243,21 @@ namespace AnSAM
         /// </summary>
         private void UpdateTitleBar(ElementTheme theme)
         {
-            if (!AppWindowTitleBar.IsCustomizationSupported())
-                return;
-
-            var titleBar = _appWindow.TitleBar;
-            var accent = _uiSettings.GetColorValue(UIColorType.Accent);
-            var accentDark1 = _uiSettings.GetColorValue(UIColorType.AccentDark1);
-            var accentDark2 = _uiSettings.GetColorValue(UIColorType.AccentDark2);
-            var accentDark3 = _uiSettings.GetColorValue(UIColorType.AccentDark3);
-            var accentLight1 = _uiSettings.GetColorValue(UIColorType.AccentLight1);
-            var foreground = _uiSettings.GetColorValue(UIColorType.Foreground);
-            var background = _uiSettings.GetColorValue(UIColorType.Background);
-            var inactiveForeground = Color.FromArgb(
-                foreground.A,
-                (byte)(foreground.R / 2),
-                (byte)(foreground.G / 2),
-                (byte)(foreground.B / 2));
-
-            if (theme == ElementTheme.Dark)
-            {
-                titleBar.BackgroundColor = accentDark2;
-                titleBar.ForegroundColor = foreground;
-
-                titleBar.ButtonBackgroundColor = accentDark2;
-                titleBar.ButtonForegroundColor = foreground;
-                titleBar.ButtonHoverBackgroundColor = accent;
-                titleBar.ButtonHoverForegroundColor = foreground;
-                titleBar.ButtonPressedBackgroundColor = accentDark2;
-                titleBar.ButtonPressedForegroundColor = foreground;
-
-                titleBar.InactiveBackgroundColor = accentDark2;
-                titleBar.InactiveForegroundColor = inactiveForeground;
-                titleBar.ButtonInactiveBackgroundColor = accentDark2;
-                titleBar.ButtonInactiveForegroundColor = inactiveForeground;
-            }
-            else
-            {
-                titleBar.BackgroundColor = accentLight1;
-                titleBar.ForegroundColor = foreground;
-
-                titleBar.ButtonBackgroundColor = accentLight1;
-                titleBar.ButtonForegroundColor = foreground;
-                titleBar.ButtonHoverBackgroundColor = accent;
-                titleBar.ButtonHoverForegroundColor = foreground;
-                titleBar.ButtonPressedBackgroundColor = accentDark1;
-                titleBar.ButtonPressedForegroundColor = foreground;
-
-                titleBar.InactiveBackgroundColor = accentLight1;
-                titleBar.InactiveForegroundColor = inactiveForeground;
-                titleBar.ButtonInactiveBackgroundColor = accentLight1;
-                titleBar.ButtonInactiveForegroundColor = inactiveForeground;
-            }
+            _themeService.UpdateTitleBar(theme);
         }
 
         /// <summary>
-        /// Applies the accent color brush to the window.
+        /// Applies the accent color brush to the window and updates StatusText foreground.
         /// </summary>
-        private void ApplyAccentBrush(FrameworkElement root)
+        private void ApplyAccentBrush()
         {
-            var accent = _uiSettings.GetColorValue(UIColorType.Accent);
-            var brush = new SolidColorBrush(accent);
-            root.Resources["AppAccentBrush"] = brush;
-            StatusText.Foreground = brush;
+            _themeService.ApplyAccentBrush();
+
+            // Additional UI-specific logic
+            if (Content is FrameworkElement root && root.Resources.TryGetValue("AppAccentBrush", out var brushObj) && brushObj is SolidColorBrush brush)
+            {
+                StatusText.Foreground = brush;
+            }
         }
 
         /// <summary>
@@ -340,10 +267,10 @@ namespace AnSAM
         {
             DispatcherQueue.TryEnqueue(() =>
             {
-                if (Content is FrameworkElement root)
+                ApplyAccentBrush();
+                if (_themeService.Root != null)
                 {
-                    ApplyAccentBrush(root);
-                    UpdateTitleBar(root.ActualTheme);
+                    UpdateTitleBar(_themeService.Root.ActualTheme);
                 }
             });
         }
@@ -493,7 +420,7 @@ namespace AnSAM
 
             GameListService.StatusChanged -= OnGameListStatusChanged;
             GameListService.ProgressChanged -= OnGameListProgressChanged;
-            _uiSettings.ColorValuesChanged -= UiSettings_ColorValuesChanged;
+            _themeService.GetUISettings().ColorValuesChanged -= UiSettings_ColorValuesChanged;
             Activated -= OnWindowActivated;
             _imageService.Dispose();
             _imageHttpClient.Dispose();
@@ -753,6 +680,7 @@ namespace AnSAM
 
         /// <summary>
         /// Filters the displayed games by keyword without rebuilding the entire list.
+        /// Searches in current language title, English title, and AppID.
         /// </summary>
         private void FilterGames(string? keyword)
         {
@@ -761,9 +689,20 @@ namespace AnSAM
             int index = 0;
             foreach (var game in _allGames)
             {
-                if (hasKeyword && !game.Title.Contains(kw, StringComparison.OrdinalIgnoreCase))
+                if (hasKeyword)
                 {
-                    continue;
+                    // Search in: current language title, English title, and AppID
+                    bool matchCurrentTitle = !string.IsNullOrEmpty(game.Title) &&
+                                            game.Title.Contains(kw, StringComparison.OrdinalIgnoreCase);
+                    bool matchEnglishTitle = !string.IsNullOrEmpty(game.EnglishTitle) &&
+                                            game.EnglishTitle.Contains(kw, StringComparison.OrdinalIgnoreCase);
+                    bool matchAppId = game.ID.ToString().Contains(kw);
+
+                    // Skip if no match found
+                    if (!matchCurrentTitle && !matchEnglishTitle && !matchAppId)
+                    {
+                        continue;
+                    }
                 }
 
                 while (index < Games.Count && !ReferenceEquals(Games[index], game))
@@ -932,17 +871,47 @@ namespace AnSAM
                 game.CoverPath = null;
             }
 
-            // Load visible images first in small batches
-            const int batchSize = 3;
-            for (int i = 0; i < visibleGames.Count; i += batchSize)
+            // Categorize visible games for optimal loading
+            bool isNonEnglish = !string.Equals(language, "english", StringComparison.OrdinalIgnoreCase);
+            var cachedInTargetLanguage = new List<GameItem>();
+            var cachedInEnglishOnly = new List<GameItem>();
+            var notCached = new List<GameItem>();
+
+            foreach (var game in visibleGames)
             {
-                var batch = visibleGames.Skip(i).Take(batchSize)
-                                         .Select(g => g.LoadCoverAsync(_imageService));
+                if (_imageService.IsImageCached(game.ID, language))
+                {
+                    cachedInTargetLanguage.Add(game);
+                }
+                else if (isNonEnglish && _imageService.IsImageCached(game.ID, "english"))
+                {
+                    cachedInEnglishOnly.Add(game);
+                }
+                else
+                {
+                    notCached.Add(game);
+                }
+            }
+
+            // Load all cached images immediately (both target language and English fallback)
+            var allCachedGames = cachedInTargetLanguage.Concat(cachedInEnglishOnly).ToList();
+            if (allCachedGames.Count > 0)
+            {
+                var cachedTasks = allCachedGames.Select(g => g.LoadCoverAsync(_imageService));
+                await Task.WhenAll(cachedTasks);
+            }
+
+            // Load non-cached visible images in batches with delay
+            const int batchSize = 3;
+            for (int i = 0; i < notCached.Count; i += batchSize)
+            {
+                var batch = notCached.Skip(i).Take(batchSize)
+                                     .Select(g => g.LoadCoverAsync(_imageService));
                 await Task.WhenAll(batch);
                 await Task.Delay(30);
             }
 
-            // Load remaining images in the background
+            // Load remaining hidden images in the background
             _ = Task.Run(async () =>
             {
                 foreach (var game in hiddenGames)

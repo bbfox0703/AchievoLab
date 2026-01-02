@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net8.0-windows10.0.26100.0</TargetFramework>
     <IsPackable>false</IsPackable>
     <Nullable>enable</Nullable>
   </PropertyGroup>
@@ -10,7 +10,7 @@
   <ItemGroup>
     <Compile Include="../AnSAM/Services/GameCacheService.cs" Link="GameCacheService.cs" />
     <Compile Include="../AnSAM/Services/GameListService.cs" Link="GameListService.cs" />
-    <Compile Include="../AnSAM/Services/SteamLanguageResolver.cs" Link="SteamLanguageResolver.cs" />
+    <!-- SteamLanguageResolver moved to CommonUtilities -->
     <Compile Include="../AnSAM/SteamAppData.cs" Link="SteamAppData.cs" />
     <Compile Include="../AnSAM/Steam/ISteamClient.cs" Link="ISteamClient.cs" />
     <Compile Include="../MyOwnGames/InputValidator.cs" Link="InputValidator.cs" />

@@ -1,10 +1,12 @@
 using System;
+using System.IO;
 using AnSAM.Steam;
 using Microsoft.UI.Xaml;
 using Microsoft.Win32;
 using Windows.Storage;
 using Windows.ApplicationModel;
 using Windows.ApplicationModel.Activation;
+using CommonUtilities;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -26,6 +28,30 @@ namespace AnSAM
         public App()
         {
             InitializeComponent();
+            EnsureConfigurationFile();
+        }
+
+        /// <summary>
+        /// Ensures appsettings.json exists with all required parameters.
+        /// If the file doesn't exist or is incomplete, creates/updates it with defaults.
+        /// </summary>
+        private static void EnsureConfigurationFile()
+        {
+            try
+            {
+                var configPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+                var configManager = new ConfigurationFileManager(configPath, DefaultConfigurations.AnSAM);
+
+                if (configManager.EnsureConfigurationExists())
+                {
+                    DebugLogger.LogDebug("AnSAM: Configuration file was created or updated");
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"AnSAM: Failed to ensure configuration file: {ex.Message}");
+                // Don't throw - allow app to continue with defaults
+            }
         }
 
         /// <summary>
@@ -34,7 +60,7 @@ namespace AnSAM
         /// <param name="args">Details about the launch request and process.</param>
         protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
         {
-            var theme = LoadThemePreference() ?? GetSystemTheme();
+            var theme = LoadThemePreference() ?? ThemeManagementService.GetSystemTheme();
             
             // Don't set Application.RequestedTheme to avoid COMException
             // Theme will be applied at MainWindow level instead
@@ -50,50 +76,12 @@ namespace AnSAM
         /// </summary>
         private static ElementTheme? LoadThemePreference()
         {
-            try
+            var settingsService = new ApplicationSettingsService();
+            if (settingsService.TryGetEnum("AppTheme", out ElementTheme savedTheme))
             {
-                var settings = ApplicationData.Current.LocalSettings;
-                if (settings.Values.TryGetValue("AppTheme", out var t) &&
-                    Enum.TryParse<ElementTheme>(t?.ToString(), out var savedTheme))
-                {
-                    return savedTheme;
-                }
-            }
-            catch (InvalidOperationException)
-            {
-                // Ignore inability to read settings
+                return savedTheme;
             }
             return null;
-        }
-
-        /// <summary>
-        /// Determines the current system theme from the Windows registry.
-        /// </summary>
-        internal static ElementTheme GetSystemTheme()
-        {
-            try
-            {
-                using var key = Registry.CurrentUser.OpenSubKey(@"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize");
-                var value = key?.GetValue("AppsUseLightTheme");
-                if (value is int i)
-                {
-                    return i != 0 ? ElementTheme.Light : ElementTheme.Dark;
-                }
-            }
-            catch
-            {
-                // Fall back to light theme if the registry is unavailable
-            }
-            return ElementTheme.Light;
-        }
-
-        /// <summary>
-        /// Converts an <see cref="ElementTheme"/> to the corresponding <see cref="ApplicationTheme"/>.
-        /// </summary>
-        internal static ApplicationTheme ToApplicationTheme(ElementTheme theme)
-        {
-            var resolved = theme == ElementTheme.Default ? GetSystemTheme() : theme;
-            return resolved == ElementTheme.Dark ? ApplicationTheme.Dark : ApplicationTheme.Light;
         }
     }
 }

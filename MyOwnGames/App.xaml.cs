@@ -37,8 +37,32 @@ namespace MyOwnGames
         public App()
         {
             InitializeComponent();
+            EnsureConfigurationFile();
             AppDomain.CurrentDomain.ProcessExit += OnProcessExit;
             UnhandledException += OnUnhandledException;
+        }
+
+        /// <summary>
+        /// Ensures appsettings.json exists with all required parameters.
+        /// If the file doesn't exist or is incomplete, creates/updates it with defaults.
+        /// </summary>
+        private static void EnsureConfigurationFile()
+        {
+            try
+            {
+                var configPath = System.IO.Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+                var configManager = new ConfigurationFileManager(configPath, DefaultConfigurations.MyOwnGames);
+
+                if (configManager.EnsureConfigurationExists())
+                {
+                    DebugLogger.LogDebug("MyOwnGames: Configuration file was created or updated");
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"MyOwnGames: Failed to ensure configuration file: {ex.Message}");
+                // Don't throw - allow app to continue with defaults
+            }
         }
 
         /// <summary>

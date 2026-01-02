@@ -114,12 +114,12 @@ namespace CommonUtilities
             }
         }
 
-        public bool HasImage(int appId, string language)
+        public bool HasImage(int appId, string language, bool checkEnglishFallback = false)
         {
-            return _cache.TryGetCachedPath(appId.ToString(), language, checkEnglishFallback: false) != null;
+            return _cache.TryGetCachedPath(appId.ToString(), language, checkEnglishFallback) != null;
         }
 
-        public bool IsImageCached(int appId, string language) => HasImage(appId, language);
+        public bool IsImageCached(int appId, string language, bool checkEnglishFallback = false) => HasImage(appId, language, checkEnglishFallback);
 
         public async Task<string?> GetGameImageAsync(int appId, string? language = null)
         {

@@ -1432,36 +1432,44 @@ namespace MyOwnGames
 
         private async Task LoadVisibleItemsImages(List<GameEntry> visibleItems, string language)
         {
-            // First, load all cached images immediately without delay
-            var cachedItems = new List<GameEntry>();
-            var nonCachedItems = new List<GameEntry>();
-            
+            // Categorize items into three groups for optimal loading
+            var cachedInTargetLanguage = new List<GameEntry>();
+            var cachedInEnglishOnly = new List<GameEntry>();
+            var notCached = new List<GameEntry>();
+
+            bool isNonEnglish = !string.Equals(language, "english", StringComparison.OrdinalIgnoreCase);
+
             foreach (var item in visibleItems)
             {
                 if (_imageService.IsImageCached(item.AppId, language))
                 {
-                    cachedItems.Add(item);
+                    cachedInTargetLanguage.Add(item);
+                }
+                else if (isNonEnglish && _imageService.IsImageCached(item.AppId, "english"))
+                {
+                    cachedInEnglishOnly.Add(item);
                 }
                 else
                 {
-                    nonCachedItems.Add(item);
+                    notCached.Add(item);
                 }
             }
-            
-            // Load cached images immediately without batching or delay
-            if (cachedItems.Count > 0)
+
+            // Load cached images immediately (both target language and English fallback)
+            var allCachedItems = cachedInTargetLanguage.Concat(cachedInEnglishOnly).ToList();
+            if (allCachedItems.Count > 0)
             {
-                var cachedTasks = cachedItems.Select(entry => LoadGameImageAsync(entry, entry.AppId, language));
+                var cachedTasks = allCachedItems.Select(entry => LoadGameImageAsync(entry, entry.AppId, language));
                 await Task.WhenAll(cachedTasks);
             }
-            
+
             // Then batch process non-cached items with delay
             const int batchSize = 3;
-            for (int i = 0; i < nonCachedItems.Count; i += batchSize)
+            for (int i = 0; i < notCached.Count; i += batchSize)
             {
-                var batch = nonCachedItems.Skip(i).Take(batchSize);
+                var batch = notCached.Skip(i).Take(batchSize);
                 var tasks = batch.Select(entry => LoadGameImageAsync(entry, entry.AppId, language));
-                
+
                 await Task.WhenAll(tasks);
                 await Task.Delay(30); // 較短延遲，因為只處理可見項目
             }
@@ -1536,26 +1544,34 @@ namespace MyOwnGames
 
         private async Task LoadOnDemandImages(List<GameEntry> items, string language, bool skipNetworkDownloads = false)
         {
-            // First, load all cached images immediately without delay
-            var cachedItems = new List<GameEntry>();
-            var nonCachedItems = new List<GameEntry>();
+            // Categorize items into three groups for optimal loading
+            var cachedInTargetLanguage = new List<GameEntry>();
+            var cachedInEnglishOnly = new List<GameEntry>();
+            var notCached = new List<GameEntry>();
+
+            bool isNonEnglish = !string.Equals(language, "english", StringComparison.OrdinalIgnoreCase);
 
             foreach (var item in items)
             {
                 if (_imageService.IsImageCached(item.AppId, language))
                 {
-                    cachedItems.Add(item);
+                    cachedInTargetLanguage.Add(item);
+                }
+                else if (isNonEnglish && _imageService.IsImageCached(item.AppId, "english"))
+                {
+                    cachedInEnglishOnly.Add(item);
                 }
                 else
                 {
-                    nonCachedItems.Add(item);
+                    notCached.Add(item);
                 }
             }
 
-            // Load cached images immediately without batching or delay
-            if (cachedItems.Count > 0)
+            // Load cached images immediately (both target language and English fallback)
+            var allCachedItems = cachedInTargetLanguage.Concat(cachedInEnglishOnly).ToList();
+            if (allCachedItems.Count > 0)
             {
-                var cachedTasks = cachedItems.Select(entry => LoadGameImageAsync(entry, entry.AppId, language));
+                var cachedTasks = allCachedItems.Select(entry => LoadGameImageAsync(entry, entry.AppId, language));
                 await Task.WhenAll(cachedTasks);
             }
 
@@ -1564,9 +1580,9 @@ namespace MyOwnGames
 
             // Then batch process non-cached items with longer delay (background loading)
             const int batchSize = 2;
-            for (int i = 0; i < nonCachedItems.Count; i += batchSize)
+            for (int i = 0; i < notCached.Count; i += batchSize)
             {
-                var batch = nonCachedItems.Skip(i).Take(batchSize);
+                var batch = notCached.Skip(i).Take(batchSize);
                 var tasks = batch.Select(entry => LoadGameImageAsync(entry, entry.AppId, language));
 
                 await Task.WhenAll(tasks);

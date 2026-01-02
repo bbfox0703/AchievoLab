@@ -47,8 +47,9 @@ namespace RunGame
 
         private readonly Microsoft.UI.Windowing.AppWindow _appWindow;
 
-        // Theme
+        // Theme and Settings
         private readonly UISettings _uiSettings = new();
+        private readonly ThemeManagementService _themeService = new();
 
         // New services
         private AchievementTimerService? _achievementTimerService;
@@ -110,8 +111,8 @@ namespace RunGame
 
             if (Content is FrameworkElement root)
             {
-                ThemeService.Initialize(this, root);
-                
+                _themeService.Initialize(this, root);
+
                 // Clear any old theme settings to ensure we follow system theme
                 var settings = TryGetLocalSettings();
                 if (settings != null)
@@ -126,15 +127,15 @@ namespace RunGame
                         // Ignore inability to clear settings
                     }
                 }
-                
+
                 // Always use system theme (Default = follow system)
                 ElementTheme themeToApply = ElementTheme.Default;
-                ThemeService.ApplyTheme(themeToApply);
-                
-                root.ActualThemeChanged += (_, _) => 
+                _themeService.ApplyTheme(themeToApply);
+
+                root.ActualThemeChanged += (_, _) =>
                 {
-                    ThemeService.ApplyAccentBrush();
-                    ThemeService.UpdateTitleBar(root.ActualTheme);
+                    _themeService.ApplyAccentBrush();
+                    _themeService.UpdateTitleBar(root.ActualTheme);
                 };
             }
             _uiSettings.ColorValuesChanged += UiSettings_ColorValuesChanged;
@@ -216,10 +217,10 @@ namespace RunGame
         {
             DispatcherQueue.TryEnqueue(() =>
             {
-                ThemeService.ApplyAccentBrush();
-                if (Content is FrameworkElement root)
+                _themeService.ApplyAccentBrush();
+                if (_themeService.Root != null)
                 {
-                    ThemeService.UpdateTitleBar(root.ActualTheme);
+                    _themeService.UpdateTitleBar(_themeService.Root.ActualTheme);
                 }
             });
         }
@@ -227,7 +228,7 @@ namespace RunGame
         private void SetTheme(ElementTheme theme)
         {
             DebugLogger.LogDebug($"SetTheme() called with {theme}");
-            ThemeService.ApplyTheme(theme);
+            _themeService.ApplyTheme(theme);
             // Note: No longer saving theme settings - always follow system theme
         }
 
