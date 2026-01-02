@@ -47,23 +47,36 @@ namespace AnSAM.Services
                 var steamGamesPath = Path.Combine(cacheDir, "steam_games.xml");
                 if (File.Exists(steamGamesPath))
                 {
+                    // Use cross-process file lock to safely read steam_games.xml
+                    // This prevents conflicts when MyOwnGames is writing to the same file
+                    using var fileLock = new CommonUtilities.CrossProcessFileLock(steamGamesPath);
                     try
                     {
-                        var doc = XDocument.Load(steamGamesPath);
-                        foreach (var node in doc.Descendants("AppID"))
+                        // Try to acquire lock with 5 second timeout for read operation
+                        // If lock cannot be acquired, continue without loading (MyOwnGames might be writing)
+                        if (await fileLock.TryAcquireAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false))
                         {
-                            if (int.TryParse(node.Value, out var id))
-                                ids.Add(id);
+                            var doc = XDocument.Load(steamGamesPath);
+                            foreach (var node in doc.Descendants("AppID"))
+                            {
+                                if (int.TryParse(node.Value, out var id))
+                                    ids.Add(id);
+                            }
+                            foreach (var node in doc.Descendants("Game"))
+                            {
+                                if (int.TryParse(node.Attribute("AppID")?.Value, out var id))
+                                    ids.Add(id);
+                            }
                         }
-                        foreach (var node in doc.Descendants("Game"))
+                        else
                         {
-                            if (int.TryParse(node.Attribute("AppID")?.Value, out var id))
-                                ids.Add(id);
+                            // Could not acquire lock - MyOwnGames might be writing
+                            // Continue without loading steam_games.xml data
                         }
                     }
                     catch
                     {
-                        // Ignore corrupt steam_games.xml
+                        // Ignore corrupt steam_games.xml or read errors
                     }
                 }
 

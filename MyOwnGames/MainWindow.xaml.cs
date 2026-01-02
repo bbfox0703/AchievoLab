@@ -54,6 +54,7 @@ namespace MyOwnGames
         private readonly HashSet<string> _imagesSuccessfullyLoaded = new();
         private readonly object _imageLoadingLock = new();
         private readonly Dictionary<string, DateTime> _duplicateImageLogTimes = new();
+        private DispatcherQueueTimer? _searchDebounceTimer;
 
         private readonly string _detectedLanguage = GetDefaultLanguage();
         private readonly string _defaultLanguage = "english"; // Always default to English for selection
@@ -139,28 +140,22 @@ namespace MyOwnGames
                     if (_isShuttingDown) return;
                     LogEntries.Add(entry);
 
-                    // Auto-scroll to bottom after a short delay to ensure UI is updated
-                    DispatcherQueue?.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+                    // Scroll to the newly added item immediately in the same UI update cycle
+                    try
                     {
-                        if (_isShuttingDown) return; // Double check during async execution
-
-                        try
+                        if (LogEntries.Count > 0)
                         {
-                            // Scroll ListView to last item
-                            if (LogEntries.Count > 0)
-                            {
-                                LogList?.ScrollIntoView(LogEntries[LogEntries.Count - 1]);
-                            }
+                            LogList?.ScrollIntoView(LogEntries[LogEntries.Count - 1]);
                         }
-                        catch (System.Runtime.InteropServices.COMException)
-                        {
-                            // Ignore COM exceptions during shutdown
-                        }
-                        catch
-                        {
-                            // Ignore other exceptions during UI updates
-                        }
-                    });
+                    }
+                    catch (System.Runtime.InteropServices.COMException)
+                    {
+                        // Ignore COM exceptions during shutdown
+                    }
+                    catch
+                    {
+                        // Ignore other exceptions during UI updates
+                    }
                 }
 
                 if (DispatcherQueue?.HasThreadAccess == false)
@@ -267,6 +262,11 @@ namespace MyOwnGames
             // Set DataContext for binding
             RootGrid.DataContext = this;
             RootGrid.KeyDown += OnWindowKeyDown;
+
+            // Initialize search debounce timer
+            _searchDebounceTimer = DispatcherQueue.CreateTimer();
+            _searchDebounceTimer.Interval = TimeSpan.FromMilliseconds(300);
+            _searchDebounceTimer.IsRepeating = false;
 
             // Load saved games after window is displayed
             RootGrid.Loaded += MainWindow_Loaded;
@@ -933,8 +933,21 @@ namespace MyOwnGames
         {
             if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput)
             {
-                FilterGameItems(sender.Text?.Trim());
+                // Debounce search: restart timer on each keystroke
+                if (_searchDebounceTimer != null)
+                {
+                    _searchDebounceTimer.Stop();
+                    _searchDebounceTimer.Tick -= OnSearchDebounceTimerTick;
+                    _searchDebounceTimer.Tick += OnSearchDebounceTimerTick;
+                    _searchDebounceTimer.Start();
+                }
             }
+        }
+
+        private void OnSearchDebounceTimerTick(DispatcherQueueTimer sender, object args)
+        {
+            sender.Stop();
+            FilterGameItems(KeywordBox.Text?.Trim());
         }
 
         private void FilterGameItems(string? keyword)
@@ -1260,7 +1273,7 @@ namespace MyOwnGames
             {
                 // 1. 獲取當前可見的遊戲項目 (必須在 UI 線程執行)
                 var (visibleItems, hiddenItems) = (new List<GameEntry>(), new List<GameEntry>());
-                
+
                 // 在 UI 線程獲取可見項目
                 await Task.Run(() =>
                 {
@@ -1271,7 +1284,7 @@ namespace MyOwnGames
                         hiddenItems.AddRange(result.hidden);
                     });
                 });
-                
+
                 // 等待 UI 操作完成
                 await Task.Delay(50);
 
@@ -1291,7 +1304,13 @@ namespace MyOwnGames
                     }
                 });
 
-                // 3. 優先載入可見項目的語系圖片
+                // 3. 優先載入可見項目的英文快取圖片作為過渡 (如果不是英文語系)
+                if (!string.Equals(newLanguage, "english", StringComparison.OrdinalIgnoreCase))
+                {
+                    await LoadEnglishFallbackImagesFirst(visibleItems, newLanguage);
+                }
+
+                // 4. 背景載入可見項目的語系特定圖片
                 await LoadVisibleItemsImages(visibleItems, newLanguage);
 
                 this.DispatcherQueue.TryEnqueue(() =>
@@ -1303,6 +1322,53 @@ namespace MyOwnGames
             catch (Exception ex)
             {
                 AppendLog($"Error processing language switch image refresh: {ex.Message}");
+            }
+        }
+
+        private async Task LoadEnglishFallbackImagesFirst(List<GameEntry> items, string targetLanguage)
+        {
+            if (items.Count == 0)
+                return;
+
+            AppendLog($"Loading English fallback images for {items.Count} visible games...");
+
+            var loadTasks = new List<Task>();
+            foreach (var item in items)
+            {
+                // Check if English cached image exists
+                if (_imageService.IsImageCached(item.AppId, "english"))
+                {
+                    var task = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var englishPath = await _imageService.GetGameImageAsync(item.AppId, "english");
+                            if (!string.IsNullOrEmpty(englishPath) && File.Exists(englishPath))
+                            {
+                                // Update UI with English image immediately
+                                this.DispatcherQueue?.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.High, () =>
+                                {
+                                    if (!_isShuttingDown && AllGameItems.Contains(item))
+                                    {
+                                        item.IconUri = new Uri(englishPath).AbsoluteUri;
+                                        DebugLogger.LogDebug($"Loaded English fallback image for {item.AppId}");
+                                    }
+                                });
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            DebugLogger.LogDebug($"Error loading English fallback for {item.AppId}: {ex.Message}");
+                        }
+                    });
+                    loadTasks.Add(task);
+                }
+            }
+
+            if (loadTasks.Count > 0)
+            {
+                await Task.WhenAll(loadTasks);
+                AppendLog($"Loaded {loadTasks.Count} English fallback images");
             }
         }
 
