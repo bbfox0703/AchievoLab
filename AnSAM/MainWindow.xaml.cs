@@ -445,6 +445,13 @@ namespace AnSAM
                 return;
             }
 
+            // If cover is from a different language, reset and reload
+            string currentLanguage = SteamLanguageResolver.GetSteamLanguage();
+            if (game.CoverPath != null && !game.IsCoverFromLanguage(currentLanguage))
+            {
+                game.ResetCover();
+            }
+
             await game.LoadCoverAsync(_imageService);
         }
 
@@ -867,12 +874,16 @@ namespace AnSAM
         {
             DebugLogger.LogDebug($"Refreshing game images for {language}");
 
-            var (visibleGames, hiddenGames) = GetVisibleAndHiddenGames();
+            // Give UI time to stabilize after title updates before determining visible games
+            await Task.Delay(50);
 
-            // Clear current images so new ones will load for the selected language
-            foreach (var game in _allGames)
+            var (visibleGames, hiddenGames) = GetVisibleAndHiddenGames();
+            DebugLogger.LogDebug($"Found {visibleGames.Count} visible games, {hiddenGames.Count} hidden games");
+
+            // Reset covers only for visible games - hidden games will be reset when scrolled into view
+            foreach (var game in visibleGames)
             {
-                game.CoverPath = null;
+                game.ResetCover();
             }
 
             // Categorize visible games for optimal loading
@@ -1077,7 +1088,27 @@ namespace AnSAM
 
         private readonly DispatcherQueue _dispatcher;
         private bool _coverLoading;
+        private string? _loadedLanguage;
         public bool IsCoverLoading => _coverLoading;
+
+        /// <summary>
+        /// Resets the cover image state, allowing it to be reloaded.
+        /// </summary>
+        public void ResetCover()
+        {
+            CoverPath = null;
+            _coverLoading = false;
+            _loadedLanguage = null;
+        }
+
+        /// <summary>
+        /// Checks if the current cover is from the specified language.
+        /// </summary>
+        public bool IsCoverFromLanguage(string language)
+        {
+            return _loadedLanguage != null &&
+                   string.Equals(_loadedLanguage, language, StringComparison.OrdinalIgnoreCase);
+        }
 
         public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
 
@@ -1148,6 +1179,7 @@ namespace AnSAM
                     if (!string.IsNullOrEmpty(englishPath) && Uri.TryCreate(englishPath, UriKind.Absolute, out var englishUri))
                     {
                         coverAssigned = true;
+                        _loadedLanguage = "english";
                         if (!_dispatcher.TryEnqueue(() => CoverPath = englishUri))
                         {
                             CoverPath = englishUri;
@@ -1160,6 +1192,7 @@ namespace AnSAM
                 if (!string.IsNullOrEmpty(path) && Uri.TryCreate(path, UriKind.Absolute, out var localUri))
                 {
                     coverAssigned = true;
+                    _loadedLanguage = language;
                     if (!_dispatcher.TryEnqueue(() => CoverPath = localUri))
                     {
                         CoverPath = localUri;
