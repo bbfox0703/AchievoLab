@@ -197,7 +197,7 @@ namespace CommonUtilities
     /// <summary>
     /// Helper class for using CrossProcessFileLock with using statement
     /// </summary>
-    public class CrossProcessFileLockHandle : IDisposable
+    public class CrossProcessFileLockHandle : IDisposable, IAsyncDisposable
     {
         private readonly CrossProcessFileLock _lock;
         private readonly bool _acquired;
@@ -216,6 +216,12 @@ namespace CommonUtilities
             {
                 _lock.Release();
             }
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            Dispose();
+            return ValueTask.CompletedTask;
         }
     }
 
