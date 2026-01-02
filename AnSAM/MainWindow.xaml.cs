@@ -880,8 +880,9 @@ namespace AnSAM
             var (visibleGames, hiddenGames) = GetVisibleAndHiddenGames();
             DebugLogger.LogDebug($"Found {visibleGames.Count} visible games, {hiddenGames.Count} hidden games");
 
-            // Reset covers only for visible games - hidden games will be reset when scrolled into view
-            foreach (var game in visibleGames)
+            // Reset ALL game covers to prevent showing images from wrong language
+            // This is especially important when switching while downloads are in progress
+            foreach (var game in _allGames)
             {
                 game.ResetCover();
             }
@@ -908,38 +909,55 @@ namespace AnSAM
                 }
             }
 
-            // Load target language cached images immediately
+            // Load target language cached images immediately (these are fast, from disk cache)
             if (cachedInTargetLanguage.Count > 0)
             {
                 var targetLangTasks = cachedInTargetLanguage.Select(g => g.LoadCoverAsync(_imageService));
                 await Task.WhenAll(targetLangTasks);
             }
 
-            // For English-only cached items, LoadCoverAsync will handle:
-            // 1. Load English first (immediate display)
-            // 2. Attempt to download target language (background)
+            // For English-only and non-cached items, start loading but don't wait
+            // This prevents language switch from hanging while downloads are in progress
+            var backgroundLoadTasks = new List<Task>();
+
+            // For English-only cached items, LoadCoverAsync will:
+            // 1. Load English first (immediate display - fast from cache)
+            // 2. Attempt to download target language (background - may be slow)
             if (cachedInEnglishOnly.Count > 0)
             {
-                var englishOnlyTasks = cachedInEnglishOnly.Select(g => g.LoadCoverAsync(_imageService));
-                await Task.WhenAll(englishOnlyTasks);
-                DebugLogger.LogDebug($"Loaded {cachedInEnglishOnly.Count} items with English fallback, attempting {language} downloads");
+                foreach (var game in cachedInEnglishOnly)
+                {
+                    backgroundLoadTasks.Add(game.LoadCoverAsync(_imageService));
+                }
+                DebugLogger.LogDebug($"Started loading {cachedInEnglishOnly.Count} items with English fallback (non-blocking)");
             }
 
-            // Load non-cached visible images in batches with delay
-            const int batchSize = 3;
-            for (int i = 0; i < notCached.Count; i += batchSize)
+            // Start loading non-cached images without blocking
+            if (notCached.Count > 0)
             {
-                var batch = notCached.Skip(i).Take(batchSize)
-                                     .Select(g => g.LoadCoverAsync(_imageService));
-                await Task.WhenAll(batch);
-                await Task.Delay(30);
+                foreach (var game in notCached)
+                {
+                    backgroundLoadTasks.Add(game.LoadCoverAsync(_imageService));
+                }
+                DebugLogger.LogDebug($"Started loading {notCached.Count} non-cached items (non-blocking)");
             }
+
+            // Let background loads continue without blocking UI
+            // Images will appear as they download
+            _ = Task.WhenAll(backgroundLoadTasks).ContinueWith(t =>
+            {
+                if (t.IsFaulted)
+                {
+                    DebugLogger.LogDebug($"Some background image loads failed: {t.Exception?.GetBaseException().Message}");
+                }
+            });
 
             // Don't preload hidden images - let lazy loading (ContainerContentChanging) handle them
             // This prevents race conditions where _coverLoading is set by background task
             // but the actual load fails or is delayed, leaving images as "not found"
-            var totalVisibleLoaded = cachedInTargetLanguage.Count + cachedInEnglishOnly.Count + notCached.Count;
-            DebugLogger.LogDebug($"Loaded {totalVisibleLoaded} visible images ({cachedInEnglishOnly.Count} English fallbacks), {hiddenGames.Count} hidden images will load on scroll");
+            DebugLogger.LogDebug($"Language switch completed: {cachedInTargetLanguage.Count} cached in {language}, " +
+                                $"{cachedInEnglishOnly.Count} English fallback, {notCached.Count} not cached (downloading in background), " +
+                                $"{hiddenGames.Count} hidden images will load on scroll");
         }
 
         /// <summary>
