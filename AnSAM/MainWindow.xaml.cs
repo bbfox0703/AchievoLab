@@ -289,22 +289,26 @@ namespace AnSAM
             _autoLoaded = true;
             DispatcherQueue.TryEnqueue(async () =>
             {
-                // Run cleanup in background on first startup
-                _ = Task.Run(() =>
-                {
-                    try
-                    {
-                        var duplicates = _imageService.CleanupDuplicatedEnglishImages(dryRun: false);
-                        if (duplicates > 0)
-                        {
-                            DebugLogger.LogDebug($"Startup cleanup: removed {duplicates} duplicated images");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        DebugLogger.LogDebug($"Cleanup error: {ex.Message}");
-                    }
-                });
+                // DISABLED: CleanupDuplicatedEnglishImages was mistakenly deleting legitimate language-specific
+                // images that happen to have identical content to English versions (e.g., games without localized assets).
+                // This cleanup mechanism was designed for an old bug where English images were copied to language folders,
+                // but that copying mechanism has been removed, so cleanup is no longer needed.
+
+                // _ = Task.Run(() =>
+                // {
+                //     try
+                //     {
+                //         var duplicates = _imageService.CleanupDuplicatedEnglishImages(dryRun: false);
+                //         if (duplicates > 0)
+                //         {
+                //             DebugLogger.LogDebug($"Startup cleanup: removed {duplicates} duplicated images");
+                //         }
+                //     }
+                //     catch (Exception ex)
+                //     {
+                //         DebugLogger.LogDebug($"Cleanup error: {ex.Message}");
+                //     }
+                // });
 
                 await RefreshAsync();
             });
@@ -893,12 +897,21 @@ namespace AnSAM
                 }
             }
 
-            // Load all cached images immediately (both target language and English fallback)
-            var allCachedGames = cachedInTargetLanguage.Concat(cachedInEnglishOnly).ToList();
-            if (allCachedGames.Count > 0)
+            // Load target language cached images immediately
+            if (cachedInTargetLanguage.Count > 0)
             {
-                var cachedTasks = allCachedGames.Select(g => g.LoadCoverAsync(_imageService));
-                await Task.WhenAll(cachedTasks);
+                var targetLangTasks = cachedInTargetLanguage.Select(g => g.LoadCoverAsync(_imageService));
+                await Task.WhenAll(targetLangTasks);
+            }
+
+            // For English-only cached items, LoadCoverAsync will handle:
+            // 1. Load English first (immediate display)
+            // 2. Attempt to download target language (background)
+            if (cachedInEnglishOnly.Count > 0)
+            {
+                var englishOnlyTasks = cachedInEnglishOnly.Select(g => g.LoadCoverAsync(_imageService));
+                await Task.WhenAll(englishOnlyTasks);
+                DebugLogger.LogDebug($"Loaded {cachedInEnglishOnly.Count} items with English fallback, attempting {language} downloads");
             }
 
             // Load non-cached visible images in batches with delay
@@ -911,14 +924,11 @@ namespace AnSAM
                 await Task.Delay(30);
             }
 
-            // Load remaining hidden images in the background
-            _ = Task.Run(async () =>
-            {
-                foreach (var game in hiddenGames)
-                {
-                    await game.LoadCoverAsync(_imageService);
-                }
-            });
+            // Don't preload hidden images - let lazy loading (ContainerContentChanging) handle them
+            // This prevents race conditions where _coverLoading is set by background task
+            // but the actual load fails or is delayed, leaving images as "not found"
+            var totalVisibleLoaded = cachedInTargetLanguage.Count + cachedInEnglishOnly.Count + notCached.Count;
+            DebugLogger.LogDebug($"Loaded {totalVisibleLoaded} visible images ({cachedInEnglishOnly.Count} English fallbacks), {hiddenGames.Count} hidden images will load on scroll");
         }
 
         /// <summary>
@@ -1116,7 +1126,7 @@ namespace AnSAM
         /// <summary>
         /// Asynchronously loads the game's cover image using the shared image service.
         /// </summary>
-        public async Task LoadCoverAsync(SharedImageService imageService)
+        public async Task LoadCoverAsync(SharedImageService imageService, string? languageOverride = null)
         {
             if (CoverPath != null || _coverLoading)
             {
@@ -1128,8 +1138,24 @@ namespace AnSAM
 
             try
             {
-                string language = SteamLanguageResolver.GetSteamLanguage();
+                string language = languageOverride ?? SteamLanguageResolver.GetSteamLanguage();
 
+                // If requesting non-English language and English is cached, load English first for immediate display
+                bool isNonEnglish = !string.Equals(language, "english", StringComparison.OrdinalIgnoreCase);
+                if (languageOverride == null && isNonEnglish && imageService.IsImageCached(ID, "english"))
+                {
+                    var englishPath = await imageService.GetGameImageAsync(ID, "english").ConfigureAwait(false);
+                    if (!string.IsNullOrEmpty(englishPath) && Uri.TryCreate(englishPath, UriKind.Absolute, out var englishUri))
+                    {
+                        coverAssigned = true;
+                        if (!_dispatcher.TryEnqueue(() => CoverPath = englishUri))
+                        {
+                            CoverPath = englishUri;
+                        }
+                    }
+                }
+
+                // Now attempt to load the requested language (might download in background)
                 var path = await imageService.GetGameImageAsync(ID, language).ConfigureAwait(false);
                 if (!string.IsNullOrEmpty(path) && Uri.TryCreate(path, UriKind.Absolute, out var localUri))
                 {

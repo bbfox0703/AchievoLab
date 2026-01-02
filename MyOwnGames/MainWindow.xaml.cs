@@ -1455,12 +1455,19 @@ namespace MyOwnGames
                 }
             }
 
-            // Load cached images immediately (both target language and English fallback)
-            var allCachedItems = cachedInTargetLanguage.Concat(cachedInEnglishOnly).ToList();
-            if (allCachedItems.Count > 0)
+            // Load target language cached images immediately
+            if (cachedInTargetLanguage.Count > 0)
             {
-                var cachedTasks = allCachedItems.Select(entry => LoadGameImageAsync(entry, entry.AppId, language));
-                await Task.WhenAll(cachedTasks);
+                var targetLangTasks = cachedInTargetLanguage.Select(entry => LoadGameImageAsync(entry, entry.AppId, language));
+                await Task.WhenAll(targetLangTasks);
+            }
+
+            // For English-only cached items, load English first to show immediately
+            if (cachedInEnglishOnly.Count > 0)
+            {
+                var englishTasks = cachedInEnglishOnly.Select(entry => LoadGameImageAsync(entry, entry.AppId, "english"));
+                await Task.WhenAll(englishTasks);
+                DebugLogger.LogDebug($"Loaded {cachedInEnglishOnly.Count} English fallback images for immediate display");
             }
 
             // Then batch process non-cached items with delay
@@ -1567,12 +1574,19 @@ namespace MyOwnGames
                 }
             }
 
-            // Load cached images immediately (both target language and English fallback)
-            var allCachedItems = cachedInTargetLanguage.Concat(cachedInEnglishOnly).ToList();
-            if (allCachedItems.Count > 0)
+            // Load target language cached images immediately
+            if (cachedInTargetLanguage.Count > 0)
             {
-                var cachedTasks = allCachedItems.Select(entry => LoadGameImageAsync(entry, entry.AppId, language));
-                await Task.WhenAll(cachedTasks);
+                var targetLangTasks = cachedInTargetLanguage.Select(entry => LoadGameImageAsync(entry, entry.AppId, language));
+                await Task.WhenAll(targetLangTasks);
+            }
+
+            // For English-only cached items, load English first to show immediately
+            if (cachedInEnglishOnly.Count > 0)
+            {
+                var englishTasks = cachedInEnglishOnly.Select(entry => LoadGameImageAsync(entry, entry.AppId, "english"));
+                await Task.WhenAll(englishTasks);
+                DebugLogger.LogDebug($"Loaded {cachedInEnglishOnly.Count} English fallback images for immediate display");
             }
 
             if (skipNetworkDownloads)
