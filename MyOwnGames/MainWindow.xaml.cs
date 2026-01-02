@@ -54,6 +54,7 @@ namespace MyOwnGames
         private readonly HashSet<string> _imagesSuccessfullyLoaded = new();
         private readonly object _imageLoadingLock = new();
         private readonly Dictionary<string, DateTime> _duplicateImageLogTimes = new();
+        private DispatcherQueueTimer? _searchDebounceTimer;
 
         private readonly string _detectedLanguage = GetDefaultLanguage();
         private readonly string _defaultLanguage = "english"; // Always default to English for selection
@@ -139,28 +140,22 @@ namespace MyOwnGames
                     if (_isShuttingDown) return;
                     LogEntries.Add(entry);
 
-                    // Auto-scroll to bottom after a short delay to ensure UI is updated
-                    DispatcherQueue?.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+                    // Scroll to the newly added item immediately in the same UI update cycle
+                    try
                     {
-                        if (_isShuttingDown) return; // Double check during async execution
-
-                        try
+                        if (LogEntries.Count > 0)
                         {
-                            // Scroll ListView to last item
-                            if (LogEntries.Count > 0)
-                            {
-                                LogList?.ScrollIntoView(LogEntries[LogEntries.Count - 1]);
-                            }
+                            LogList?.ScrollIntoView(LogEntries[LogEntries.Count - 1]);
                         }
-                        catch (System.Runtime.InteropServices.COMException)
-                        {
-                            // Ignore COM exceptions during shutdown
-                        }
-                        catch
-                        {
-                            // Ignore other exceptions during UI updates
-                        }
-                    });
+                    }
+                    catch (System.Runtime.InteropServices.COMException)
+                    {
+                        // Ignore COM exceptions during shutdown
+                    }
+                    catch
+                    {
+                        // Ignore other exceptions during UI updates
+                    }
                 }
 
                 if (DispatcherQueue?.HasThreadAccess == false)
@@ -267,6 +262,11 @@ namespace MyOwnGames
             // Set DataContext for binding
             RootGrid.DataContext = this;
             RootGrid.KeyDown += OnWindowKeyDown;
+
+            // Initialize search debounce timer
+            _searchDebounceTimer = DispatcherQueue.CreateTimer();
+            _searchDebounceTimer.Interval = TimeSpan.FromMilliseconds(300);
+            _searchDebounceTimer.IsRepeating = false;
 
             // Load saved games after window is displayed
             RootGrid.Loaded += MainWindow_Loaded;
@@ -933,8 +933,21 @@ namespace MyOwnGames
         {
             if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput)
             {
-                FilterGameItems(sender.Text?.Trim());
+                // Debounce search: restart timer on each keystroke
+                if (_searchDebounceTimer != null)
+                {
+                    _searchDebounceTimer.Stop();
+                    _searchDebounceTimer.Tick -= OnSearchDebounceTimerTick;
+                    _searchDebounceTimer.Tick += OnSearchDebounceTimerTick;
+                    _searchDebounceTimer.Start();
+                }
             }
+        }
+
+        private void OnSearchDebounceTimerTick(DispatcherQueueTimer sender, object args)
+        {
+            sender.Stop();
+            FilterGameItems(KeywordBox.Text?.Trim());
         }
 
         private void FilterGameItems(string? keyword)
@@ -1260,7 +1273,7 @@ namespace MyOwnGames
             {
                 // 1. 獲取當前可見的遊戲項目 (必須在 UI 線程執行)
                 var (visibleItems, hiddenItems) = (new List<GameEntry>(), new List<GameEntry>());
-                
+
                 // 在 UI 線程獲取可見項目
                 await Task.Run(() =>
                 {
@@ -1271,7 +1284,7 @@ namespace MyOwnGames
                         hiddenItems.AddRange(result.hidden);
                     });
                 });
-                
+
                 // 等待 UI 操作完成
                 await Task.Delay(50);
 
@@ -1291,7 +1304,13 @@ namespace MyOwnGames
                     }
                 });
 
-                // 3. 優先載入可見項目的語系圖片
+                // 3. 優先載入可見項目的英文快取圖片作為過渡 (如果不是英文語系)
+                if (!string.Equals(newLanguage, "english", StringComparison.OrdinalIgnoreCase))
+                {
+                    await LoadEnglishFallbackImagesFirst(visibleItems, newLanguage);
+                }
+
+                // 4. 背景載入可見項目的語系特定圖片
                 await LoadVisibleItemsImages(visibleItems, newLanguage);
 
                 this.DispatcherQueue.TryEnqueue(() =>
@@ -1303,6 +1322,53 @@ namespace MyOwnGames
             catch (Exception ex)
             {
                 AppendLog($"Error processing language switch image refresh: {ex.Message}");
+            }
+        }
+
+        private async Task LoadEnglishFallbackImagesFirst(List<GameEntry> items, string targetLanguage)
+        {
+            if (items.Count == 0)
+                return;
+
+            AppendLog($"Loading English fallback images for {items.Count} visible games...");
+
+            var loadTasks = new List<Task>();
+            foreach (var item in items)
+            {
+                // Check if English cached image exists
+                if (_imageService.IsImageCached(item.AppId, "english"))
+                {
+                    var task = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var englishPath = await _imageService.GetGameImageAsync(item.AppId, "english");
+                            if (!string.IsNullOrEmpty(englishPath) && File.Exists(englishPath))
+                            {
+                                // Update UI with English image immediately
+                                this.DispatcherQueue?.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.High, () =>
+                                {
+                                    if (!_isShuttingDown && AllGameItems.Contains(item))
+                                    {
+                                        item.IconUri = new Uri(englishPath).AbsoluteUri;
+                                        DebugLogger.LogDebug($"Loaded English fallback image for {item.AppId}");
+                                    }
+                                });
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            DebugLogger.LogDebug($"Error loading English fallback for {item.AppId}: {ex.Message}");
+                        }
+                    });
+                    loadTasks.Add(task);
+                }
+            }
+
+            if (loadTasks.Count > 0)
+            {
+                await Task.WhenAll(loadTasks);
+                AppendLog($"Loaded {loadTasks.Count} English fallback images");
             }
         }
 
@@ -1366,36 +1432,51 @@ namespace MyOwnGames
 
         private async Task LoadVisibleItemsImages(List<GameEntry> visibleItems, string language)
         {
-            // First, load all cached images immediately without delay
-            var cachedItems = new List<GameEntry>();
-            var nonCachedItems = new List<GameEntry>();
-            
+            // Categorize items into three groups for optimal loading
+            var cachedInTargetLanguage = new List<GameEntry>();
+            var cachedInEnglishOnly = new List<GameEntry>();
+            var notCached = new List<GameEntry>();
+
+            bool isNonEnglish = !string.Equals(language, "english", StringComparison.OrdinalIgnoreCase);
+
             foreach (var item in visibleItems)
             {
                 if (_imageService.IsImageCached(item.AppId, language))
                 {
-                    cachedItems.Add(item);
+                    cachedInTargetLanguage.Add(item);
+                }
+                else if (isNonEnglish && _imageService.IsImageCached(item.AppId, "english"))
+                {
+                    cachedInEnglishOnly.Add(item);
                 }
                 else
                 {
-                    nonCachedItems.Add(item);
+                    notCached.Add(item);
                 }
             }
-            
-            // Load cached images immediately without batching or delay
-            if (cachedItems.Count > 0)
+
+            // Load target language cached images immediately
+            if (cachedInTargetLanguage.Count > 0)
             {
-                var cachedTasks = cachedItems.Select(entry => LoadGameImageAsync(entry, entry.AppId, language));
-                await Task.WhenAll(cachedTasks);
+                var targetLangTasks = cachedInTargetLanguage.Select(entry => LoadGameImageAsync(entry, entry.AppId, language));
+                await Task.WhenAll(targetLangTasks);
             }
-            
+
+            // For English-only cached items, load English first to show immediately
+            if (cachedInEnglishOnly.Count > 0)
+            {
+                var englishTasks = cachedInEnglishOnly.Select(entry => LoadGameImageAsync(entry, entry.AppId, "english"));
+                await Task.WhenAll(englishTasks);
+                DebugLogger.LogDebug($"Loaded {cachedInEnglishOnly.Count} English fallback images for immediate display");
+            }
+
             // Then batch process non-cached items with delay
             const int batchSize = 3;
-            for (int i = 0; i < nonCachedItems.Count; i += batchSize)
+            for (int i = 0; i < notCached.Count; i += batchSize)
             {
-                var batch = nonCachedItems.Skip(i).Take(batchSize);
+                var batch = notCached.Skip(i).Take(batchSize);
                 var tasks = batch.Select(entry => LoadGameImageAsync(entry, entry.AppId, language));
-                
+
                 await Task.WhenAll(tasks);
                 await Task.Delay(30); // 較短延遲，因為只處理可見項目
             }
@@ -1470,27 +1551,42 @@ namespace MyOwnGames
 
         private async Task LoadOnDemandImages(List<GameEntry> items, string language, bool skipNetworkDownloads = false)
         {
-            // First, load all cached images immediately without delay
-            var cachedItems = new List<GameEntry>();
-            var nonCachedItems = new List<GameEntry>();
+            // Categorize items into three groups for optimal loading
+            var cachedInTargetLanguage = new List<GameEntry>();
+            var cachedInEnglishOnly = new List<GameEntry>();
+            var notCached = new List<GameEntry>();
+
+            bool isNonEnglish = !string.Equals(language, "english", StringComparison.OrdinalIgnoreCase);
 
             foreach (var item in items)
             {
                 if (_imageService.IsImageCached(item.AppId, language))
                 {
-                    cachedItems.Add(item);
+                    cachedInTargetLanguage.Add(item);
+                }
+                else if (isNonEnglish && _imageService.IsImageCached(item.AppId, "english"))
+                {
+                    cachedInEnglishOnly.Add(item);
                 }
                 else
                 {
-                    nonCachedItems.Add(item);
+                    notCached.Add(item);
                 }
             }
 
-            // Load cached images immediately without batching or delay
-            if (cachedItems.Count > 0)
+            // Load target language cached images immediately
+            if (cachedInTargetLanguage.Count > 0)
             {
-                var cachedTasks = cachedItems.Select(entry => LoadGameImageAsync(entry, entry.AppId, language));
-                await Task.WhenAll(cachedTasks);
+                var targetLangTasks = cachedInTargetLanguage.Select(entry => LoadGameImageAsync(entry, entry.AppId, language));
+                await Task.WhenAll(targetLangTasks);
+            }
+
+            // For English-only cached items, load English first to show immediately
+            if (cachedInEnglishOnly.Count > 0)
+            {
+                var englishTasks = cachedInEnglishOnly.Select(entry => LoadGameImageAsync(entry, entry.AppId, "english"));
+                await Task.WhenAll(englishTasks);
+                DebugLogger.LogDebug($"Loaded {cachedInEnglishOnly.Count} English fallback images for immediate display");
             }
 
             if (skipNetworkDownloads)
@@ -1498,9 +1594,9 @@ namespace MyOwnGames
 
             // Then batch process non-cached items with longer delay (background loading)
             const int batchSize = 2;
-            for (int i = 0; i < nonCachedItems.Count; i += batchSize)
+            for (int i = 0; i < notCached.Count; i += batchSize)
             {
-                var batch = nonCachedItems.Skip(i).Take(batchSize);
+                var batch = notCached.Skip(i).Take(batchSize);
                 var tasks = batch.Select(entry => LoadGameImageAsync(entry, entry.AppId, language));
 
                 await Task.WhenAll(tasks);

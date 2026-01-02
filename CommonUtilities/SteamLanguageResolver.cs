@@ -2,12 +2,19 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 
-namespace AnSAM.Services
+namespace CommonUtilities
 {
+    /// <summary>
+    /// Resolves culture-specific language codes to Steam's language identifiers.
+    /// Shared across AnSAM, RunGame, and MyOwnGames for consistent language handling.
+    /// </summary>
     public static class SteamLanguageResolver
     {
         private static string? _overrideLanguage;
 
+        /// <summary>
+        /// List of all languages supported by Steam.
+        /// </summary>
         public static readonly IReadOnlyList<string> SupportedLanguages = new[]
         {
             "arabic", "brazilian", "bulgarian", "czech", "danish", "dutch",
@@ -17,12 +24,21 @@ namespace AnSAM.Services
             "swedish", "thai", "turkish", "ukrainian", "vietnamese", "tchinese"
         };
 
+        /// <summary>
+        /// Gets or sets a language override. When set, GetSteamLanguage() will return this value
+        /// instead of detecting from the system culture.
+        /// </summary>
         public static string? OverrideLanguage
         {
             get => _overrideLanguage;
             set => _overrideLanguage = string.IsNullOrWhiteSpace(value) ? null : value;
         }
 
+        /// <summary>
+        /// Converts a .NET CultureInfo to a Steam language code.
+        /// </summary>
+        /// <param name="culture">The culture to convert</param>
+        /// <returns>Steam language code (e.g., "english", "tchinese", "japanese")</returns>
         public static string GetSteamLanguage(CultureInfo culture)
         {
             return culture.Name switch
@@ -64,6 +80,11 @@ namespace AnSAM.Services
             };
         }
 
+        /// <summary>
+        /// Gets the Steam language code for the current UI culture.
+        /// If OverrideLanguage is set, returns that instead.
+        /// </summary>
+        /// <returns>Steam language code</returns>
         public static string GetSteamLanguage()
         {
             if (!string.IsNullOrEmpty(OverrideLanguage))

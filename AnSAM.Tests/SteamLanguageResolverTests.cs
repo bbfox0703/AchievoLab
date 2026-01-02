@@ -1,5 +1,5 @@
 using System.Globalization;
-using AnSAM.Services;
+using CommonUtilities;
 using Xunit;
 
 public class SteamLanguageResolverTests

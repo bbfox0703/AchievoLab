@@ -15,6 +15,7 @@ namespace MyOwnGames.Services
     {
         private readonly string _xmlFilePath;
         private readonly SemaphoreSlim _fileLock = new(1, 1);
+        private readonly CrossProcessFileLock _crossProcessLock;
 
         public GameDataService()
         {
@@ -22,12 +23,43 @@ namespace MyOwnGames.Services
             var appDataPath = Path.Combine(basePath, "AchievoLab", "cache");
             Directory.CreateDirectory(appDataPath);
             _xmlFilePath = Path.Combine(appDataPath, "steam_games.xml");
+            _crossProcessLock = new CrossProcessFileLock(_xmlFilePath);
+        }
+
+        /// <summary>
+        /// Helper method to execute an action with cross-process file lock
+        /// </summary>
+        private async Task<T> WithFileLockAsync<T>(Func<Task<T>> action, bool isWrite = false)
+        {
+            await _fileLock.WaitAsync();
+            try
+            {
+                // Only acquire cross-process lock for write operations or if explicitly requested
+                if (isWrite)
+                {
+                    await using var lockHandle = await _crossProcessLock.AcquireHandleAsync(TimeSpan.FromSeconds(30));
+                    if (!lockHandle.IsAcquired)
+                    {
+                        throw new TimeoutException("Failed to acquire cross-process file lock for steam_games.xml");
+                    }
+                    return await action();
+                }
+                else
+                {
+                    // For read operations, try to acquire lock but continue if unavailable
+                    await using var lockHandle = await _crossProcessLock.AcquireHandleAsync(TimeSpan.FromSeconds(5));
+                    return await action();
+                }
+            }
+            finally
+            {
+                _fileLock.Release();
+            }
         }
 
         public async Task SaveGamesToXmlAsync(List<SteamGame> games, string steamId64, string apiKey, string language = "english")
         {
-            await _fileLock.WaitAsync();
-            try
+            await WithFileLockAsync(async () =>
             {
                 var root = new XElement("SteamGames",
                     new XAttribute("SteamID64", steamId64),
@@ -48,21 +80,13 @@ namespace MyOwnGames.Services
 
                 await Task.Run(() => root.Save(_xmlFilePath));
                 DebugLogger.LogDebug($"Saved {games.Count} games to {_xmlFilePath}");
-            }
-            catch (Exception ex)
-            {
-                throw new Exception($"Error saving games to XML: {ex.Message}", ex);
-            }
-            finally
-            {
-                _fileLock.Release();
-            }
+                return Task.CompletedTask;
+            }, isWrite: true);
         }
 
         public async Task AppendGameAsync(SteamGame game, string steamId64, string apiKey, string language = "english")
         {
-            await _fileLock.WaitAsync();
-            try
+            await WithFileLockAsync(async () =>
             {
                 XDocument doc;
                 XElement root;
@@ -137,51 +161,42 @@ namespace MyOwnGames.Services
 
                 await Task.Run(() => doc.Save(_xmlFilePath));
                 DebugLogger.LogDebug($"Appended game {game.AppId} to {_xmlFilePath}");
-            }
-            catch (Exception ex)
-            {
-                throw new Exception($"Error appending game to XML: {ex.Message}", ex);
-            }
-            finally
-            {
-                _fileLock.Release();
-            }
+                return Task.CompletedTask;
+            }, isWrite: true);
         }
 
         public async Task<List<SteamGame>> LoadGamesFromXmlAsync()
         {
-            await _fileLock.WaitAsync();
-            try
+            return await WithFileLockAsync(async () =>
             {
-                if (!File.Exists(_xmlFilePath))
+                try
+                {
+                    if (!File.Exists(_xmlFilePath))
+                        return new List<SteamGame>();
+
+                    var doc = await Task.Run(() => XDocument.Load(_xmlFilePath));
+                    var games = doc.Root?.Elements("Game")
+                        .Select(element => new SteamGame
+                        {
+                            AppId = int.Parse(element.Attribute("AppID")?.Value ?? "0"),
+                            PlaytimeForever = int.Parse(element.Attribute("PlaytimeForever")?.Value ?? "0"),
+                            NameEn = element.Element("NameEN")?.Value ?? "",
+                            // Legacy fallback - try NameLocalized first, then use English
+                            NameLocalized = element.Element("NameLocalized")?.Value ??
+                                          element.Element("NameEN")?.Value ?? "",
+                            IconUrl = element.Element("IconURL")?.Value ?? ""
+                        })
+                        .ToList() ?? new List<SteamGame>();
+
+                    DebugLogger.LogDebug($"Loaded {games.Count} games from {_xmlFilePath}");
+                    return games;
+                }
+                catch (Exception ex)
+                {
+                    DebugLogger.LogDebug($"Error loading games from XML: {ex.Message}");
                     return new List<SteamGame>();
-
-                var doc = await Task.Run(() => XDocument.Load(_xmlFilePath));
-                var games = doc.Root?.Elements("Game")
-                    .Select(element => new SteamGame
-                    {
-                        AppId = int.Parse(element.Attribute("AppID")?.Value ?? "0"),
-                        PlaytimeForever = int.Parse(element.Attribute("PlaytimeForever")?.Value ?? "0"),
-                        NameEn = element.Element("NameEN")?.Value ?? "",
-                        // Legacy fallback - try NameLocalized first, then use English
-                        NameLocalized = element.Element("NameLocalized")?.Value ??
-                                      element.Element("NameEN")?.Value ?? "",
-                        IconUrl = element.Element("IconURL")?.Value ?? ""
-                    })
-                    .ToList() ?? new List<SteamGame>();
-
-                DebugLogger.LogDebug($"Loaded {games.Count} games from {_xmlFilePath}");
-                return games;
-            }
-            catch (Exception ex)
-            {
-                DebugLogger.LogDebug($"Error loading games from XML: {ex.Message}");
-                return new List<SteamGame>();
-            }
-            finally
-            {
-                _fileLock.Release();
-            }
+                }
+            });
         }
 
         /// <summary>
@@ -189,166 +204,159 @@ namespace MyOwnGames.Services
         /// </summary>
         public async Task<List<MultiLanguageGameData>> LoadGamesWithLanguagesAsync()
         {
-            await _fileLock.WaitAsync();
-            try
+            return await WithFileLockAsync(async () =>
             {
-                if (!File.Exists(_xmlFilePath))
+                try
+                {
+                    if (!File.Exists(_xmlFilePath))
+                        return new List<MultiLanguageGameData>();
+
+                    var doc = await Task.Run(() => XDocument.Load(_xmlFilePath));
+                    var games = doc.Root?.Elements("Game")
+                        .Select(element =>
+                        {
+                            var gameData = new MultiLanguageGameData
+                            {
+                                AppId = int.Parse(element.Attribute("AppID")?.Value ?? "0"),
+                                PlaytimeForever = int.Parse(element.Attribute("PlaytimeForever")?.Value ?? "0"),
+                                NameEn = element.Element("NameEN")?.Value ?? "",
+                                IconUrl = element.Element("IconURL")?.Value ?? "",
+                                LocalizedNames = new Dictionary<string, string>()
+                            };
+
+                            // Load all language-specific names
+                            foreach (var nameElement in element.Elements().Where(e => e.Name.LocalName.StartsWith("Name_")))
+                            {
+                                var language = nameElement.Name.LocalName.Substring(5); // Remove "Name_" prefix
+                                gameData.LocalizedNames[language] = nameElement.Value;
+                            }
+
+                            // Legacy support - if NameLocalized exists, treat as unknown language
+                            var legacyLocalized = element.Element("NameLocalized")?.Value;
+                            if (!string.IsNullOrEmpty(legacyLocalized))
+                            {
+                                gameData.LocalizedNames["legacy"] = legacyLocalized;
+                            }
+
+                            return gameData;
+                        })
+                        .ToList() ?? new List<MultiLanguageGameData>();
+
+                    DebugLogger.LogDebug($"Loaded {games.Count} games with multi-language support from {_xmlFilePath}");
+                    return games;
+                }
+                catch (Exception ex)
+                {
+                    DebugLogger.LogDebug($"Error loading multi-language games from XML: {ex.Message}");
                     return new List<MultiLanguageGameData>();
-
-                var doc = await Task.Run(() => XDocument.Load(_xmlFilePath));
-                var games = doc.Root?.Elements("Game")
-                    .Select(element =>
-                    {
-                        var gameData = new MultiLanguageGameData
-                        {
-                            AppId = int.Parse(element.Attribute("AppID")?.Value ?? "0"),
-                            PlaytimeForever = int.Parse(element.Attribute("PlaytimeForever")?.Value ?? "0"),
-                            NameEn = element.Element("NameEN")?.Value ?? "",
-                            IconUrl = element.Element("IconURL")?.Value ?? "",
-                            LocalizedNames = new Dictionary<string, string>()
-                        };
-
-                        // Load all language-specific names
-                        foreach (var nameElement in element.Elements().Where(e => e.Name.LocalName.StartsWith("Name_")))
-                        {
-                            var language = nameElement.Name.LocalName.Substring(5); // Remove "Name_" prefix
-                            gameData.LocalizedNames[language] = nameElement.Value;
-                        }
-
-                        // Legacy support - if NameLocalized exists, treat as unknown language
-                        var legacyLocalized = element.Element("NameLocalized")?.Value;
-                        if (!string.IsNullOrEmpty(legacyLocalized))
-                        {
-                            gameData.LocalizedNames["legacy"] = legacyLocalized;
-                        }
-
-                        return gameData;
-                    })
-                    .ToList() ?? new List<MultiLanguageGameData>();
-
-                DebugLogger.LogDebug($"Loaded {games.Count} games with multi-language support from {_xmlFilePath}");
-                return games;
-            }
-            catch (Exception ex)
-            {
-                DebugLogger.LogDebug($"Error loading multi-language games from XML: {ex.Message}");
-                return new List<MultiLanguageGameData>();
-            }
-            finally
-            {
-                _fileLock.Release();
-            }
+                }
+            });
         }
 
         public async Task<(ISet<int> AppIds, int? ExpectedTotal)> LoadRetrievedAppIdsAsync()
         {
-            await _fileLock.WaitAsync();
-            var appIds = new HashSet<int>();
-            int? expectedTotal = null;
-
-            try
+            return await WithFileLockAsync(async () =>
             {
-                if (!File.Exists(_xmlFilePath))
-                    return (appIds, null);
+                var appIds = new HashSet<int>();
+                int? expectedTotal = null;
 
-                var doc = await Task.Run(() => XDocument.Load(_xmlFilePath));
-                var root = doc.Root;
-                if (root == null) return (appIds, null);
-
-                appIds = root.Elements("Game")
-                    .Select(e => int.Parse(e.Attribute("AppID")?.Value ?? "0"))
-                    .ToHashSet();
-
-                if (int.TryParse(root.Attribute("Remaining")?.Value, out var remaining))
+                try
                 {
-                    expectedTotal = appIds.Count + remaining;
-                }
-                else if (int.TryParse(root.Attribute("TotalGames")?.Value, out var total))
-                {
-                    expectedTotal = total;
-                }
-            }
-            catch (Exception ex)
-            {
-                DebugLogger.LogDebug($"Error loading retrieved app IDs: {ex.Message}");
-            }
-            finally
-            {
-                _fileLock.Release();
-            }
+                    if (!File.Exists(_xmlFilePath))
+                        return (appIds, (int?)null);
 
-            return (appIds, expectedTotal);
+                    var doc = await Task.Run(() => XDocument.Load(_xmlFilePath));
+                    var root = doc.Root;
+                    if (root == null) return (appIds, (int?)null);
+
+                    appIds = root.Elements("Game")
+                        .Select(e => int.Parse(e.Attribute("AppID")?.Value ?? "0"))
+                        .ToHashSet();
+
+                    if (int.TryParse(root.Attribute("Remaining")?.Value, out var remaining))
+                    {
+                        expectedTotal = appIds.Count + remaining;
+                    }
+                    else if (int.TryParse(root.Attribute("TotalGames")?.Value, out var total))
+                    {
+                        expectedTotal = total;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    DebugLogger.LogDebug($"Error loading retrieved app IDs: {ex.Message}");
+                }
+
+                return (appIds, expectedTotal);
+            });
         }
 
         public async Task UpdateRemainingCountAsync(int remaining)
         {
-            await _fileLock.WaitAsync();
-            try
+            await WithFileLockAsync(async () =>
             {
-                XDocument doc;
-                XElement root;
-
-                if (File.Exists(_xmlFilePath))
+                try
                 {
-                    doc = await Task.Run(() => XDocument.Load(_xmlFilePath));
-                    root = doc.Root ?? new XElement("SteamGames");
-                    if (doc.Root == null)
-                        doc.Add(root);
+                    XDocument doc;
+                    XElement root;
+
+                    if (File.Exists(_xmlFilePath))
+                    {
+                        doc = await Task.Run(() => XDocument.Load(_xmlFilePath));
+                        root = doc.Root ?? new XElement("SteamGames");
+                        if (doc.Root == null)
+                            doc.Add(root);
+                    }
+                    else
+                    {
+                        root = new XElement("SteamGames");
+                        doc = new XDocument(root);
+                    }
+
+                    if (remaining > 0)
+                        root.SetAttributeValue("Remaining", remaining);
+                    else
+                        root.Attribute("Remaining")?.Remove();
+
+                    await Task.Run(() => doc.Save(_xmlFilePath));
                 }
-                else
+                catch (Exception ex)
                 {
-                    root = new XElement("SteamGames");
-                    doc = new XDocument(root);
+                    DebugLogger.LogDebug($"Error updating remaining count: {ex.Message}");
                 }
-
-                if (remaining > 0)
-                    root.SetAttributeValue("Remaining", remaining);
-                else
-                    root.Attribute("Remaining")?.Remove();
-
-                await Task.Run(() => doc.Save(_xmlFilePath));
-            }
-            catch (Exception ex)
-            {
-                DebugLogger.LogDebug($"Error updating remaining count: {ex.Message}");
-            }
-            finally
-            {
-                _fileLock.Release();
-            }
+                return Task.CompletedTask;
+            }, isWrite: true);
         }
 
         public async Task<GameExportInfo?> GetExportInfoAsync()
         {
-            await _fileLock.WaitAsync();
-            try
+            return await WithFileLockAsync(async () =>
             {
-                if (!File.Exists(_xmlFilePath))
-                    return null;
-
-                var doc = await Task.Run(() => XDocument.Load(_xmlFilePath));
-                var root = doc.Root;
-                if (root == null) return null;
-
-                return new GameExportInfo
+                try
                 {
-                    SteamId64 = root.Attribute("SteamID64")?.Value ?? "",
-                    SteamIdHash = root.Attribute("SteamIdHash")?.Value ?? "",
-                    ExportDate = DateTime.Parse(root.Attribute("ExportDate")?.Value ?? DateTime.MinValue.ToString()),
-                    TotalGames = int.Parse(root.Attribute("TotalGames")?.Value ?? "0"),
-                    Language = root.Attribute("Language")?.Value ?? "english",
-                    ApiKeyHash = root.Attribute("ApiKeyHash")?.Value ?? ""
-                };
-            }
-            catch (Exception ex)
-            {
-                DebugLogger.LogDebug($"Error getting export info: {ex.Message}");
-                return null;
-            }
-            finally
-            {
-                _fileLock.Release();
-            }
+                    if (!File.Exists(_xmlFilePath))
+                        return (GameExportInfo?)null;
+
+                    var doc = await Task.Run(() => XDocument.Load(_xmlFilePath));
+                    var root = doc.Root;
+                    if (root == null) return (GameExportInfo?)null;
+
+                    return (GameExportInfo?)new GameExportInfo
+                    {
+                        SteamId64 = root.Attribute("SteamID64")?.Value ?? "",
+                        SteamIdHash = root.Attribute("SteamIdHash")?.Value ?? "",
+                        ExportDate = DateTime.Parse(root.Attribute("ExportDate")?.Value ?? DateTime.MinValue.ToString()),
+                        TotalGames = int.Parse(root.Attribute("TotalGames")?.Value ?? "0"),
+                        Language = root.Attribute("Language")?.Value ?? "english",
+                        ApiKeyHash = root.Attribute("ApiKeyHash")?.Value ?? ""
+                    };
+                }
+                catch (Exception ex)
+                {
+                    DebugLogger.LogDebug($"Error getting export info: {ex.Message}");
+                    return (GameExportInfo?)null;
+                }
+            });
         }
 
         public string GetXmlFilePath() => _xmlFilePath;

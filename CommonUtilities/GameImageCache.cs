@@ -500,7 +500,15 @@ namespace CommonUtilities
             }
             finally
             {
-                _concurrency.Release();
+                try
+                {
+                    _concurrency.Release();
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Semaphore was disposed (app shutting down or language switch), ignore
+                    DebugLogger.LogDebug($"Semaphore already disposed for {uri}, skipping release");
+                }
                 _inFlight.TryRemove(basePath, out _);
                 Interlocked.Increment(ref _completed);
                 ReportProgress();

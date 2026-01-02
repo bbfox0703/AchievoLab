@@ -114,12 +114,12 @@ namespace CommonUtilities
             }
         }
 
-        public bool HasImage(int appId, string language)
+        public bool HasImage(int appId, string language, bool checkEnglishFallback = false)
         {
-            return _cache.TryGetCachedPath(appId.ToString(), language, checkEnglishFallback: false) != null;
+            return _cache.TryGetCachedPath(appId.ToString(), language, checkEnglishFallback) != null;
         }
 
-        public bool IsImageCached(int appId, string language) => HasImage(appId, language);
+        public bool IsImageCached(int appId, string language, bool checkEnglishFallback = false) => HasImage(appId, language, checkEnglishFallback);
 
         public async Task<string?> GetGameImageAsync(int appId, string? language = null)
         {
@@ -183,14 +183,7 @@ namespace CommonUtilities
                 // Don't record as failed download - file was corrupted, not missing
             }
 
-            // Step 1: Check failure tracking - if failed within 7 days for this language, skip to English fallback
-            if (_cache.ShouldSkipDownload(appId, language))
-            {
-                DebugLogger.LogDebug($"Skipping {language} download for {appId} due to recent failure, checking English fallback");
-                return await TryEnglishFallbackAsync(appId, language, cacheKey);
-            }
-
-            // Step 2: Check language-specific cache
+            // Step 1: Check language-specific disk cache (even if expired, we'll use it as fallback)
             var diskCachedPath = _cache.TryGetCachedPath(appId.ToString(), language, checkEnglishFallback: false);
             if (!string.IsNullOrEmpty(diskCachedPath))
             {
@@ -200,21 +193,49 @@ namespace CommonUtilities
                     TriggerImageDownloadCompletedEvent(appId, diskCachedPath);
                     return diskCachedPath;
                 }
-
-                try { File.Delete(diskCachedPath); } catch { }
-                // Don't record as failed download - file was corrupted or expired
+                // If expired, keep the path and try to download fresh version, but use expired as fallback if download fails
             }
 
-            // Step 3: Try to download language-specific image
+            // Step 2: For non-English languages, check English cache as potential fallback
+            string? englishFallbackPath = null;
+            if (!string.Equals(language, "english", StringComparison.OrdinalIgnoreCase))
+            {
+                englishFallbackPath = _cache.TryGetCachedPath(appId.ToString(), "english", checkEnglishFallback: false);
+                if (!string.IsNullOrEmpty(englishFallbackPath) && IsFreshImage(englishFallbackPath))
+                {
+                    // Fresh English image found, we can use it immediately if target language download fails
+                    DebugLogger.LogDebug($"Fresh English fallback available for {appId}");
+                }
+            }
+
+            // Step 3: Check failure tracking - if failed within 7 days for this language, skip download but use cache
+            if (_cache.ShouldSkipDownload(appId, language))
+            {
+                DebugLogger.LogDebug($"Skipping {language} download for {appId} due to recent failure (within 7 days)");
+
+                // Use expired language-specific cache if available
+                if (!string.IsNullOrEmpty(diskCachedPath) && File.Exists(diskCachedPath) && ImageValidation.IsValidImage(diskCachedPath))
+                {
+                    DebugLogger.LogDebug($"Using expired {language} cache for {appId}");
+                    _imageCache[cacheKey] = diskCachedPath;
+                    TriggerImageDownloadCompletedEvent(appId, diskCachedPath);
+                    return diskCachedPath;
+                }
+
+                // Fall back to English
+                return await TryEnglishFallbackAsync(appId, language, cacheKey);
+            }
+
+            // Step 4: Try to download language-specific image
             var downloadResult = await TryDownloadLanguageSpecificImageAsync(appId, language, cacheKey);
             if (downloadResult != null)
             {
-                // Step 4: Download successful - remove failure record if exists and return
+                // Step 5: Download successful - remove failure record if exists and return
                 _cache.RemoveFailedRecord(appId, language);
                 return downloadResult;
             }
 
-            // Step 5: Language-specific download failed - record failure only if not cancelled
+            // Step 6: Language-specific download failed - record failure only if not cancelled
             if (!_cts.IsCancellationRequested)
             {
                 _cache.RecordFailedDownload(appId, language);
@@ -225,7 +246,16 @@ namespace CommonUtilities
                 DebugLogger.LogDebug($"Download for {appId} ({language}) was cancelled, not recording failure");
             }
 
-            // Step 6-8: English fallback logic (only for non-English languages)
+            // Step 7: Use expired language-specific cache as fallback if available
+            if (!string.IsNullOrEmpty(diskCachedPath) && File.Exists(diskCachedPath) && ImageValidation.IsValidImage(diskCachedPath))
+            {
+                DebugLogger.LogDebug($"Using expired {language} cache as fallback for {appId}");
+                _imageCache[cacheKey] = diskCachedPath;
+                TriggerImageDownloadCompletedEvent(appId, diskCachedPath);
+                return diskCachedPath;
+            }
+
+            // Step 8: English fallback logic (only for non-English languages)
             if (!string.Equals(language, "english", StringComparison.OrdinalIgnoreCase))
             {
                 return await TryEnglishFallbackAsync(appId, language, cacheKey);
@@ -349,25 +379,37 @@ namespace CommonUtilities
 
         private async Task<string?> TryEnglishFallbackAsync(int appId, string targetLanguage, string cacheKey)
         {
-            // Step 6: Check English cache first
+            // Check English cache first (prefer fresh, but accept expired as fallback)
             var englishCachedPath = _cache.TryGetCachedPath(appId.ToString(), "english", checkEnglishFallback: false);
+
+            // If fresh English cache exists, use it immediately
             if (!string.IsNullOrEmpty(englishCachedPath) && IsFreshImage(englishCachedPath))
             {
-                DebugLogger.LogDebug($"Found English cached image for {appId}, displaying it");
+                DebugLogger.LogDebug($"Found fresh English cached image for {appId}, using as fallback");
                 _imageCache[cacheKey] = englishCachedPath;
                 TriggerImageDownloadCompletedEvent(appId, englishCachedPath);
                 return englishCachedPath;
             }
 
-            // Step 7: Download English image
+            // Try to download fresh English image
             var englishDownloadResult = await TryDownloadEnglishImageAsync(appId, cacheKey);
             if (englishDownloadResult != null)
             {
-                DebugLogger.LogDebug($"Downloaded English image for {appId}");
+                DebugLogger.LogDebug($"Downloaded fresh English image for {appId}");
                 return englishDownloadResult;
             }
 
-            // Step 8: English download failed - show fallback
+            // Download failed - use expired English cache if available and valid
+            if (!string.IsNullOrEmpty(englishCachedPath) && File.Exists(englishCachedPath) && ImageValidation.IsValidImage(englishCachedPath))
+            {
+                DebugLogger.LogDebug($"Using expired English cached image for {appId} as fallback (download failed)");
+                _imageCache[cacheKey] = englishCachedPath;
+                TriggerImageDownloadCompletedEvent(appId, englishCachedPath);
+                return englishCachedPath;
+            }
+
+            // No English image available - show fallback icon
+            DebugLogger.LogDebug($"No English image available for {appId}, showing fallback icon");
             return GetFallbackImagePath();
         }
 
