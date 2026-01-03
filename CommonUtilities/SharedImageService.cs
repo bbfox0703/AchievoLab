@@ -89,7 +89,9 @@ namespace CommonUtilities
                     _completedEvents.Clear();
                 }
 
-                _cts.Dispose();
+                // CRITICAL: Do NOT dispose old CTS immediately - old downloads may still be using it
+                // Just create a new CTS for new operations and let old one be garbage collected
+                // _cts.Dispose(); // Removed - causes ObjectDisposedException in old downloads
                 _cts = new CancellationTokenSource();
                 _currentLanguage = language;
 
