@@ -373,7 +373,20 @@ namespace CommonUtilities
             }
             finally
             {
-                _downloadSemaphore.Release();
+                try
+                {
+                    _downloadSemaphore.Release();
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Semaphore was disposed during language switch or shutdown, ignore
+                    DebugLogger.LogDebug($"SharedImageService semaphore already disposed, skipping release");
+                }
+                catch (SemaphoreFullException)
+                {
+                    // Semaphore was already released, ignore
+                    DebugLogger.LogDebug($"SharedImageService semaphore already at full count, skipping release");
+                }
             }
         }
 
@@ -506,7 +519,20 @@ namespace CommonUtilities
             }
             finally
             {
-                _downloadSemaphore.Release();
+                try
+                {
+                    _downloadSemaphore.Release();
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Semaphore was disposed during language switch or shutdown, ignore
+                    DebugLogger.LogDebug($"SharedImageService semaphore already disposed, skipping release");
+                }
+                catch (SemaphoreFullException)
+                {
+                    // Semaphore was already released, ignore
+                    DebugLogger.LogDebug($"SharedImageService semaphore already at full count, skipping release");
+                }
             }
         }
 

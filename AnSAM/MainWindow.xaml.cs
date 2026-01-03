@@ -17,6 +17,7 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Xml;
 using System.Xml.Linq;
@@ -42,8 +43,10 @@ namespace AnSAM
         private readonly AppWindow _appWindow;
         private readonly HttpClient _imageHttpClient = new();
         private readonly SharedImageService _imageService;
+        private volatile bool _isLanguageSwitching = false;
         private readonly DispatcherQueue _dispatcher;
         private string _currentLanguage = "english";
+        private CancellationTokenSource? _languageSwitchCts;
 
         private bool _autoLoaded;
         private bool _languageInitialized;
@@ -191,25 +194,71 @@ namespace AnSAM
                 }
 
                 DebugLogger.LogDebug($"Language changed from {_currentLanguage} to {lang}");
-                
-                SteamLanguageResolver.OverrideLanguage = lang;
-                await _imageService.SetLanguage(lang);
 
-                _settingsService.TrySetString("Language", lang);
+                // CRITICAL: Cancel any ongoing language switch to prevent race conditions
+                _languageSwitchCts?.Cancel();
+                _languageSwitchCts?.Dispose();
+                _languageSwitchCts = new CancellationTokenSource();
+                var cts = _languageSwitchCts;
+
+                // Block new switches while this one is in progress
+                if (_isLanguageSwitching)
+                {
+                    DebugLogger.LogDebug($"Language switch already in progress, cancelling and restarting for {lang}");
+                }
 
                 try
                 {
+                    _isLanguageSwitching = true;
+
+                    SteamLanguageResolver.OverrideLanguage = lang;
+                    await _imageService.SetLanguage(lang);
+
+                    _settingsService.TrySetString("Language", lang);
+
+                    // Check if cancelled
+                    if (cts.Token.IsCancellationRequested)
+                    {
+                        DebugLogger.LogDebug($"Language switch to {lang} was cancelled");
+                        return;
+                    }
+
+                    // CRITICAL: Scroll to top FIRST to avoid scroll position conflicts during re-sorting
+                    var scrollViewer = _gamesScrollViewer ??= FindScrollViewer(GamesView);
+                    if (scrollViewer != null)
+                    {
+                        scrollViewer.ChangeView(null, 0, null, true); // Instant scroll to top
+                        await Task.Delay(100, cts.Token); // Wait for scroll to complete
+                    }
+
+                    // Check if cancelled
+                    if (cts.Token.IsCancellationRequested)
+                    {
+                        DebugLogger.LogDebug($"Language switch to {lang} was cancelled after scroll");
+                        return;
+                    }
+
                     // Load localized titles from steam_games.xml if switching to non-English
                     if (lang != "english")
                     {
                         LoadLocalizedTitlesFromXml();
                     }
 
-                    // Update game titles for the new language
+                    // Update game titles for the new language (with collection re-sorting)
                     UpdateAllGameTitles(lang);
 
-                    // Refresh images using MyOwnGames strategy: explicit visible/hidden handling
-                    await RefreshImagesForLanguageSwitch(lang);
+                    // Wait for any ongoing UI operations to complete before starting image refresh
+                    await Task.Delay(200, cts.Token);
+
+                    // Check if cancelled before expensive image refresh
+                    if (cts.Token.IsCancellationRequested)
+                    {
+                        DebugLogger.LogDebug($"Language switch to {lang} was cancelled before image refresh");
+                        return;
+                    }
+
+                    // Refresh images using batched strategy
+                    await RefreshImagesForLanguageSwitch(lang, cts.Token);
 
                     StatusText.Text = lang == "english"
                         ? $"Switched to English - displaying original titles"
@@ -234,6 +283,10 @@ namespace AnSAM
 
                     await dialog.ShowAsync();
                     StatusText.Text = "Ready";
+                }
+                finally
+                {
+                    _isLanguageSwitching = false;
                 }
             }
         }
@@ -446,6 +499,13 @@ namespace AnSAM
             if (e.Item is not GameItem game)
                 return;
 
+            // Skip during language switching to avoid collection modification conflicts
+            if (_isLanguageSwitching)
+            {
+                e.Handled = true;
+                return;
+            }
+
             // Phase 0: Just register for phase 1, don't do any work yet
             if (e.Phase == 0)
             {
@@ -455,20 +515,18 @@ namespace AnSAM
             // Phase 1: Load the image
             else if (e.Phase == 1)
             {
-                // Check if we need to reset cover due to language mismatch
-                string currentLanguage = SteamLanguageResolver.GetSteamLanguage();
+                // SIMPLIFIED: Only load if it's no_icon (完全重置策略)
                 var isFallbackIcon = game.IconUri == "ms-appx:///Assets/no_icon.png";
 
-                // Reset if cover exists, is not fallback, and doesn't match current language
-                if (!string.IsNullOrEmpty(game.IconUri) &&
-                    !isFallbackIcon &&
-                    !game.IsCoverFromLanguage(currentLanguage))
-                {
-                    game.ResetCover();
-                }
+#if DEBUG
+                DebugLogger.LogDebug($"ContainerContentChanging Phase1: {game.ID} ({game.Title}), isFallback={isFallbackIcon}");
+#endif
 
-                // Load the cover image
-                await game.LoadCoverAsync(_imageService);
+                if (isFallbackIcon)
+                {
+                    await game.LoadCoverAsync(_imageService);
+                }
+                // Otherwise, keep existing image (already loaded during language switch)
             }
         }
 
@@ -859,35 +917,78 @@ namespace AnSAM
 
         /// <summary>
         /// Refreshes game cover images after language switch.
-        /// Visible items are loaded immediately, hidden items are reset to no_icon.
+        /// COMPLETE RESET + BATCHED loading to avoid HTTP connection pool exhaustion.
         /// </summary>
-        private async Task RefreshImagesForLanguageSwitch(string newLanguage)
+        private async Task RefreshImagesForLanguageSwitch(string newLanguage, CancellationToken cancellationToken = default)
         {
             try
             {
-                // Get visible and hidden items
-                var (visibleItems, hiddenItems) = GetVisibleAndHiddenGameItems();
-
-                DebugLogger.LogDebug($"Language switch: {visibleItems.Count} visible, {hiddenItems.Count} hidden games");
-
-                // Reset hidden items to no_icon (they'll load when scrolled into view)
-                foreach (var game in hiddenItems)
+                // COMPLETE RESET: Clear all game cover states
+                foreach (var game in Games)
                 {
                     game.ResetCover();
                 }
 
-                // Load visible items immediately for responsive UI
-                var loadTasks = visibleItems.Select(async game =>
+                DebugLogger.LogDebug($"COMPLETE RESET: Cleared all {Games.Count} game covers for language switch to {newLanguage}");
+
+                // Wait for UI to stabilize
+                await Task.Delay(100, cancellationToken);
+
+                // Check if cancelled before starting expensive operations
+                if (cancellationToken.IsCancellationRequested)
                 {
-                    // Reset first to clear any wrong-language covers
-                    game.ResetCover();
-                    // Then load for the new language
-                    await game.LoadCoverAsync(_imageService, newLanguage);
-                });
+                    DebugLogger.LogDebug($"Image refresh cancelled for {newLanguage}");
+                    return;
+                }
 
-                await Task.WhenAll(loadTasks);
+                // CRITICAL: Use SMALL BATCHES to prevent HTTP connection pool exhaustion
+                // Too many concurrent downloads (150) causes HttpRequestException and crash
+                const int totalToPreload = 30; // Reduced from 150 to prevent crash
+                const int batchSize = 5; // Process only 5 at a time
+                var gamesToPreload = Games.Take(Math.Min(totalToPreload, Games.Count)).ToList();
 
-                DebugLogger.LogDebug($"Loaded {visibleItems.Count} visible covers for {newLanguage}");
+                DebugLogger.LogDebug($"Preloading {gamesToPreload.Count} covers in batches of {batchSize} for {newLanguage}");
+
+                // Process in small batches to avoid overwhelming HTTP client
+                for (int i = 0; i < gamesToPreload.Count; i += batchSize)
+                {
+                    // Check if cancelled before each batch
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        DebugLogger.LogDebug($"Image refresh cancelled for {newLanguage} at batch {i / batchSize + 1}");
+                        return;
+                    }
+
+                    var batch = gamesToPreload.Skip(i).Take(batchSize);
+                    var loadTasks = batch.Select(game => game.LoadCoverAsync(_imageService, newLanguage));
+
+                    try
+                    {
+                        await Task.WhenAll(loadTasks);
+                    }
+                    catch (Exception ex)
+                    {
+                        DebugLogger.LogDebug($"Error loading batch {i / batchSize + 1}: {ex.Message}");
+                        // Continue with next batch even if this one fails
+                    }
+
+                    // Small delay between batches to prevent rate limiting
+                    try
+                    {
+                        await Task.Delay(50, cancellationToken);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        DebugLogger.LogDebug($"Image refresh cancelled for {newLanguage} during batch delay");
+                        return;
+                    }
+                }
+
+                DebugLogger.LogDebug($"Completed preloading {gamesToPreload.Count} covers. Remaining will load via ContainerContentChanging.");
+            }
+            catch (OperationCanceledException)
+            {
+                DebugLogger.LogDebug($"Image refresh for {newLanguage} was cancelled");
             }
             catch (Exception ex)
             {
@@ -966,19 +1067,41 @@ namespace AnSAM
         /// </summary>
         private void UpdateAllGameTitles(string language)
         {
-            foreach (var game in _allGames)
+            try
             {
-                game.UpdateDisplayTitle(language);
+                _isLanguageSwitching = true;
+
+                foreach (var game in _allGames)
+                {
+                    game.UpdateDisplayTitle(language);
+                }
+
+                // Re-sort _allGames based on new titles
+                _allGames.Sort((a, b) => string.Compare(a.Title, b.Title, StringComparison.OrdinalIgnoreCase));
+
+                // Re-sort Games ObservableCollection in-place using Move (avoids Clear/Add crash)
+                // Get sorted order
+                var sortedGames = Games.OrderBy(g => g.Title, StringComparer.OrdinalIgnoreCase).ToList();
+
+                // Move items to correct positions
+                for (int i = 0; i < sortedGames.Count; i++)
+                {
+                    var currentItem = sortedGames[i];
+                    var currentIndex = Games.IndexOf(currentItem);
+
+                    if (currentIndex != i)
+                    {
+                        Games.Move(currentIndex, i);
+                    }
+                }
+
+                _currentLanguage = language;
+                DebugLogger.LogDebug($"Updated and re-sorted all game titles to language: {language}");
             }
-            
-            // Also update filtered games in the UI
-            foreach (var game in Games)
+            finally
             {
-                game.UpdateDisplayTitle(language);
+                _isLanguageSwitching = false;
             }
-            
-            _currentLanguage = language;
-            DebugLogger.LogDebug($"Updated all game titles to language: {language}");
         }
 
         /// <summary>
@@ -1318,14 +1441,12 @@ namespace AnSAM
                 return;
             }
 
-            // Skip if already loaded for current language
+            // SIMPLIFIED: Only skip if we already have a valid image (not no_icon)
             string currentLanguage = languageOverride ?? SteamLanguageResolver.GetSteamLanguage();
-            if (!string.IsNullOrEmpty(IconUri) &&
-                IconUri != "ms-appx:///Assets/no_icon.png" &&
-                IsCoverFromLanguage(currentLanguage))
+            if (!string.IsNullOrEmpty(IconUri) && IconUri != "ms-appx:///Assets/no_icon.png")
             {
 #if DEBUG
-                DebugLogger.LogDebug($"Skipping LoadCoverAsync for {ID} ({Title}): already loaded for {currentLanguage}");
+                DebugLogger.LogDebug($"Skipping LoadCoverAsync for {ID} ({Title}): already has valid image");
 #endif
                 return;
             }
@@ -1338,7 +1459,30 @@ namespace AnSAM
 
             try
             {
-                // Get image path from shared service
+                // For non-English languages, check if English fallback is cached
+                // If so, display it immediately while downloading target language
+                bool isNonEnglish = currentLanguage != "english";
+                bool englishCached = isNonEnglish && imageService.IsImageCached(ID, "english");
+
+                if (englishCached)
+                {
+                    // Load English fallback immediately for instant display
+                    var englishPath = await imageService.GetGameImageAsync(ID, "english").ConfigureAwait(false);
+                    if (!string.IsNullOrEmpty(englishPath) && File.Exists(englishPath))
+                    {
+                        _loadedLanguage = "english";
+                        var englishUri = new Uri(englishPath).AbsoluteUri;
+                        _dispatcher.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.High, () =>
+                        {
+                            IconUri = englishUri;
+#if DEBUG
+                            DebugLogger.LogDebug($"UI updated: {ID} ({Title}) showing English fallback immediately");
+#endif
+                        });
+                    }
+                }
+
+                // Now try to get the target language image
                 var imagePath = await imageService.GetGameImageAsync(ID, currentLanguage).ConfigureAwait(false);
 
                 if (!string.IsNullOrEmpty(imagePath) && File.Exists(imagePath))
@@ -1362,9 +1506,9 @@ namespace AnSAM
 #endif
                     });
                 }
-                else
+                else if (!englishCached)
                 {
-                    // Fallback to no_icon.png
+                    // Only set no_icon if we didn't already show English fallback
                     _dispatcher.TryEnqueue(() =>
                     {
                         IconUri = "ms-appx:///Assets/no_icon.png";
