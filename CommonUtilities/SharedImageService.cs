@@ -54,19 +54,32 @@ namespace CommonUtilities
             }
         }
 
-        public Task SetLanguage(string language)
+        public async Task SetLanguage(string language)
         {
             if (_currentLanguage != language)
             {
                 DebugLogger.LogDebug($"Switching language from {_currentLanguage} to {language}. Pending requests: {_pendingRequests.Count}");
-                
+
                 // Cancel ongoing operations
                 _cts.Cancel();
 
-                // Capture pending requests before clearing
+                // CRITICAL: Wait for all pending requests to actually finish or be cancelled
+                // before clearing caches to prevent race conditions
                 var pending = _pendingRequests.Values.ToArray();
-                // Don't block waiting for all requests to finish
-                _ = Task.WhenAll(pending); // 背景等待
+                if (pending.Length > 0)
+                {
+                    DebugLogger.LogDebug($"Waiting for {pending.Length} pending downloads to complete or cancel...");
+                    try
+                    {
+                        // Wait up to 5 seconds for pending requests to complete/cancel
+                        await Task.WhenAny(Task.WhenAll(pending), Task.Delay(5000));
+                        DebugLogger.LogDebug($"Pending downloads completed or timed out");
+                    }
+                    catch (Exception ex)
+                    {
+                        DebugLogger.LogDebug($"Exception while waiting for pending downloads: {ex.Message}");
+                    }
+                }
 
                 // Now clear caches and reset state
                 _imageCache.Clear();
@@ -79,10 +92,9 @@ namespace CommonUtilities
                 _cts.Dispose();
                 _cts = new CancellationTokenSource();
                 _currentLanguage = language;
-                
+
                 DebugLogger.LogDebug($"Language switch completed. Reset state for {language}");
             }
-            return Task.CompletedTask;
         }
 
         public string GetCurrentLanguage() => _currentLanguage;

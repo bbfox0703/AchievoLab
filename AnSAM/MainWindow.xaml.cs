@@ -47,6 +47,7 @@ namespace AnSAM
         private readonly DispatcherQueue _dispatcher;
         private string _currentLanguage = "english";
         private CancellationTokenSource? _languageSwitchCts;
+        private readonly SemaphoreSlim _languageSwitchLock = new(1, 1); // Mutex for language switch
 
         private bool _autoLoaded;
         private bool _languageInitialized;
@@ -195,98 +196,111 @@ namespace AnSAM
 
                 DebugLogger.LogDebug($"Language changed from {_currentLanguage} to {lang}");
 
-                // CRITICAL: Cancel any ongoing language switch to prevent race conditions
-                _languageSwitchCts?.Cancel();
-                _languageSwitchCts?.Dispose();
-                _languageSwitchCts = new CancellationTokenSource();
-                var cts = _languageSwitchCts;
-
-                // Block new switches while this one is in progress
-                if (_isLanguageSwitching)
-                {
-                    DebugLogger.LogDebug($"Language switch already in progress, cancelling and restarting for {lang}");
-                }
+                // CRITICAL: Wait for any previous language switch to complete before starting new one
+                // This prevents hang/crash when switching while downloads are in progress
+                await _languageSwitchLock.WaitAsync();
 
                 try
                 {
-                    _isLanguageSwitching = true;
+                    // CRITICAL: Cancel any ongoing language switch to prevent race conditions
+                    _languageSwitchCts?.Cancel();
+                    _languageSwitchCts?.Dispose();
+                    _languageSwitchCts = new CancellationTokenSource();
+                    var cts = _languageSwitchCts;
 
-                    SteamLanguageResolver.OverrideLanguage = lang;
-                    await _imageService.SetLanguage(lang);
-
-                    _settingsService.TrySetString("Language", lang);
-
-                    // Check if cancelled
-                    if (cts.Token.IsCancellationRequested)
+                    // Block new switches while this one is in progress
+                    if (_isLanguageSwitching)
                     {
-                        DebugLogger.LogDebug($"Language switch to {lang} was cancelled");
-                        return;
+                        DebugLogger.LogDebug($"Language switch already in progress, cancelling and restarting for {lang}");
                     }
 
-                    // CRITICAL: Scroll to top FIRST to avoid scroll position conflicts during re-sorting
-                    var scrollViewer = _gamesScrollViewer ??= FindScrollViewer(GamesView);
-                    if (scrollViewer != null)
+                    try
                     {
-                        scrollViewer.ChangeView(null, 0, null, true); // Instant scroll to top
-                        await Task.Delay(100, cts.Token); // Wait for scroll to complete
+                        _isLanguageSwitching = true;
+
+                        SteamLanguageResolver.OverrideLanguage = lang;
+                        await _imageService.SetLanguage(lang);
+
+                        _settingsService.TrySetString("Language", lang);
+
+                        // Check if cancelled
+                        if (cts.Token.IsCancellationRequested)
+                        {
+                            DebugLogger.LogDebug($"Language switch to {lang} was cancelled");
+                            return;
+                        }
+
+                        // CRITICAL: Scroll to top FIRST to avoid scroll position conflicts during re-sorting
+                        var scrollViewer = _gamesScrollViewer ??= FindScrollViewer(GamesView);
+                        if (scrollViewer != null)
+                        {
+                            scrollViewer.ChangeView(null, 0, null, true); // Instant scroll to top
+                            await Task.Delay(100, cts.Token); // Wait for scroll to complete
+                        }
+
+                        // Check if cancelled
+                        if (cts.Token.IsCancellationRequested)
+                        {
+                            DebugLogger.LogDebug($"Language switch to {lang} was cancelled after scroll");
+                            return;
+                        }
+
+                        // Load localized titles from steam_games.xml if switching to non-English
+                        if (lang != "english")
+                        {
+                            LoadLocalizedTitlesFromXml();
+                        }
+
+                        // Update game titles for the new language (with collection re-sorting)
+                        UpdateAllGameTitles(lang);
+
+                        // Wait for any ongoing UI operations to complete before starting image refresh
+                        await Task.Delay(200, cts.Token);
+
+                        // Check if cancelled before expensive image refresh
+                        if (cts.Token.IsCancellationRequested)
+                        {
+                            DebugLogger.LogDebug($"Language switch to {lang} was cancelled before image refresh");
+                            return;
+                        }
+
+                        // Refresh images using batched strategy
+                        await RefreshImagesForLanguageSwitch(lang, cts.Token);
+
+                        StatusText.Text = lang == "english"
+                            ? $"Switched to English - displaying original titles"
+                            : $"Switched to {lang} - using localized titles where available";
                     }
-
-                    // Check if cancelled
-                    if (cts.Token.IsCancellationRequested)
+                    catch (Exception ex)
                     {
-                        DebugLogger.LogDebug($"Language switch to {lang} was cancelled after scroll");
-                        return;
+                        StatusProgress.IsIndeterminate = false;
+                        StatusProgress.Value = 0;
+                        StatusExtra.Text = string.Empty;
+                        StatusText.Text = "Language switch failed";
+
+                        DebugLogger.LogDebug($"Language switch error: {ex}");
+
+                        var dialog = new ContentDialog
+                        {
+                            Title = "Language switch failed",
+                            Content = "Unable to switch language. Please try again.",
+                            CloseButtonText = "OK",
+                            XamlRoot = Content.XamlRoot
+                        };
+
+                        await dialog.ShowAsync();
+                        StatusText.Text = "Ready";
                     }
-
-                    // Load localized titles from steam_games.xml if switching to non-English
-                    if (lang != "english")
+                    finally
                     {
-                        LoadLocalizedTitlesFromXml();
+                        _isLanguageSwitching = false;
                     }
-
-                    // Update game titles for the new language (with collection re-sorting)
-                    UpdateAllGameTitles(lang);
-
-                    // Wait for any ongoing UI operations to complete before starting image refresh
-                    await Task.Delay(200, cts.Token);
-
-                    // Check if cancelled before expensive image refresh
-                    if (cts.Token.IsCancellationRequested)
-                    {
-                        DebugLogger.LogDebug($"Language switch to {lang} was cancelled before image refresh");
-                        return;
-                    }
-
-                    // Refresh images using batched strategy
-                    await RefreshImagesForLanguageSwitch(lang, cts.Token);
-
-                    StatusText.Text = lang == "english"
-                        ? $"Switched to English - displaying original titles"
-                        : $"Switched to {lang} - using localized titles where available";
-                }
-                catch (Exception ex)
-                {
-                    StatusProgress.IsIndeterminate = false;
-                    StatusProgress.Value = 0;
-                    StatusExtra.Text = string.Empty;
-                    StatusText.Text = "Language switch failed";
-
-                    DebugLogger.LogDebug($"Language switch error: {ex}");
-
-                    var dialog = new ContentDialog
-                    {
-                        Title = "Language switch failed",
-                        Content = "Unable to switch language. Please try again.",
-                        CloseButtonText = "OK",
-                        XamlRoot = Content.XamlRoot
-                    };
-
-                    await dialog.ShowAsync();
-                    StatusText.Text = "Ready";
                 }
                 finally
                 {
-                    _isLanguageSwitching = false;
+                    // CRITICAL: Always release the mutex lock, even if cancelled or error occurred
+                    _languageSwitchLock.Release();
+                    DebugLogger.LogDebug($"Language switch lock released for {lang}");
                 }
             }
         }
@@ -942,12 +956,17 @@ namespace AnSAM
                 }
 
                 // CRITICAL: Use SMALL BATCHES to prevent HTTP connection pool exhaustion
-                // Too many concurrent downloads (150) causes HttpRequestException and crash
-                const int totalToPreload = 30; // Reduced from 150 to prevent crash
-                const int batchSize = 5; // Process only 5 at a time
-                var gamesToPreload = Games.Take(Math.Min(totalToPreload, Games.Count)).ToList();
+                // Load VISIBLE items (dynamic based on viewport) + extra buffer
+                var (visibleItems, hiddenItems) = GetVisibleAndHiddenGameItems();
 
-                DebugLogger.LogDebug($"Preloading {gamesToPreload.Count} covers in batches of {batchSize} for {newLanguage}");
+                // Add buffer to ensure coverage even if scroll position shifts
+                const int bufferCount = 20; // Extra games beyond visible
+                var totalToLoad = visibleItems.Count + bufferCount;
+                var gamesToPreload = Games.Take(Math.Min(totalToLoad, Games.Count)).ToList();
+
+                const int batchSize = 5; // Process only 5 at a time to prevent crash
+
+                DebugLogger.LogDebug($"Preloading {gamesToPreload.Count} covers ({visibleItems.Count} visible + {bufferCount} buffer) in batches of {batchSize} for {newLanguage}");
 
                 // Process in small batches to avoid overwhelming HTTP client
                 for (int i = 0; i < gamesToPreload.Count; i += batchSize)
