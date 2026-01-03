@@ -905,84 +905,66 @@ namespace AnSAM
 
         /// <summary>
         /// Refreshes game cover images after language switch.
-        /// COMPLETE RESET + BATCHED loading to avoid HTTP connection pool exhaustion.
-        /// NOTE: No longer cancellable - each language switch runs to completion to prevent UI inconsistency.
+        /// Uses CLEAN SLATE approach: unbind GridView, reset all states, rebind.
+        /// This forces GridView to recreate all containers and trigger ContainerContentChanging.
         /// </summary>
         private async Task RefreshImagesForLanguageSwitch(string newLanguage)
         {
             try
             {
-                // COMPLETE RESET: Clear all game cover states
-                // CRITICAL: Process in BATCHES to handle users with thousands of games
-                // Avoids dispatcher queue overflow and UI freeze
-                var gamesToReset = Games.ToList();
-                const int resetBatchSize = 100; // Process 100 games at a time
+                DebugLogger.LogDebug($"Starting CLEAN SLATE refresh for {newLanguage}");
 
-                for (int i = 0; i < gamesToReset.Count; i += resetBatchSize)
+                // STEP 1: Unbind GridView from Games collection (prevents crashes during reset)
+                var tcs1 = new TaskCompletionSource<bool>();
+                _dispatcher.TryEnqueue(() =>
                 {
-                    var batch = gamesToReset.Skip(i).Take(resetBatchSize).ToList();
-                    var tcs = new TaskCompletionSource<bool>();
-
-                    _dispatcher.TryEnqueue(() =>
-                    {
-                        try
-                        {
-                            foreach (var game in batch)
-                            {
-                                game.IconUri = "ms-appx:///Assets/no_icon.png";
-                            }
-                            tcs.SetResult(true);
-                        }
-                        catch (Exception ex)
-                        {
-                            tcs.SetException(ex);
-                        }
-                    });
-
-                    await tcs.Task; // Wait for this batch to complete
-
-                    // Clear loading flags for this batch
-                    foreach (var game in batch)
-                    {
-                        game.ClearLoadingState();
-                    }
-                }
-
-                DebugLogger.LogDebug($"COMPLETE RESET: Cleared all {Games.Count} game covers for language switch to {newLanguage}");
-
-                // Wait for reset to complete
-                await Task.Delay(100);
-
-                // CRITICAL: Only preload VISIBLE items (no buffer) for fast language switching
-                // ContainerContentChanging won't fire for items already on screen, so we must preload them
-                // Hidden items will load via ContainerContentChanging when scrolled into view
-                var (visibleItems, hiddenItems) = GetVisibleAndHiddenGameItems();
-
-                if (visibleItems.Count > 0)
-                {
-                    DebugLogger.LogDebug($"Preloading {visibleItems.Count} visible covers for {newLanguage}");
-
-                    // Load all visible items in parallel for speed (no batching needed for small count)
-                    var loadTasks = visibleItems.Select(game => game.LoadCoverAsync(_imageService, newLanguage));
-
                     try
                     {
-                        await Task.WhenAll(loadTasks);
-                        DebugLogger.LogDebug($"Completed loading {visibleItems.Count} visible covers for {newLanguage}");
+                        GamesView.ItemsSource = null;
+                        DebugLogger.LogDebug($"Unbound GridView ItemsSource");
+                        tcs1.SetResult(true);
                     }
                     catch (Exception ex)
                     {
-                        DebugLogger.LogDebug($"Error loading visible covers: {ex.Message}");
+                        tcs1.SetException(ex);
                     }
-                }
-                else
+                });
+                await tcs1.Task;
+
+                // Wait for unbind to take effect
+                await Task.Delay(100);
+
+                // STEP 2: Reset all game states for new language
+                DebugLogger.LogDebug($"Resetting all {Games.Count} game states for {newLanguage}");
+                foreach (var game in Games)
                 {
-                    DebugLogger.LogDebug($"No visible items to preload for {newLanguage}");
+                    // Reset to clean state - IconUri will be no_icon, ready for lazy loading
+                    game.IconUri = "ms-appx:///Assets/no_icon.png";
+                    game.ClearLoadingState();
                 }
+
+                // STEP 3: Rebind GridView to Games collection (forces container recreation)
+                var tcs2 = new TaskCompletionSource<bool>();
+                _dispatcher.TryEnqueue(() =>
+                {
+                    try
+                    {
+                        GamesView.ItemsSource = Games;
+                        DebugLogger.LogDebug($"Rebound GridView ItemsSource - containers will recreate");
+                        tcs2.SetResult(true);
+                    }
+                    catch (Exception ex)
+                    {
+                        tcs2.SetException(ex);
+                    }
+                });
+                await tcs2.Task;
+
+                DebugLogger.LogDebug($"CLEAN SLATE refresh complete for {newLanguage}. ContainerContentChanging will load images on-demand.");
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Error refreshing images for language switch: {ex.Message}");
+                DebugLogger.LogDebug($"Error during clean slate refresh: {ex.Message}");
             }
         }
 
