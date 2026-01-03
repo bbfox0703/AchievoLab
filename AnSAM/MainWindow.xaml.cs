@@ -204,12 +204,12 @@ namespace AnSAM
                     {
                         LoadLocalizedTitlesFromXml();
                     }
-                    
+
                     // Update game titles for the new language
                     UpdateAllGameTitles(lang);
 
-                    // Refresh game images for the selected language
-                    await RefreshGameImages(lang);
+                    // Refresh images using MyOwnGames strategy: explicit visible/hidden handling
+                    await RefreshImagesForLanguageSwitch(lang);
 
                     StatusText.Text = lang == "english"
                         ? $"Switched to English - displaying original titles"
@@ -440,19 +440,36 @@ namespace AnSAM
         /// </summary>
         private async void GamesView_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs e)
         {
-            if (e.InRecycleQueue || e.Item is not GameItem game)
-            {
+            if (e.InRecycleQueue)
                 return;
-            }
 
-            // If cover is from a different language, reset and reload
-            string currentLanguage = SteamLanguageResolver.GetSteamLanguage();
-            if (game.CoverPath != null && !game.IsCoverFromLanguage(currentLanguage))
+            if (e.Item is not GameItem game)
+                return;
+
+            // Phase 0: Just register for phase 1, don't do any work yet
+            if (e.Phase == 0)
             {
-                game.ResetCover();
+                e.RegisterUpdateCallback(GamesView_ContainerContentChanging);
+                e.Handled = true;
             }
+            // Phase 1: Load the image
+            else if (e.Phase == 1)
+            {
+                // Check if we need to reset cover due to language mismatch
+                string currentLanguage = SteamLanguageResolver.GetSteamLanguage();
+                var isFallbackIcon = game.IconUri == "ms-appx:///Assets/no_icon.png";
 
-            await game.LoadCoverAsync(_imageService);
+                // Reset if cover exists, is not fallback, and doesn't match current language
+                if (!string.IsNullOrEmpty(game.IconUri) &&
+                    !isFallbackIcon &&
+                    !game.IsCoverFromLanguage(currentLanguage))
+                {
+                    game.ResetCover();
+                }
+
+                // Load the cover image
+                await game.LoadCoverAsync(_imageService);
+            }
         }
 
 
@@ -781,6 +798,104 @@ namespace AnSAM
         }
 
         /// <summary>
+        /// Gets currently visible and hidden game items based on viewport position.
+        /// </summary>
+        private (List<GameItem> visible, List<GameItem> hidden) GetVisibleAndHiddenGameItems()
+        {
+            var visibleItems = new List<GameItem>();
+            var hiddenItems = new List<GameItem>();
+
+            if (GamesView?.ItemsPanelRoot is ItemsWrapGrid wrapGrid)
+            {
+                var scrollViewer = _gamesScrollViewer ??= FindScrollViewer(GamesView);
+                if (scrollViewer != null)
+                {
+                    var viewportHeight = scrollViewer.ViewportHeight;
+                    var verticalOffset = scrollViewer.VerticalOffset;
+
+                    // Estimate visible items based on viewport (ItemHeight=180 from XAML)
+                    var itemHeight = 180;
+                    var itemsPerRow = Math.Max(1, (int)(scrollViewer.ViewportWidth / 240)); // ItemWidth=240
+                    var firstVisibleRow = Math.Max(0, (int)(verticalOffset / itemHeight));
+                    var lastVisibleRow = (int)((verticalOffset + viewportHeight) / itemHeight) + 1;
+
+                    var firstVisibleIndex = firstVisibleRow * itemsPerRow;
+                    var lastVisibleIndex = Math.Min(Games.Count - 1, (lastVisibleRow + 1) * itemsPerRow);
+
+                    for (int i = 0; i < Games.Count; i++)
+                    {
+                        if (i >= firstVisibleIndex && i <= lastVisibleIndex)
+                            visibleItems.Add(Games[i]);
+                        else
+                            hiddenItems.Add(Games[i]);
+                    }
+                }
+                else
+                {
+                    // Fallback: assume first 20 items are visible
+                    for (int i = 0; i < Games.Count; i++)
+                    {
+                        if (i < 20)
+                            visibleItems.Add(Games[i]);
+                        else
+                            hiddenItems.Add(Games[i]);
+                    }
+                }
+            }
+            else
+            {
+                // Fallback: assume first 20 items are visible
+                for (int i = 0; i < Games.Count; i++)
+                {
+                    if (i < 20)
+                        visibleItems.Add(Games[i]);
+                    else
+                        hiddenItems.Add(Games[i]);
+                }
+            }
+
+            return (visibleItems, hiddenItems);
+        }
+
+        /// <summary>
+        /// Refreshes game cover images after language switch.
+        /// Visible items are loaded immediately, hidden items are reset to no_icon.
+        /// </summary>
+        private async Task RefreshImagesForLanguageSwitch(string newLanguage)
+        {
+            try
+            {
+                // Get visible and hidden items
+                var (visibleItems, hiddenItems) = GetVisibleAndHiddenGameItems();
+
+                DebugLogger.LogDebug($"Language switch: {visibleItems.Count} visible, {hiddenItems.Count} hidden games");
+
+                // Reset hidden items to no_icon (they'll load when scrolled into view)
+                foreach (var game in hiddenItems)
+                {
+                    game.ResetCover();
+                }
+
+                // Load visible items immediately for responsive UI
+                var loadTasks = visibleItems.Select(async game =>
+                {
+                    // Reset first to clear any wrong-language covers
+                    game.ResetCover();
+                    // Then load for the new language
+                    await game.LoadCoverAsync(_imageService, newLanguage);
+                });
+
+                await Task.WhenAll(loadTasks);
+
+                DebugLogger.LogDebug($"Loaded {visibleItems.Count} visible covers for {newLanguage}");
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error refreshing images for language switch: {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// Loads localized game titles from the cached steam_games.xml file.
         /// </summary>
         private void LoadLocalizedTitlesFromXml()
@@ -875,16 +990,26 @@ namespace AnSAM
             DebugLogger.LogDebug($"Refreshing game images for {language}");
 
             // Give UI time to stabilize after title updates before determining visible games
-            await Task.Delay(50);
+            // Title changes trigger PropertyChanged which causes WinUI to re-render items
+            // We need to wait for the UI virtualization to settle before calculating visible range
+            await Task.Delay(200);
+            DebugLogger.LogDebug($"UI stabilization delay completed, calculating visible games");
 
             var (visibleGames, hiddenGames) = GetVisibleAndHiddenGames();
             DebugLogger.LogDebug($"Found {visibleGames.Count} visible games, {hiddenGames.Count} hidden games");
 
-            // Reset ALL game covers to prevent showing images from wrong language
-            // This is especially important when switching while downloads are in progress
-            foreach (var game in _allGames)
+            // Reset visible game covers to prevent showing images from wrong language
+            foreach (var game in visibleGames)
             {
                 game.ResetCover();
+            }
+
+            // For hidden games, set to fallback icon to avoid black blocks
+            // They will be properly loaded when scrolled into view (ContainerContentChanging)
+            foreach (var game in hiddenGames)
+            {
+                game.ResetCover();
+                game.IconUri = "ms-appx:///Assets/no_icon.png";
             }
 
             // Categorize visible games for optimal loading
@@ -1038,63 +1163,34 @@ namespace AnSAM
         
         public int ID { get; set; }
         public int AppId => ID;
-        public Uri? CoverPath
+
+        // Simplified image handling - store URI as string and let WinUI handle BitmapImage creation
+        private string _iconUri = "ms-appx:///Assets/no_icon.png";
+        private volatile bool _isUpdatingIcon = false;
+
+        public string IconUri
         {
-            get => _coverPath;
+            get => _iconUri;
             set
             {
-                if (_coverPath != value)
-                {
-                    _coverPath = value;
-
-                    // Dispose old BitmapImage to prevent memory leak
-                    var oldImage = _coverImage;
-                    _coverImage = null;
-
-                    // BitmapImage doesn't implement IDisposable in WinUI 3, but we can help GC by clearing reference
-                    // and triggering property changed events to update UI bindings
-                    if (oldImage != null)
-                    {
-                        // In WinUI 3, BitmapImage cleanup is handled by the framework
-                        // Setting to null and notifying property changes helps release references
-                        oldImage = null;
-                    }
-
-                    PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(CoverPath)));
-                    PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(CoverImage)));
-                }
-            }
-        }
-
-        public ImageSource? CoverImage
-        {
-            get
-            {
-                if (_coverImage != null)
-                {
-                    return _coverImage;
-                }
-
-                if (_coverPath == null)
-                {
-                    return null;
-                }
+                if (_isUpdatingIcon) return; // Prevent concurrent updates
 
                 try
                 {
-                    _coverImage = new BitmapImage(_coverPath);
-                }
-                catch
-                {
-                    _coverImage = null;
-                }
+                    _isUpdatingIcon = true;
 
-                return _coverImage;
+                    if (_iconUri != value || !string.IsNullOrEmpty(value)) // Force update if new value is not empty
+                    {
+                        _iconUri = value;
+                        PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(IconUri)));
+                    }
+                }
+                finally
+                {
+                    _isUpdatingIcon = false;
+                }
             }
         }
-
-        private Uri? _coverPath;
-        private BitmapImage? _coverImage;
 
         public string? ExePath { get; set; }
         public string? Arguments { get; set; }
@@ -1114,7 +1210,7 @@ namespace AnSAM
         /// </summary>
         public void ResetCover()
         {
-            CoverPath = null;
+            IconUri = "ms-appx:///Assets/no_icon.png";
             _coverLoading = false;
             _loadedLanguage = null;
         }
@@ -1128,15 +1224,51 @@ namespace AnSAM
                    string.Equals(_loadedLanguage, language, StringComparison.OrdinalIgnoreCase);
         }
 
+        /// <summary>
+        /// Gets the language of the currently loaded cover (for debugging).
+        /// </summary>
+        public string? GetLoadedLanguage() => _loadedLanguage;
+
+        /// <summary>
+        /// Determines the actual language of an image from its file path.
+        /// </summary>
+        private static string DetermineLanguageFromPath(string path, string requestedLanguage)
+        {
+            // Check path for language folder indicators
+            // Path format is typically: .../ImageCache/{language}/{appid}.jpg
+            if (path.Contains("/english/") || path.Contains("\\english\\"))
+            {
+                return "english";
+            }
+            else if (path.Contains("/tchinese/") || path.Contains("\\tchinese\\"))
+            {
+                return "tchinese";
+            }
+            else if (path.Contains("/schinese/") || path.Contains("\\schinese\\"))
+            {
+                return "schinese";
+            }
+            else if (path.Contains("/japanese/") || path.Contains("\\japanese\\"))
+            {
+                return "japanese";
+            }
+            else if (path.Contains("/koreana/") || path.Contains("\\koreana\\"))
+            {
+                return "koreana";
+            }
+
+            // If no language folder detected, assume requested language
+            return requestedLanguage;
+        }
+
         public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
 
         /// <summary>
-        /// Initializes a new game item with optional launch information and cover path.
+        /// Initializes a new game item with optional launch information.
         /// </summary>
         public GameItem(string title,
                          int id,
                          DispatcherQueue dispatcher,
-                         Uri? coverPath = null,
                          string? exePath = null,
                          string? arguments = null,
                          string? uriScheme = null)
@@ -1145,7 +1277,6 @@ namespace AnSAM
             _displayTitle = title; // Initialize display title
             ID = id;
             _dispatcher = dispatcher;
-            CoverPath = coverPath;
             ExePath = exePath;
             Arguments = arguments;
             UriScheme = uriScheme;
@@ -1174,66 +1305,88 @@ namespace AnSAM
 
         /// <summary>
         /// Asynchronously loads the game's cover image using the shared image service.
+        /// Simplified approach: Let WinUI handle BitmapImage creation from string URI.
         /// </summary>
         public async Task LoadCoverAsync(SharedImageService imageService, string? languageOverride = null)
         {
-            if (CoverPath != null || _coverLoading)
+            // Skip if already loading
+            if (_coverLoading)
             {
+#if DEBUG
+                DebugLogger.LogDebug($"Skipping LoadCoverAsync for {ID} ({Title}): already loading");
+#endif
+                return;
+            }
+
+            // Skip if already loaded for current language
+            string currentLanguage = languageOverride ?? SteamLanguageResolver.GetSteamLanguage();
+            if (!string.IsNullOrEmpty(IconUri) &&
+                IconUri != "ms-appx:///Assets/no_icon.png" &&
+                IsCoverFromLanguage(currentLanguage))
+            {
+#if DEBUG
+                DebugLogger.LogDebug($"Skipping LoadCoverAsync for {ID} ({Title}): already loaded for {currentLanguage}");
+#endif
                 return;
             }
 
             _coverLoading = true;
-            var coverAssigned = false;
+
+#if DEBUG
+            DebugLogger.LogDebug($"LoadCoverAsync started for {ID} ({Title}), language={currentLanguage}");
+#endif
 
             try
             {
-                string language = languageOverride ?? SteamLanguageResolver.GetSteamLanguage();
+                // Get image path from shared service
+                var imagePath = await imageService.GetGameImageAsync(ID, currentLanguage).ConfigureAwait(false);
 
-                // If requesting non-English language and English is cached, load English first for immediate display
-                bool isNonEnglish = !string.Equals(language, "english", StringComparison.OrdinalIgnoreCase);
-                if (languageOverride == null && isNonEnglish && imageService.IsImageCached(ID, "english"))
+                if (!string.IsNullOrEmpty(imagePath) && File.Exists(imagePath))
                 {
-                    var englishPath = await imageService.GetGameImageAsync(ID, "english").ConfigureAwait(false);
-                    if (!string.IsNullOrEmpty(englishPath) && Uri.TryCreate(englishPath, UriKind.Absolute, out var englishUri))
+                    // Determine actual language from path
+                    _loadedLanguage = DetermineLanguageFromPath(imagePath, currentLanguage);
+
+                    // Convert to URI string and update UI
+                    var fileUri = new Uri(imagePath).AbsoluteUri;
+
+                    // Use dispatcher for thread-safe UI update
+                    var priority = imageService.IsImageCached(ID, currentLanguage)
+                        ? Microsoft.UI.Dispatching.DispatcherQueuePriority.High
+                        : Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal;
+
+                    _dispatcher.TryEnqueue(priority, () =>
                     {
-                        coverAssigned = true;
-                        _loadedLanguage = "english";
-                        if (!_dispatcher.TryEnqueue(() => CoverPath = englishUri))
-                        {
-                            CoverPath = englishUri;
-                        }
-                    }
+                        IconUri = fileUri;
+#if DEBUG
+                        DebugLogger.LogDebug($"UI updated: {ID} ({Title}) IconUri set to {_loadedLanguage}");
+#endif
+                    });
                 }
-
-                // Now attempt to load the requested language (might download in background)
-                var path = await imageService.GetGameImageAsync(ID, language).ConfigureAwait(false);
-                if (!string.IsNullOrEmpty(path) && Uri.TryCreate(path, UriKind.Absolute, out var localUri))
+                else
                 {
-                    coverAssigned = true;
-                    _loadedLanguage = language;
-                    if (!_dispatcher.TryEnqueue(() => CoverPath = localUri))
+                    // Fallback to no_icon.png
+                    _dispatcher.TryEnqueue(() =>
                     {
-                        CoverPath = localUri;
-                    }
+                        IconUri = "ms-appx:///Assets/no_icon.png";
+                    });
+#if DEBUG
+                    DebugLogger.LogDebug($"Image not found for {ID}, using fallback icon");
+#endif
                 }
             }
             catch (Exception ex)
             {
 #if DEBUG
-                DebugLogger.LogDebug($"Icon download failed for {ID}: {ex.GetBaseException().Message}");
+                DebugLogger.LogDebug($"Error loading image for {ID}: {ex.Message}");
 #endif
+                // Fallback to no_icon.png on error
+                _dispatcher.TryEnqueue(() =>
+                {
+                    IconUri = "ms-appx:///Assets/no_icon.png";
+                });
             }
             finally
             {
-                if (!coverAssigned && CoverPath == null)
-                {
-                    var fallback = new Uri("ms-appx:///Assets/no_icon.png", UriKind.Absolute);
-                    if (!_dispatcher.TryEnqueue(() => CoverPath = fallback))
-                    {
-                        CoverPath = fallback;
-                    }
-                }
-
                 _coverLoading = false;
             }
         }
@@ -1246,7 +1399,6 @@ namespace AnSAM
             return new GameItem(app.Title,
                                 app.AppId,
                                 dispatcher,
-                                null,
                                 app.ExePath,
                                 app.Arguments,
                                 app.UriScheme);
