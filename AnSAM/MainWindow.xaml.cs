@@ -53,6 +53,7 @@ namespace AnSAM
         private bool _languageInitialized;
         private ScrollViewer? _gamesScrollViewer;
         private readonly DispatcherTimer _cdnStatsTimer;
+        private DispatcherQueueTimer? _searchDebounceTimer;
         private readonly ThemeManagementService _themeService = new();
         private readonly ApplicationSettingsService _settingsService = new();
 
@@ -108,6 +109,11 @@ namespace AnSAM
             };
             _cdnStatsTimer.Tick += CdnStatsTimer_Tick;
             _cdnStatsTimer.Start();
+
+            // Initialize search debounce timer for real-time filtering
+            _searchDebounceTimer = DispatcherQueue.CreateTimer();
+            _searchDebounceTimer.Interval = TimeSpan.FromMilliseconds(300);
+            _searchDebounceTimer.IsRepeating = false;
         }
 
         /// <summary>
@@ -792,6 +798,8 @@ namespace AnSAM
             if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput)
             {
                 var keyword = sender.Text.Trim();
+
+                // Provide autocomplete suggestions (up to 10 matches)
                 List<string> matches;
                 if (string.IsNullOrWhiteSpace(keyword))
                 {
@@ -814,7 +822,26 @@ namespace AnSAM
                     }
                 }
                 sender.ItemsSource = matches;
+
+                // Real-time filtering with debounce (300ms delay)
+                if (_searchDebounceTimer != null)
+                {
+                    _searchDebounceTimer.Stop();
+                    _searchDebounceTimer.Tick -= OnSearchDebounceTimerTick;
+                    _searchDebounceTimer.Tick += OnSearchDebounceTimerTick;
+                    _searchDebounceTimer.Start();
+                }
             }
+        }
+
+        /// <summary>
+        /// Debounce timer tick handler - performs the actual filtering after user stops typing.
+        /// </summary>
+        private void OnSearchDebounceTimerTick(DispatcherQueueTimer sender, object args)
+        {
+            sender.Stop();
+            var keyword = SearchBox.Text.Trim();
+            FilterGames(keyword);
         }
 
         /// <summary>
