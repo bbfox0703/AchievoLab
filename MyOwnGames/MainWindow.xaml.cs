@@ -1619,12 +1619,26 @@ namespace MyOwnGames
                 // 找出新進入可見範圍的項目
                 var visibleItems = GetCurrentlyVisibleItems(scrollViewer);
 
-                // 只載入那些圖片為預設圖片（即之前被清空）的項目
+                // 過濾需要載入圖片的項目：
+                // 1. IconUri 是 no_icon.png（預設圖片）
+                // 2. IconUri 不包含該遊戲的 AppID（容器重用時顯示其他遊戲的圖片）
                 var itemsNeedingImages = visibleItems.Where(item =>
-                    item.IconUri == "ms-appx:///Assets/no_icon.png").ToList();
+                {
+                    if (string.IsNullOrEmpty(item.IconUri))
+                        return true;
+                    if (item.IconUri.Contains("no_icon.png", StringComparison.OrdinalIgnoreCase))
+                        return true;
+                    if (item.IconUri.Contains("ms-appx://", StringComparison.OrdinalIgnoreCase))
+                        return true;
+                    // Check if IconUri contains this game's AppID (correct image for this game)
+                    if (!item.IconUri.Contains(item.AppId.ToString()))
+                        return true; // Wrong image, need to reload
+                    return false;
+                }).ToList();
 
                 if (itemsNeedingImages.Any())
                 {
+                    DebugLogger.LogDebug($"GamesGridView_ViewChanged: {itemsNeedingImages.Count} items need images (out of {visibleItems.Count} visible)");
                     // 小批次載入，避免影響滾動性能
                     bool skipDownloads = _isLoading;
                     _ = Task.Run(async () =>
