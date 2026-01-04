@@ -11,21 +11,33 @@ namespace AnSAM.Services
     /// </summary>
     public static class GameLauncher
     {
-        private static readonly string RunGamePath = Path.Combine(AppContext.BaseDirectory, "..", "RunGame", "RunGame.exe");
+        private static string? _runGameFullPath = null;
+
+        /// <summary>
+        /// Initializes the GameLauncher by locating RunGame.exe.
+        /// Should be called once during application startup.
+        /// </summary>
+        public static void Initialize()
+        {
+            var relativePath = Path.Combine(AppContext.BaseDirectory, "..", "RunGame", "RunGame.exe");
+            var fullPath = Path.GetFullPath(relativePath);
+
+            if (File.Exists(fullPath))
+            {
+                _runGameFullPath = fullPath;
+                DebugLogger.LogDebug($"GameLauncher initialized: RunGame.exe found at {fullPath}");
+            }
+            else
+            {
+                _runGameFullPath = null;
+                DebugLogger.LogDebug($"GameLauncher initialized: RunGame.exe NOT found at {fullPath}");
+            }
+        }
 
         /// <summary>
         /// Indicates whether the bundled achievement manager executable is available.
         /// </summary>
-        public static bool IsManagerAvailable
-        {
-            get
-            {
-                var fullPath = Path.GetFullPath(RunGamePath);
-                var exists = File.Exists(fullPath);
-                DebugLogger.LogDebug($"RunGame path check: {fullPath}, exists={exists}");
-                return exists;
-            }
-        }
+        public static bool IsManagerAvailable => _runGameFullPath != null;
 
         /// <summary>
         /// Launches the given <see cref="GameItem"/> by trying, in order:
@@ -86,17 +98,16 @@ namespace AnSAM.Services
 
             DebugLogger.LogDebug($"LaunchAchievementManager: Attempting to launch for game {item.ID} ({item.Title})");
 
-            if (!IsManagerAvailable)
+            if (_runGameFullPath == null)
             {
                 DebugLogger.LogDebug("LaunchAchievementManager: RunGame.exe not available");
                 return;
             }
 
             var appId = item.ID.ToString(CultureInfo.InvariantCulture);
-            var fullPath = Path.GetFullPath(RunGamePath);
-            DebugLogger.LogDebug($"LaunchAchievementManager: Launching {fullPath} with argument {appId}");
+            DebugLogger.LogDebug($"LaunchAchievementManager: Launching {_runGameFullPath} with argument {appId}");
 
-            var success = TryStart(RunGamePath, appId);
+            var success = TryStart(_runGameFullPath, appId);
             DebugLogger.LogDebug($"LaunchAchievementManager: Launch success={success}");
         }
 

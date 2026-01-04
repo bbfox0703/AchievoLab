@@ -98,6 +98,9 @@ namespace AnSAM
             Activated += OnWindowActivated;
             Closed += OnWindowClosed;
 
+            // Initialize GameLauncher (locate RunGame.exe once at startup)
+            GameLauncher.Initialize();
+
             // Initialize CDN statistics timer
             _cdnStatsTimer = new DispatcherTimer
             {
@@ -403,51 +406,18 @@ namespace AnSAM
         {
             try
             {
-                var stats = _imageService.GetCdnStats();
-                if (stats.Count == 0)
+                // Defensive checks to prevent crashes during shutdown or disposal
+                if (_imageService == null || StatusCdn == null)
                 {
-                    StatusCdn.Text = "";
                     return;
                 }
 
-                var cdnNames = new Dictionary<string, string>
-                {
-                    ["shared.cloudflare.steamstatic.com"] = "CF",
-                    ["cdn.steamstatic.com"] = "Steam",
-                    ["shared.akamai.steamstatic.com"] = "Akamai"
-                };
-
-                var statParts = new List<string>();
-                foreach (var kvp in stats.OrderByDescending(x => x.Value.Active))
-                {
-                    var domain = kvp.Key;
-                    var (active, isBlocked, successRate) = kvp.Value;
-
-                    var name = cdnNames.ContainsKey(domain) ? cdnNames[domain] : domain.Split('.')[0];
-
-                    if (active > 0 || isBlocked)
-                    {
-                        var blockedIndicator = isBlocked ? "⚠" : "";
-                        statParts.Add($"{name}:{active}{blockedIndicator}");
-                    }
-                }
-
-                // Calculate overall success rate
-                var totalSuccess = stats.Values.Sum(s => s.SuccessRate * 100);
-                var avgSuccessRate = stats.Count > 0 ? totalSuccess / stats.Count : 0;
-
-                if (statParts.Count > 0)
-                {
-                    StatusCdn.Text = $"CDN: {string.Join(" ", statParts)} ({avgSuccessRate:0}%)";
-                }
-                else if (stats.Any(s => s.Value.SuccessRate > 0))
-                {
-                    StatusCdn.Text = $"CDN OK ({avgSuccessRate:0}%)";
-                }
-                else
-                {
-                    StatusCdn.Text = "";
-                }
+                var stats = _imageService.GetCdnStats();
+                StatusCdn.Text = CdnStatsFormatter.FormatCdnStats(stats);
+            }
+            catch (ObjectDisposedException)
+            {
+                // Ignore if objects are disposed (during shutdown)
             }
             catch (Exception ex)
             {
@@ -460,8 +430,11 @@ namespace AnSAM
         /// </summary>
         private void OnWindowClosed(object sender, WindowEventArgs args)
         {
-            _cdnStatsTimer.Stop();
-            _cdnStatsTimer.Tick -= CdnStatsTimer_Tick;
+            _cdnStatsTimer?.Stop();
+            if (_cdnStatsTimer != null)
+            {
+                _cdnStatsTimer.Tick -= CdnStatsTimer_Tick;
+            }
 
             GameListService.StatusChanged -= OnGameListStatusChanged;
             GameListService.ProgressChanged -= OnGameListProgressChanged;

@@ -26,6 +26,7 @@ namespace CommonUtilities
 
         // Concurrency limiter to prevent resource exhaustion
         private const int MAX_CONCURRENT_DOWNLOADS = 10;
+        private const int MAX_PENDING_QUEUE_SIZE = 100; // Limit total pending requests to prevent memory exhaustion
         private readonly SemaphoreSlim _downloadSemaphore = new(MAX_CONCURRENT_DOWNLOADS, MAX_CONCURRENT_DOWNLOADS);
 
         // CDN load balancer for intelligent CDN selection
@@ -135,6 +136,18 @@ namespace CommonUtilities
 
         public bool IsImageCached(int appId, string language, bool checkEnglishFallback = false) => HasImage(appId, language, checkEnglishFallback);
 
+        /// <summary>
+        /// Gets the cached image path for an app without triggering a download.
+        /// </summary>
+        /// <param name="appId">Steam app ID</param>
+        /// <param name="language">Language code (e.g., "english", "tchinese")</param>
+        /// <param name="checkEnglishFallback">Whether to check English cache if language-specific image not found</param>
+        /// <returns>Full path to cached image file, or null if not cached</returns>
+        public string? TryGetCachedPath(int appId, string language, bool checkEnglishFallback = false)
+        {
+            return _cache.TryGetCachedPath(appId.ToString(), language, checkEnglishFallback);
+        }
+
         public async Task<string?> GetGameImageAsync(int appId, string? language = null)
         {
             // Auto-cleanup stale pending requests every 100 calls
@@ -146,6 +159,13 @@ namespace CommonUtilities
             language ??= _currentLanguage;
             var originalLanguage = language;
             var cacheKey = $"{appId}_{language}";
+
+            // Prevent queue overflow - if too many pending requests, skip this one
+            if (_pendingRequests.Count >= MAX_PENDING_QUEUE_SIZE)
+            {
+                DebugLogger.LogDebug($"Skipping image request for {appId} - queue full ({_pendingRequests.Count} pending)");
+                return GetFallbackImagePath();
+            }
 
             // Check if there's already a request in progress for this image
             if (_pendingRequests.TryGetValue(cacheKey, out var existingTask))

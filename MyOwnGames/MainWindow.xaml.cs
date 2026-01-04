@@ -55,6 +55,7 @@ namespace MyOwnGames
         private readonly object _imageLoadingLock = new();
         private readonly Dictionary<string, DateTime> _duplicateImageLogTimes = new();
         private DispatcherQueueTimer? _searchDebounceTimer;
+        private DispatcherQueueTimer? _cdnStatsTimer;
 
         private readonly string _detectedLanguage = GetDefaultLanguage();
         private readonly string _defaultLanguage = "english"; // Always default to English for selection
@@ -244,6 +245,12 @@ namespace MyOwnGames
             var initialLanguage = GetCurrentLanguage();
             _imageService.SetLanguage(initialLanguage).GetAwaiter().GetResult();
             AppendLog($"Initialized with language: {initialLanguage}");
+
+            // Initialize CDN statistics timer (updates every 2 seconds)
+            _cdnStatsTimer = DispatcherQueue.CreateTimer();
+            _cdnStatsTimer.Interval = TimeSpan.FromSeconds(2);
+            _cdnStatsTimer.Tick += CdnStatsTimer_Tick;
+            _cdnStatsTimer.Start();
 
             // Subscribe to scroll events for on-demand image loading - defer until after UI is loaded
             _ = Task.Delay(1000).ContinueWith(_ => this.DispatcherQueue.TryEnqueue(() => SetupScrollEvents()));
@@ -514,15 +521,10 @@ namespace MyOwnGames
 
         private string? GetCachedImagePath(int appId, string language)
         {
-            // Try to get cached image path without async operation
+            // Use SharedImageService to check cache (uses the same cache instance as downloads)
             try
             {
-                // Use the GameImageCache TryGetCachedPath method through SharedImageService
-                var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab", "ImageCache");
-                var cache = new GameImageCache(baseDir);
-                var cachedPath = cache.TryGetCachedPath(appId.ToString(), language, checkEnglishFallback: false);
-                cache?.Dispose();
-                return cachedPath;
+                return _imageService.TryGetCachedPath(appId, language, checkEnglishFallback: false);
             }
             catch
             {
@@ -950,6 +952,32 @@ namespace MyOwnGames
             FilterGameItems(KeywordBox.Text?.Trim());
         }
 
+        /// <summary>
+        /// Updates CDN statistics display
+        /// </summary>
+        private void CdnStatsTimer_Tick(DispatcherQueueTimer sender, object args)
+        {
+            try
+            {
+                // Defensive checks to prevent crashes during shutdown or disposal
+                if (_imageService == null || StatusCdn == null || _isShuttingDown)
+                {
+                    return;
+                }
+
+                var stats = _imageService.GetCdnStats();
+                StatusCdn.Text = CdnStatsFormatter.FormatCdnStats(stats);
+            }
+            catch (ObjectDisposedException)
+            {
+                // Ignore if objects are disposed (during shutdown)
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"CDN stats update error: {ex.Message}");
+            }
+        }
+
         private void FilterGameItems(string? keyword)
         {
             if (string.IsNullOrWhiteSpace(keyword))
@@ -1180,6 +1208,21 @@ namespace MyOwnGames
             catch (Exception ex)
             {
                 DebugLogger.LogDebug($"Error disposing cancellation token source: {ex.Message}");
+            }
+
+            // Stop CDN statistics timer
+            try
+            {
+                if (_cdnStatsTimer != null)
+                {
+                    _cdnStatsTimer.Stop();
+                    _cdnStatsTimer.Tick -= CdnStatsTimer_Tick;
+                    _cdnStatsTimer = null;
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error stopping CDN stats timer: {ex.Message}");
             }
 
             DebugLogger.LogDebug($"Shutdown completed ({reason})");
