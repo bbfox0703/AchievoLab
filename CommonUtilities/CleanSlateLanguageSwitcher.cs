@@ -106,22 +106,22 @@ namespace CommonUtilities
                 await Task.Delay(100); // Wait for unbind to take effect
 
                 // STEP 3: Reset all items to clean state
-                var itemsList = items.ToList();
-                DebugLogger.LogDebug($"Resetting {itemsList.Count} items for {newLanguage}");
+                DebugLogger.LogDebug($"Resetting items for {newLanguage}");
 
-                foreach (var item in itemsList)
+                foreach (var item in items)
                 {
                     item.IconUri = ImageLoadingHelper.GetNoIconPath();
                     item.ClearLoadingState();
                 }
 
                 // STEP 4: Rebind GridView (forces container recreation)
+                // CRITICAL: Rebind to original collection, NOT a copy, to maintain ObservableCollection binding
                 var tcsRebind = new TaskCompletionSource<bool>();
                 dispatcher.TryEnqueue(() =>
                 {
                     try
                     {
-                        gridView.ItemsSource = itemsList;
+                        gridView.ItemsSource = items;
                         DebugLogger.LogDebug("Rebound GridView ItemsSource - containers will recreate");
                         tcsRebind.SetResult(true);
                     }
