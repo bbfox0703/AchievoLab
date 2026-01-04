@@ -447,8 +447,17 @@ namespace MyOwnGames
                 }
                 if (_imagesSuccessfullyLoaded.Contains(key))
                 {
-                    // Image already loaded successfully, no need to load again
-                    return;
+                    // Image marked as loaded, but verify UI actually shows it (not no_icon.png)
+                    // Container recycling can cause UI to show no_icon even though image was loaded
+                    if (entry.IconUri != null &&
+                        !entry.IconUri.Contains("no_icon.png", StringComparison.OrdinalIgnoreCase) &&
+                        !entry.IconUri.Contains("ms-appx://", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // UI already showing actual image, skip
+                        return;
+                    }
+                    // UI shows no_icon but image was loaded - need to reload UI
+                    DebugLogger.LogDebug($"Image {appId} was loaded but UI shows no_icon, reloading UI");
                 }
                 _imagesCurrentlyLoading.Add(key);
             }
@@ -1353,21 +1362,24 @@ namespace MyOwnGames
             try
             {
                 // 1. 獲取當前可見的遊戲項目 (必須在 UI 線程執行)
-                var (visibleItems, hiddenItems) = (new List<GameEntry>(), new List<GameEntry>());
+                // Use TaskCompletionSource to properly wait for UI thread operation
+                var tcs = new TaskCompletionSource<(List<GameEntry> visible, List<GameEntry> hidden)>();
 
-                // 在 UI 線程獲取可見項目
-                await Task.Run(() =>
+                this.DispatcherQueue.TryEnqueue(() =>
                 {
-                    this.DispatcherQueue.TryEnqueue(() =>
+                    try
                     {
                         var result = GetVisibleAndHiddenGameItems();
-                        visibleItems.AddRange(result.visible);
-                        hiddenItems.AddRange(result.hidden);
-                    });
+                        tcs.SetResult(result);
+                    }
+                    catch (Exception ex)
+                    {
+                        tcs.SetException(ex);
+                    }
                 });
 
-                // 等待 UI 操作完成
-                await Task.Delay(50);
+                // Actually wait for the UI operation to complete (no race condition)
+                var (visibleItems, hiddenItems) = await tcs.Task;
 
                 AppendLog($"Found {visibleItems.Count} visible games, {hiddenItems.Count} hidden games");
 
@@ -1458,10 +1470,14 @@ namespace MyOwnGames
             var visibleItems = new List<GameEntry>();
             var hiddenItems = new List<GameEntry>();
 
+            DebugLogger.LogDebug($"GetVisibleAndHiddenGameItems: AllGameItems.Count={AllGameItems.Count}, GamesGridView={GamesGridView != null}, ItemsPanelRoot={GamesGridView?.ItemsPanelRoot?.GetType().Name}");
+
             if (GamesGridView?.ItemsPanelRoot is ItemsWrapGrid wrapGrid)
             {
                 // 獲取 ScrollViewer
                 var scrollViewer = FindScrollViewer(GamesGridView);
+                DebugLogger.LogDebug($"GetVisibleAndHiddenGameItems: scrollViewer={scrollViewer != null}");
+
                 if (scrollViewer != null)
                 {
                     var viewportHeight = scrollViewer.ViewportHeight;
@@ -1472,9 +1488,23 @@ namespace MyOwnGames
                     var itemsPerRow = Math.Max(1, (int)(scrollViewer.ViewportWidth / 180));
                     var firstVisibleRow = Math.Max(0, (int)(verticalOffset / itemHeight));
                     var lastVisibleRow = (int)((verticalOffset + viewportHeight) / itemHeight) + 1;
-                    
+
                     var firstVisibleIndex = firstVisibleRow * itemsPerRow;
                     var lastVisibleIndex = Math.Min(AllGameItems.Count - 1, (lastVisibleRow + 1) * itemsPerRow);
+
+                    // Fix: If scrolled past the end, adjust to show items from the bottom
+                    if (firstVisibleIndex >= AllGameItems.Count)
+                    {
+                        // Calculate how many rows are visible
+                        var visibleRows = lastVisibleRow - firstVisibleRow + 1;
+                        // Start from the last row and go back
+                        var totalRows = (AllGameItems.Count + itemsPerRow - 1) / itemsPerRow;
+                        firstVisibleRow = Math.Max(0, totalRows - visibleRows);
+                        firstVisibleIndex = firstVisibleRow * itemsPerRow;
+                        lastVisibleIndex = AllGameItems.Count - 1;
+                    }
+
+                    DebugLogger.LogDebug($"GetVisibleAndHiddenGameItems: viewport={viewportHeight}, offset={verticalOffset}, itemsPerRow={itemsPerRow}, firstIdx={firstVisibleIndex}, lastIdx={lastVisibleIndex}");
 
                     for (int i = 0; i < AllGameItems.Count; i++)
                     {
@@ -1486,6 +1516,7 @@ namespace MyOwnGames
                 }
                 else
                 {
+                    DebugLogger.LogDebug("GetVisibleAndHiddenGameItems: scrollViewer is null, using fallback (first 20 items)");
                     // 如果無法獲取 ScrollViewer，假設前 20 個項目可見
                     for (int i = 0; i < AllGameItems.Count; i++)
                     {
@@ -1498,6 +1529,7 @@ namespace MyOwnGames
             }
             else
             {
+                DebugLogger.LogDebug("GetVisibleAndHiddenGameItems: ItemsPanelRoot is not ItemsWrapGrid, using fallback (first 20 items)");
                 // Fallback: 假設前 20 個項目可見
                 for (int i = 0; i < AllGameItems.Count; i++)
                 {
@@ -1508,6 +1540,7 @@ namespace MyOwnGames
                 }
             }
 
+            DebugLogger.LogDebug($"GetVisibleAndHiddenGameItems: returning {visibleItems.Count} visible, {hiddenItems.Count} hidden");
             return (visibleItems, hiddenItems);
         }
 
@@ -1609,7 +1642,7 @@ namespace MyOwnGames
         private List<GameEntry> GetCurrentlyVisibleItems(ScrollViewer scrollViewer)
         {
             var visibleItems = new List<GameEntry>();
-            
+
             var viewportHeight = scrollViewer.ViewportHeight;
             var verticalOffset = scrollViewer.VerticalOffset;
 
@@ -1618,9 +1651,21 @@ namespace MyOwnGames
             var itemsPerRow = Math.Max(1, (int)(scrollViewer.ViewportWidth / 180));
             var firstVisibleRow = Math.Max(0, (int)(verticalOffset / itemHeight));
             var lastVisibleRow = (int)((verticalOffset + viewportHeight) / itemHeight) + 1;
-            
+
             var firstVisibleIndex = firstVisibleRow * itemsPerRow;
             var lastVisibleIndex = Math.Min(AllGameItems.Count - 1, (lastVisibleRow + 1) * itemsPerRow);
+
+            // Fix: If scrolled past the end, adjust to show items from the bottom
+            if (firstVisibleIndex >= AllGameItems.Count)
+            {
+                // Calculate how many rows are visible
+                var visibleRows = lastVisibleRow - firstVisibleRow + 1;
+                // Start from the last row and go back
+                var totalRows = (AllGameItems.Count + itemsPerRow - 1) / itemsPerRow;
+                firstVisibleRow = Math.Max(0, totalRows - visibleRows);
+                firstVisibleIndex = firstVisibleRow * itemsPerRow;
+                lastVisibleIndex = AllGameItems.Count - 1;
+            }
 
             for (int i = firstVisibleIndex; i <= lastVisibleIndex && i < AllGameItems.Count; i++)
             {
