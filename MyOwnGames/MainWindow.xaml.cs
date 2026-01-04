@@ -702,17 +702,36 @@ namespace MyOwnGames
                     AppendLog($"Found {gamesMissingEnglishNames.Count} games missing English names. Forcing English data update first...");
                     StatusText = "First updating English game names (required for localization)...";
 
-                    // Force English update first
+                    // Force English update first with batch writing
                     ArgumentNullException.ThrowIfNull(_steamService);
+                    var englishBatchBuffer = new List<SteamGame>();
+                    const int batchSize = 100; // Write every 100 games to reduce lock contention
+
                     var englishTotal = await _steamService.GetOwnedGamesAsync(steamId64!, "english", async englishGame =>
                     {
                         // Always update English data for games missing it
                         if (gamesMissingEnglishNames.Contains(englishGame.AppId) || existingGamesData.Count == 0)
                         {
-                            await _dataService.AppendGameAsync(englishGame, steamId64!, apiKey!, "english");
-                            AppendLog($"Updated English data for {englishGame.AppId} - {englishGame.NameEn}");
+                            englishBatchBuffer.Add(englishGame);
+                            AppendLog($"Queued English data for {englishGame.AppId} - {englishGame.NameEn}");
+
+                            // Write batch when buffer is full
+                            if (englishBatchBuffer.Count >= batchSize)
+                            {
+                                await _dataService.AppendGamesAsync(englishBatchBuffer, steamId64!, apiKey!, "english");
+                                AppendLog($"Saved batch of {englishBatchBuffer.Count} English games");
+                                englishBatchBuffer.Clear();
+                            }
                         }
                     }, progress, existingAppIds: null, existingLocalizedNames: null, cancellationToken);
+
+                    // Write remaining games in buffer
+                    if (englishBatchBuffer.Count > 0)
+                    {
+                        await _dataService.AppendGamesAsync(englishBatchBuffer, steamId64!, apiKey!, "english");
+                        AppendLog($"Saved final batch of {englishBatchBuffer.Count} English games");
+                        englishBatchBuffer.Clear();
+                    }
                     
                     // Reload the games data after English update
                     existingGamesData = await _dataService.LoadGamesWithLanguagesAsync();
@@ -738,8 +757,11 @@ namespace MyOwnGames
                     ? "Scanning all games..."
                     : $"Scanning all games for {selectedLanguage} language data (this will be slower to avoid Steam API rate limits)...";
 
-                // Use real Steam API service with selected language
+                // Use real Steam API service with selected language with batch writing
                 _steamService = new SteamApiService(apiKey!);
+                var languageBatchBuffer = new List<SteamGame>();
+                const int languageBatchSize = 100; // Write every 100 games to reduce lock contention
+
                 var total = await _steamService.GetOwnedGamesAsync(steamId64!, selectedLanguage, async game =>
                 {
                     var shouldSkip = skipAppIds.Contains(game.AppId);
@@ -747,7 +769,7 @@ namespace MyOwnGames
                     var existingGameData = existingGamesData.FirstOrDefault(g => g.AppId == game.AppId);
                     var hasLanguageData = existingGameData?.LocalizedNames?.ContainsKey(selectedLanguage) == true &&
                                          !string.IsNullOrEmpty(existingGameData.LocalizedNames[selectedLanguage]);
-                    
+
                     // Always process the game to ensure XML consistency for current language
                     AppendLog($"Processing game {game.AppId} - {game.NameEn} ({selectedLanguage}){(hasLanguageData ? " [updating]" : " [new data]")}");
 
@@ -760,7 +782,7 @@ namespace MyOwnGames
                         existingEntry.NameEn = game.NameEn;
                         existingEntry.SetLocalizedName(selectedLanguage, game.NameLocalized);
                         existingEntry.CurrentLanguage = selectedLanguage; // Update display language
-                        
+
                         AppendLog($"Updated UI entry: {game.AppId} - {game.NameEn}");
                     }
                     else
@@ -773,7 +795,7 @@ namespace MyOwnGames
                             CurrentLanguage = selectedLanguage,
                             IconUri = "ms-appx:///Assets/no_icon.png" // Will be updated async
                         };
-                        
+
                         // Set localized name for current language
                         newEntry.SetLocalizedName(selectedLanguage, game.NameLocalized);
 
@@ -784,10 +806,26 @@ namespace MyOwnGames
 
                     if (!shouldSkip)
                     {
-                        // Save/update game data in XML for current language
-                        await _dataService.AppendGameAsync(game, steamId64!, apiKey!, selectedLanguage);
+                        // Queue game for batch writing
+                        languageBatchBuffer.Add(game);
+
+                        // Write batch when buffer is full
+                        if (languageBatchBuffer.Count >= languageBatchSize)
+                        {
+                            await _dataService.AppendGamesAsync(languageBatchBuffer, steamId64!, apiKey!, selectedLanguage);
+                            AppendLog($"Saved batch of {languageBatchBuffer.Count} {selectedLanguage} games");
+                            languageBatchBuffer.Clear();
+                        }
                     }
                 }, progress, skipAppIds, existingLocalizedNames, cancellationToken);
+
+                // Write remaining games in buffer
+                if (languageBatchBuffer.Count > 0)
+                {
+                    await _dataService.AppendGamesAsync(languageBatchBuffer, steamId64!, apiKey!, selectedLanguage);
+                    AppendLog($"Saved final batch of {languageBatchBuffer.Count} {selectedLanguage} games");
+                    languageBatchBuffer.Clear();
+                }
 
                 xmlPath = _dataService.GetXmlFilePath();
                 

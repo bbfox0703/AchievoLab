@@ -26,7 +26,7 @@ namespace CommonUtilities
 
         // Concurrency limiter to prevent resource exhaustion
         private const int MAX_CONCURRENT_DOWNLOADS = 10;
-        private const int MAX_PENDING_QUEUE_SIZE = 100; // Limit total pending requests to prevent memory exhaustion
+        private const int MAX_PENDING_QUEUE_SIZE = 200; // Increased from 100 for better coverage with 600+ games
         private readonly SemaphoreSlim _downloadSemaphore = new(MAX_CONCURRENT_DOWNLOADS, MAX_CONCURRENT_DOWNLOADS);
 
         // CDN load balancer for intelligent CDN selection
@@ -150,8 +150,8 @@ namespace CommonUtilities
 
         public async Task<string?> GetGameImageAsync(int appId, string? language = null)
         {
-            // Auto-cleanup stale pending requests every 100 calls
-            if (Interlocked.Increment(ref _requestCount) % 100 == 0)
+            // Auto-cleanup stale pending requests every 50 calls for faster queue turnover
+            if (Interlocked.Increment(ref _requestCount) % 50 == 0)
             {
                 CleanupStaleRequests();
             }
@@ -160,10 +160,22 @@ namespace CommonUtilities
             var originalLanguage = language;
             var cacheKey = $"{appId}_{language}";
 
-            // Prevent queue overflow - if too many pending requests, skip this one
+            // Prevent queue overflow - if too many pending requests, try English fallback first
             if (_pendingRequests.Count >= MAX_PENDING_QUEUE_SIZE)
             {
                 DebugLogger.LogDebug($"Skipping image request for {appId} - queue full ({_pendingRequests.Count} pending)");
+
+                // Try to use English fallback if requesting non-English language
+                if (language != "english")
+                {
+                    var englishPath = _cache.TryGetCachedPath(appId.ToString(), "english", checkEnglishFallback: false);
+                    if (!string.IsNullOrEmpty(englishPath) && File.Exists(englishPath))
+                    {
+                        DebugLogger.LogDebug($"Queue full - using English fallback for {appId}");
+                        return englishPath;
+                    }
+                }
+
                 return GetFallbackImagePath();
             }
 

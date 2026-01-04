@@ -34,22 +34,24 @@ namespace MyOwnGames.Services
             await _fileLock.WaitAsync();
             try
             {
-                // Only acquire cross-process lock for write operations or if explicitly requested
-                if (isWrite)
+                // Acquire cross-process lock with appropriate timeout
+                // Increased read timeout to reduce contention with batch writes
+                var timeout = isWrite ? TimeSpan.FromSeconds(60) : TimeSpan.FromSeconds(30);
+
+                await using var lockHandle = await _crossProcessLock.AcquireHandleAsync(timeout);
+                if (!lockHandle.IsAcquired)
                 {
-                    await using var lockHandle = await _crossProcessLock.AcquireHandleAsync(TimeSpan.FromSeconds(30));
-                    if (!lockHandle.IsAcquired)
+                    if (isWrite)
                     {
-                        throw new TimeoutException("Failed to acquire cross-process file lock for steam_games.xml");
+                        throw new TimeoutException("Failed to acquire cross-process file lock for steam_games.xml (write operation)");
                     }
-                    return await action();
+                    else
+                    {
+                        // For read operations, log warning but return default
+                        DebugLogger.LogDebug("Failed to acquire cross-process file lock for steam_games.xml (read operation), returning default");
+                    }
                 }
-                else
-                {
-                    // For read operations, try to acquire lock but continue if unavailable
-                    await using var lockHandle = await _crossProcessLock.AcquireHandleAsync(TimeSpan.FromSeconds(5));
-                    return await action();
-                }
+                return await action();
             }
             finally
             {
@@ -86,6 +88,20 @@ namespace MyOwnGames.Services
 
         public async Task AppendGameAsync(SteamGame game, string steamId64, string apiKey, string language = "english")
         {
+            // For backward compatibility, use batch with single game
+            await AppendGamesAsync(new[] { game }, steamId64, apiKey, language);
+        }
+
+        /// <summary>
+        /// Batch appends multiple games to reduce file lock contention.
+        /// Much more efficient than calling AppendGameAsync repeatedly.
+        /// </summary>
+        public async Task AppendGamesAsync(IEnumerable<SteamGame> games, string steamId64, string apiKey, string language = "english")
+        {
+            var gamesList = games.ToList();
+            if (gamesList.Count == 0)
+                return;
+
             await WithFileLockAsync(async () =>
             {
                 XDocument doc;
@@ -111,56 +127,60 @@ namespace MyOwnGames.Services
                 root.SetAttributeValue("Language", language);
                 root.SetAttributeValue("ApiKeyHash", GetApiKeyHash(apiKey));
 
-                // Check if game already exists
-                var existing = root.Elements("Game")
-                    .FirstOrDefault(x => x.Attribute("AppID")?.Value == game.AppId.ToString());
-
-                if (existing != null)
+                // Process all games in batch
+                foreach (var game in gamesList)
                 {
-                    // Update existing game with new language data
-                    existing.SetAttributeValue("PlaytimeForever", game.PlaytimeForever);
+                    // Check if game already exists
+                    var existing = root.Elements("Game")
+                        .FirstOrDefault(x => x.Attribute("AppID")?.Value == game.AppId.ToString());
 
-                    // Update or add English name
-                    var nameEnElement = existing.Element("NameEN");
-                    if (nameEnElement != null)
-                        nameEnElement.Value = game.NameEn ?? string.Empty;
+                    if (existing != null)
+                    {
+                        // Update existing game with new language data
+                        existing.SetAttributeValue("PlaytimeForever", game.PlaytimeForever);
+
+                        // Update or add English name
+                        var nameEnElement = existing.Element("NameEN");
+                        if (nameEnElement != null)
+                            nameEnElement.Value = game.NameEn ?? string.Empty;
+                        else
+                            existing.Add(new XElement("NameEN", game.NameEn ?? string.Empty));
+
+                        // Update or add language-specific name
+                        var langElementName = $"Name_{language}";
+                        var langElement = existing.Element(langElementName);
+                        if (langElement != null)
+                            langElement.Value = game.NameLocalized ?? string.Empty;
+                        else
+                            existing.Add(new XElement(langElementName, game.NameLocalized ?? string.Empty));
+
+                        // Update or add icon URL
+                        var iconElement = existing.Element("IconURL");
+                        if (iconElement != null)
+                            iconElement.Value = game.IconUrl ?? string.Empty;
+                        else
+                            existing.Add(new XElement("IconURL", game.IconUrl ?? string.Empty));
+                    }
                     else
-                        existing.Add(new XElement("NameEN", game.NameEn ?? string.Empty));
+                    {
+                        // Create new game element
+                        var gameElement = new XElement("Game",
+                            new XAttribute("AppID", game.AppId),
+                            new XAttribute("PlaytimeForever", game.PlaytimeForever),
+                            new XElement("NameEN", game.NameEn ?? string.Empty),
+                            new XElement($"Name_{language}", game.NameLocalized ?? string.Empty),
+                            new XElement("IconURL", game.IconUrl ?? string.Empty)
+                        );
 
-                    // Update or add language-specific name
-                    var langElementName = $"Name_{language}";
-                    var langElement = existing.Element(langElementName);
-                    if (langElement != null)
-                        langElement.Value = game.NameLocalized ?? string.Empty;
-                    else
-                        existing.Add(new XElement(langElementName, game.NameLocalized ?? string.Empty));
-
-                    // Update or add icon URL
-                    var iconElement = existing.Element("IconURL");
-                    if (iconElement != null)
-                        iconElement.Value = game.IconUrl ?? string.Empty;
-                    else
-                        existing.Add(new XElement("IconURL", game.IconUrl ?? string.Empty));
-                }
-                else
-                {
-                    // Create new game element
-                    var gameElement = new XElement("Game",
-                        new XAttribute("AppID", game.AppId),
-                        new XAttribute("PlaytimeForever", game.PlaytimeForever),
-                        new XElement("NameEN", game.NameEn ?? string.Empty),
-                        new XElement($"Name_{language}", game.NameLocalized ?? string.Empty),
-                        new XElement("IconURL", game.IconUrl ?? string.Empty)
-                    );
-
-                    root.Add(gameElement);
+                        root.Add(gameElement);
+                    }
                 }
 
                 // Update total count
                 root.SetAttributeValue("TotalGames", root.Elements("Game").Count());
 
                 await Task.Run(() => doc.Save(_xmlFilePath));
-                DebugLogger.LogDebug($"Appended game {game.AppId} to {_xmlFilePath}");
+                DebugLogger.LogDebug($"Batch appended {gamesList.Count} games to {_xmlFilePath}");
                 return Task.CompletedTask;
             }, isWrite: true);
         }
