@@ -1361,60 +1361,89 @@ namespace MyOwnGames
         {
             try
             {
-                // 1. 獲取當前可見的遊戲項目 (必須在 UI 線程執行)
-                // Use TaskCompletionSource to properly wait for UI thread operation
-                var tcs = new TaskCompletionSource<(List<GameEntry> visible, List<GameEntry> hidden)>();
+                DebugLogger.LogDebug($"Starting CLEAN SLATE refresh for {newLanguage}");
 
+                // STEP 1: Scroll to top FIRST (avoid crash when unbinding at bottom of list)
+                var tcsScroll = new TaskCompletionSource<bool>();
                 this.DispatcherQueue.TryEnqueue(() =>
                 {
                     try
                     {
-                        var result = GetVisibleAndHiddenGameItems();
-                        tcs.SetResult(result);
+                        var scrollViewer = FindScrollViewer(GamesGridView);
+                        if (scrollViewer != null)
+                        {
+                            scrollViewer.ChangeView(null, 0, null, true); // Instant scroll to top
+                            DebugLogger.LogDebug("Scrolled to top");
+                        }
+                        tcsScroll.SetResult(true);
                     }
                     catch (Exception ex)
                     {
-                        tcs.SetException(ex);
+                        tcsScroll.SetException(ex);
                     }
                 });
+                await tcsScroll.Task;
+                await Task.Delay(100); // Wait for scroll to complete
 
-                // Actually wait for the UI operation to complete (no race condition)
-                var (visibleItems, hiddenItems) = await tcs.Task;
-
-                AppendLog($"Found {visibleItems.Count} visible games, {hiddenItems.Count} hidden games");
-
-                // 2. 清空所有隱藏項目的圖片（設置為預設圖片）並移除成功載入記錄
+                // STEP 2: Unbind GridView from collection (prevents crashes during reset)
+                var tcsUnbind = new TaskCompletionSource<bool>();
                 this.DispatcherQueue.TryEnqueue(() =>
                 {
-                    foreach (var hiddenItem in hiddenItems)
+                    try
                     {
-                        hiddenItem.IconUri = "ms-appx:///Assets/no_icon.png";
-                        var key = $"{hiddenItem.AppId}_{newLanguage}";
-                        lock (_imageLoadingLock)
-                        {
-                            _imagesSuccessfullyLoaded.Remove(key);
-                        }
+                        GamesGridView.ItemsSource = null;
+                        DebugLogger.LogDebug("Unbound GridView ItemsSource");
+                        tcsUnbind.SetResult(true);
+                    }
+                    catch (Exception ex)
+                    {
+                        tcsUnbind.SetException(ex);
                     }
                 });
+                await tcsUnbind.Task;
+                await Task.Delay(100); // Wait for unbind to take effect
 
-                // 3. 優先載入可見項目的英文快取圖片作為過渡 (如果不是英文語系)
-                if (!string.Equals(newLanguage, "english", StringComparison.OrdinalIgnoreCase))
+                // STEP 3: Reset all game states for new language
+                DebugLogger.LogDebug($"Resetting all {AllGameItems.Count} game states for {newLanguage}");
+                lock (_imageLoadingLock)
                 {
-                    await LoadEnglishFallbackImagesFirst(visibleItems, newLanguage);
+                    _imagesSuccessfullyLoaded.Clear();
+                    _imagesCurrentlyLoading.Clear();
                 }
 
-                // 4. 背景載入可見項目的語系特定圖片
-                await LoadVisibleItemsImages(visibleItems, newLanguage);
+                foreach (var game in AllGameItems)
+                {
+                    game.IconUri = "ms-appx:///Assets/no_icon.png";
+                }
+
+                // STEP 4: Rebind GridView (forces container recreation)
+                var tcsRebind = new TaskCompletionSource<bool>();
+                this.DispatcherQueue.TryEnqueue(() =>
+                {
+                    try
+                    {
+                        GamesGridView.ItemsSource = AllGameItems;
+                        DebugLogger.LogDebug("Rebound GridView ItemsSource - containers will recreate");
+                        tcsRebind.SetResult(true);
+                    }
+                    catch (Exception ex)
+                    {
+                        tcsRebind.SetException(ex);
+                    }
+                });
+                await tcsRebind.Task;
 
                 this.DispatcherQueue.TryEnqueue(() =>
                 {
-                    StatusText = $"Language switched to {newLanguage}. Visible images loaded.";
-                    AppendLog($"Loaded {visibleItems.Count} visible images for {newLanguage}");
+                    StatusText = $"Language switched to {newLanguage}. Images will load on-demand.";
                 });
+
+                DebugLogger.LogDebug($"CLEAN SLATE refresh complete for {newLanguage}. ContainerContentChanging will load images.");
             }
             catch (Exception ex)
             {
-                AppendLog($"Error processing language switch image refresh: {ex.Message}");
+                DebugLogger.LogDebug($"Error during clean slate refresh: {ex.Message}");
+                AppendLog($"Error processing language switch: {ex.Message}");
             }
         }
 
@@ -1619,20 +1648,42 @@ namespace MyOwnGames
                 // 找出新進入可見範圍的項目
                 var visibleItems = GetCurrentlyVisibleItems(scrollViewer);
 
+                DebugLogger.LogDebug($"GamesGridView_ViewChanged: {visibleItems.Count} visible items, language={currentLanguage}");
+
                 // 過濾需要載入圖片的項目：
                 // 1. IconUri 是 no_icon.png（預設圖片）
                 // 2. IconUri 不包含該遊戲的 AppID（容器重用時顯示其他遊戲的圖片）
+                // 3. IconUri 包含錯誤的語言（需要 japanese 但顯示 english）
                 var itemsNeedingImages = visibleItems.Where(item =>
                 {
                     if (string.IsNullOrEmpty(item.IconUri))
+                    {
+                        DebugLogger.LogDebug($"  AppID {item.AppId}: IconUri is null/empty, needs image");
                         return true;
+                    }
                     if (item.IconUri.Contains("no_icon.png", StringComparison.OrdinalIgnoreCase))
+                    {
+                        DebugLogger.LogDebug($"  AppID {item.AppId}: IconUri is no_icon.png, needs image");
                         return true;
+                    }
                     if (item.IconUri.Contains("ms-appx://", StringComparison.OrdinalIgnoreCase))
+                    {
+                        DebugLogger.LogDebug($"  AppID {item.AppId}: IconUri is ms-appx, needs image");
                         return true;
+                    }
                     // Check if IconUri contains this game's AppID (correct image for this game)
                     if (!item.IconUri.Contains(item.AppId.ToString()))
-                        return true; // Wrong image, need to reload
+                    {
+                        DebugLogger.LogDebug($"  AppID {item.AppId}: IconUri doesn't contain AppID ({item.IconUri}), needs image");
+                        return true;
+                    }
+                    // Check if IconUri contains the correct language
+                    if (!item.IconUri.Contains($"\\{currentLanguage}\\", StringComparison.OrdinalIgnoreCase) &&
+                        !item.IconUri.Contains($"/{currentLanguage}/", StringComparison.OrdinalIgnoreCase))
+                    {
+                        DebugLogger.LogDebug($"  AppID {item.AppId}: IconUri wrong language ({item.IconUri}), needs {currentLanguage}");
+                        return true;
+                    }
                     return false;
                 }).ToList();
 
@@ -1640,11 +1691,15 @@ namespace MyOwnGames
                 {
                     DebugLogger.LogDebug($"GamesGridView_ViewChanged: {itemsNeedingImages.Count} items need images (out of {visibleItems.Count} visible)");
                     // 小批次載入，避免影響滾動性能
-                    bool skipDownloads = _isLoading;
+                    // Don't skip network downloads - user expects to see images in the selected language
                     _ = Task.Run(async () =>
                     {
-                        await LoadOnDemandImages(itemsNeedingImages, currentLanguage, skipDownloads);
+                        await LoadOnDemandImages(itemsNeedingImages, currentLanguage, skipNetworkDownloads: false);
                     });
+                }
+                else
+                {
+                    DebugLogger.LogDebug($"GamesGridView_ViewChanged: No items need images");
                 }
             }
             catch (Exception ex)
@@ -1732,15 +1787,27 @@ namespace MyOwnGames
             if (skipNetworkDownloads)
                 return;
 
-            // Then batch process non-cached items with longer delay (background loading)
-            const int batchSize = 2;
-            for (int i = 0; i < notCached.Count; i += batchSize)
-            {
-                var batch = notCached.Skip(i).Take(batchSize);
-                var tasks = batch.Select(entry => LoadGameImageAsync(entry, entry.AppId, language));
+            // Then download target language for English-only items in background
+            // Combine with non-cached items for batch processing
+            var itemsToDownload = new List<GameEntry>();
+            itemsToDownload.AddRange(cachedInEnglishOnly); // Need to download japanese for these
+            itemsToDownload.AddRange(notCached);           // Need to download completely
 
-                await Task.WhenAll(tasks);
-                await Task.Delay(100); // 較長延遲，避免影響滾動
+            if (itemsToDownload.Count > 0)
+            {
+                DebugLogger.LogDebug($"Starting background download for {itemsToDownload.Count} items in {language}");
+
+                // Batch process to avoid overwhelming network
+                const int batchSize = 3;
+                for (int i = 0; i < itemsToDownload.Count; i += batchSize)
+                {
+                    var batch = itemsToDownload.Skip(i).Take(batchSize);
+                    var tasks = batch.Select(entry => LoadGameImageAsync(entry, entry.AppId, language));
+                    await Task.WhenAll(tasks);
+                    await Task.Delay(100); // Small delay between batches
+                }
+
+                DebugLogger.LogDebug($"Completed background download for {itemsToDownload.Count} items");
             }
         }
 
