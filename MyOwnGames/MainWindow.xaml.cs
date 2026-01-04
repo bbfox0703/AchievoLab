@@ -1177,9 +1177,10 @@ namespace MyOwnGames
             try
             {
                 // Use shared CleanSlateLanguageSwitcher
+                // CRITICAL: Must pass GameItems (filtered collection bound to GridView), not AllGameItems
                 await CleanSlateLanguageSwitcher.SwitchLanguageAsync(
                     GamesGridView,
-                    AllGameItems,
+                    GameItems,
                     newLanguage,
                     this.DispatcherQueue);
 
