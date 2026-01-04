@@ -11,34 +11,48 @@ namespace CommonUtilities
     public class ApplicationSettingsService
     {
         private ApplicationDataContainer? _settings;
+        private bool _initializationFailed = false;
+        private static readonly object _initLock = new object();
 
         /// <summary>
         /// Initializes the service and attempts to access LocalSettings.
         /// Safe to call multiple times - will only initialize once.
+        /// If initialization fails, stops retrying to avoid repeated exceptions.
         /// </summary>
         public void Initialize()
         {
-            if (_settings != null)
+            // Skip if already initialized or if previous initialization failed
+            if (_settings != null || _initializationFailed)
                 return;
 
-            try
+            lock (_initLock)
             {
-                _settings = ApplicationData.Current.LocalSettings;
-            }
-            catch (InvalidOperationException ex)
-            {
-                DebugLogger.LogDebug($"ApplicationSettingsService: InvalidOperationException accessing LocalSettings: {ex.Message}");
-                _settings = null;
-            }
-            catch (System.IO.IOException ex)
-            {
-                DebugLogger.LogDebug($"ApplicationSettingsService: IOException accessing LocalSettings: {ex.Message}");
-                _settings = null;
-            }
-            catch (Exception ex)
-            {
-                DebugLogger.LogDebug($"ApplicationSettingsService: Exception accessing LocalSettings: {ex.Message}");
-                _settings = null;
+                // Double-check after acquiring lock
+                if (_settings != null || _initializationFailed)
+                    return;
+
+                try
+                {
+                    _settings = ApplicationData.Current.LocalSettings;
+                }
+                catch (InvalidOperationException ex)
+                {
+                    DebugLogger.LogDebug($"ApplicationSettingsService: InvalidOperationException accessing LocalSettings: {ex.Message}");
+                    _initializationFailed = true;
+                    _settings = null;
+                }
+                catch (System.IO.IOException ex)
+                {
+                    DebugLogger.LogDebug($"ApplicationSettingsService: IOException accessing LocalSettings: {ex.Message}");
+                    _initializationFailed = true;
+                    _settings = null;
+                }
+                catch (Exception ex)
+                {
+                    DebugLogger.LogDebug($"ApplicationSettingsService: Exception accessing LocalSettings: {ex.Message}");
+                    _initializationFailed = true;
+                    _settings = null;
+                }
             }
         }
 

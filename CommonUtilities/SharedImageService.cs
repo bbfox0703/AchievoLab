@@ -26,6 +26,7 @@ namespace CommonUtilities
 
         // Concurrency limiter to prevent resource exhaustion
         private const int MAX_CONCURRENT_DOWNLOADS = 10;
+        private const int MAX_PENDING_QUEUE_SIZE = 200; // Increased from 100 for better coverage with 600+ games
         private readonly SemaphoreSlim _downloadSemaphore = new(MAX_CONCURRENT_DOWNLOADS, MAX_CONCURRENT_DOWNLOADS);
 
         // CDN load balancer for intelligent CDN selection
@@ -54,19 +55,32 @@ namespace CommonUtilities
             }
         }
 
-        public Task SetLanguage(string language)
+        public async Task SetLanguage(string language)
         {
             if (_currentLanguage != language)
             {
                 DebugLogger.LogDebug($"Switching language from {_currentLanguage} to {language}. Pending requests: {_pendingRequests.Count}");
-                
+
                 // Cancel ongoing operations
                 _cts.Cancel();
 
-                // Capture pending requests before clearing
+                // CRITICAL: Wait for all pending requests to actually finish or be cancelled
+                // before clearing caches to prevent race conditions
                 var pending = _pendingRequests.Values.ToArray();
-                // Don't block waiting for all requests to finish
-                _ = Task.WhenAll(pending); // 背景等待
+                if (pending.Length > 0)
+                {
+                    DebugLogger.LogDebug($"Waiting for {pending.Length} pending downloads to complete or cancel...");
+                    try
+                    {
+                        // Wait up to 5 seconds for pending requests to complete/cancel
+                        await Task.WhenAny(Task.WhenAll(pending), Task.Delay(5000));
+                        DebugLogger.LogDebug($"Pending downloads completed or timed out");
+                    }
+                    catch (Exception ex)
+                    {
+                        DebugLogger.LogDebug($"Exception while waiting for pending downloads: {ex.Message}");
+                    }
+                }
 
                 // Now clear caches and reset state
                 _imageCache.Clear();
@@ -76,13 +90,14 @@ namespace CommonUtilities
                     _completedEvents.Clear();
                 }
 
-                _cts.Dispose();
+                // CRITICAL: Do NOT dispose old CTS immediately - old downloads may still be using it
+                // Just create a new CTS for new operations and let old one be garbage collected
+                // _cts.Dispose(); // Removed - causes ObjectDisposedException in old downloads
                 _cts = new CancellationTokenSource();
                 _currentLanguage = language;
-                
+
                 DebugLogger.LogDebug($"Language switch completed. Reset state for {language}");
             }
-            return Task.CompletedTask;
         }
 
         public string GetCurrentLanguage() => _currentLanguage;
@@ -121,10 +136,22 @@ namespace CommonUtilities
 
         public bool IsImageCached(int appId, string language, bool checkEnglishFallback = false) => HasImage(appId, language, checkEnglishFallback);
 
+        /// <summary>
+        /// Gets the cached image path for an app without triggering a download.
+        /// </summary>
+        /// <param name="appId">Steam app ID</param>
+        /// <param name="language">Language code (e.g., "english", "tchinese")</param>
+        /// <param name="checkEnglishFallback">Whether to check English cache if language-specific image not found</param>
+        /// <returns>Full path to cached image file, or null if not cached</returns>
+        public string? TryGetCachedPath(int appId, string language, bool checkEnglishFallback = false)
+        {
+            return _cache.TryGetCachedPath(appId.ToString(), language, checkEnglishFallback);
+        }
+
         public async Task<string?> GetGameImageAsync(int appId, string? language = null)
         {
-            // Auto-cleanup stale pending requests every 100 calls
-            if (Interlocked.Increment(ref _requestCount) % 100 == 0)
+            // Auto-cleanup stale pending requests every 50 calls for faster queue turnover
+            if (Interlocked.Increment(ref _requestCount) % 50 == 0)
             {
                 CleanupStaleRequests();
             }
@@ -132,6 +159,25 @@ namespace CommonUtilities
             language ??= _currentLanguage;
             var originalLanguage = language;
             var cacheKey = $"{appId}_{language}";
+
+            // Prevent queue overflow - if too many pending requests, try English fallback first
+            if (_pendingRequests.Count >= MAX_PENDING_QUEUE_SIZE)
+            {
+                DebugLogger.LogDebug($"Skipping image request for {appId} - queue full ({_pendingRequests.Count} pending)");
+
+                // Try to use English fallback if requesting non-English language
+                if (language != "english")
+                {
+                    var englishPath = _cache.TryGetCachedPath(appId.ToString(), "english", checkEnglishFallback: false);
+                    if (!string.IsNullOrEmpty(englishPath) && File.Exists(englishPath))
+                    {
+                        DebugLogger.LogDebug($"Queue full - using English fallback for {appId}");
+                        return englishPath;
+                    }
+                }
+
+                return GetFallbackImagePath();
+            }
 
             // Check if there's already a request in progress for this image
             if (_pendingRequests.TryGetValue(cacheKey, out var existingTask))
@@ -373,7 +419,20 @@ namespace CommonUtilities
             }
             finally
             {
-                _downloadSemaphore.Release();
+                try
+                {
+                    _downloadSemaphore.Release();
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Semaphore was disposed during language switch or shutdown, ignore
+                    DebugLogger.LogDebug($"SharedImageService semaphore already disposed, skipping release");
+                }
+                catch (SemaphoreFullException)
+                {
+                    // Semaphore was already released, ignore
+                    DebugLogger.LogDebug($"SharedImageService semaphore already at full count, skipping release");
+                }
             }
         }
 
@@ -506,7 +565,20 @@ namespace CommonUtilities
             }
             finally
             {
-                _downloadSemaphore.Release();
+                try
+                {
+                    _downloadSemaphore.Release();
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Semaphore was disposed during language switch or shutdown, ignore
+                    DebugLogger.LogDebug($"SharedImageService semaphore already disposed, skipping release");
+                }
+                catch (SemaphoreFullException)
+                {
+                    // Semaphore was already released, ignore
+                    DebugLogger.LogDebug($"SharedImageService semaphore already at full count, skipping release");
+                }
             }
         }
 

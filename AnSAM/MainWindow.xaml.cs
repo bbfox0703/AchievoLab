@@ -17,6 +17,7 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Xml;
 using System.Xml.Linq;
@@ -42,8 +43,11 @@ namespace AnSAM
         private readonly AppWindow _appWindow;
         private readonly HttpClient _imageHttpClient = new();
         private readonly SharedImageService _imageService;
+        private volatile bool _isLanguageSwitching = false;
         private readonly DispatcherQueue _dispatcher;
         private string _currentLanguage = "english";
+        private CancellationTokenSource? _languageSwitchCts;
+        private readonly SemaphoreSlim _languageSwitchLock = new(1, 1); // Mutex for language switch
 
         private bool _autoLoaded;
         private bool _languageInitialized;
@@ -93,6 +97,9 @@ namespace AnSAM
             GameListService.ProgressChanged += OnGameListProgressChanged;
             Activated += OnWindowActivated;
             Closed += OnWindowClosed;
+
+            // Initialize GameLauncher (locate RunGame.exe once at startup)
+            GameLauncher.Initialize();
 
             // Initialize CDN statistics timer
             _cdnStatsTimer = new DispatcherTimer
@@ -191,49 +198,86 @@ namespace AnSAM
                 }
 
                 DebugLogger.LogDebug($"Language changed from {_currentLanguage} to {lang}");
-                
-                SteamLanguageResolver.OverrideLanguage = lang;
-                await _imageService.SetLanguage(lang);
 
-                _settingsService.TrySetString("Language", lang);
+                // CRITICAL: Wait for any previous language switch to complete before starting new one
+                // This prevents hang/crash when switching while downloads are in progress
+                // By NOT cancelling previous switches, we ensure each switch completes fully
+                // This prevents UI inconsistency where titles/images are from different languages
+                await _languageSwitchLock.WaitAsync();
 
                 try
                 {
-                    // Load localized titles from steam_games.xml if switching to non-English
-                    if (lang != "english")
+                    // Create a new CancellationTokenSource for THIS switch only
+                    // We no longer cancel previous switches - they complete naturally via mutex serialization
+                    var cts = new CancellationTokenSource();
+                    _languageSwitchCts = cts;
+
+                    try
                     {
-                        LoadLocalizedTitlesFromXml();
+                        _isLanguageSwitching = true;
+
+                        SteamLanguageResolver.OverrideLanguage = lang;
+                        await _imageService.SetLanguage(lang);
+
+                        _settingsService.TrySetString("Language", lang);
+
+                        // CRITICAL: Scroll to top FIRST to avoid scroll position conflicts during re-sorting
+                        var scrollViewer = _gamesScrollViewer ??= FindScrollViewer(GamesView);
+                        if (scrollViewer != null)
+                        {
+                            scrollViewer.ChangeView(null, 0, null, true); // Instant scroll to top
+                            await Task.Delay(100); // Wait for scroll to complete
+                        }
+
+                        // Load localized titles from steam_games.xml if switching to non-English
+                        if (lang != "english")
+                        {
+                            LoadLocalizedTitlesFromXml();
+                        }
+
+                        // Update game titles for the new language (with collection re-sorting)
+                        UpdateAllGameTitles(lang);
+
+                        // Wait for any ongoing UI operations to complete before starting image refresh
+                        await Task.Delay(200);
+
+                        // Refresh images using batched strategy
+                        await RefreshImagesForLanguageSwitch(lang);
+
+                        StatusText.Text = lang == "english"
+                            ? $"Switched to English - displaying original titles"
+                            : $"Switched to {lang} - using localized titles where available";
                     }
-                    
-                    // Update game titles for the new language
-                    UpdateAllGameTitles(lang);
-
-                    // Refresh game images for the selected language
-                    await RefreshGameImages(lang);
-
-                    StatusText.Text = lang == "english"
-                        ? $"Switched to English - displaying original titles"
-                        : $"Switched to {lang} - using localized titles where available";
-                }
-                catch (Exception ex)
-                {
-                    StatusProgress.IsIndeterminate = false;
-                    StatusProgress.Value = 0;
-                    StatusExtra.Text = string.Empty;
-                    StatusText.Text = "Language switch failed";
-
-                    DebugLogger.LogDebug($"Language switch error: {ex}");
-
-                    var dialog = new ContentDialog
+                    catch (Exception ex)
                     {
-                        Title = "Language switch failed",
-                        Content = "Unable to switch language. Please try again.",
-                        CloseButtonText = "OK",
-                        XamlRoot = Content.XamlRoot
-                    };
+                        StatusProgress.IsIndeterminate = false;
+                        StatusProgress.Value = 0;
+                        StatusExtra.Text = string.Empty;
+                        StatusText.Text = "Language switch failed";
 
-                    await dialog.ShowAsync();
-                    StatusText.Text = "Ready";
+                        DebugLogger.LogDebug($"Language switch error: {ex}");
+
+                        var dialog = new ContentDialog
+                        {
+                            Title = "Language switch failed",
+                            Content = "Unable to switch language. Please try again.",
+                            CloseButtonText = "OK",
+                            XamlRoot = Content.XamlRoot
+                        };
+
+                        await dialog.ShowAsync();
+                        StatusText.Text = "Ready";
+                    }
+                    finally
+                    {
+                        _isLanguageSwitching = false;
+                    }
+                }
+                finally
+                {
+                    // CRITICAL: Always release the mutex lock, even if cancelled or error occurred
+                    _languageSwitchLock.Release();
+                    DebugLogger.LogDebug($"Language switch lock released for {lang}");
                 }
             }
         }
@@ -362,51 +406,18 @@ namespace AnSAM
         {
             try
             {
-                var stats = _imageService.GetCdnStats();
-                if (stats.Count == 0)
+                // Defensive checks to prevent crashes during shutdown or disposal
+                if (_imageService == null || StatusCdn == null)
                 {
-                    StatusCdn.Text = "";
                     return;
                 }
 
-                var cdnNames = new Dictionary<string, string>
-                {
-                    ["shared.cloudflare.steamstatic.com"] = "CF",
-                    ["cdn.steamstatic.com"] = "Steam",
-                    ["shared.akamai.steamstatic.com"] = "Akamai"
-                };
-
-                var statParts = new List<string>();
-                foreach (var kvp in stats.OrderByDescending(x => x.Value.Active))
-                {
-                    var domain = kvp.Key;
-                    var (active, isBlocked, successRate) = kvp.Value;
-
-                    var name = cdnNames.ContainsKey(domain) ? cdnNames[domain] : domain.Split('.')[0];
-
-                    if (active > 0 || isBlocked)
-                    {
-                        var blockedIndicator = isBlocked ? "⚠" : "";
-                        statParts.Add($"{name}:{active}{blockedIndicator}");
-                    }
-                }
-
-                // Calculate overall success rate
-                var totalSuccess = stats.Values.Sum(s => s.SuccessRate * 100);
-                var avgSuccessRate = stats.Count > 0 ? totalSuccess / stats.Count : 0;
-
-                if (statParts.Count > 0)
-                {
-                    StatusCdn.Text = $"CDN: {string.Join(" ", statParts)} ({avgSuccessRate:0}%)";
-                }
-                else if (stats.Any(s => s.Value.SuccessRate > 0))
-                {
-                    StatusCdn.Text = $"CDN OK ({avgSuccessRate:0}%)";
-                }
-                else
-                {
-                    StatusCdn.Text = "";
-                }
+                var stats = _imageService.GetCdnStats();
+                StatusCdn.Text = CdnStatsFormatter.FormatCdnStats(stats);
+            }
+            catch (ObjectDisposedException)
+            {
+                // Ignore if objects are disposed (during shutdown)
             }
             catch (Exception ex)
             {
@@ -419,8 +430,11 @@ namespace AnSAM
         /// </summary>
         private void OnWindowClosed(object sender, WindowEventArgs args)
         {
-            _cdnStatsTimer.Stop();
-            _cdnStatsTimer.Tick -= CdnStatsTimer_Tick;
+            _cdnStatsTimer?.Stop();
+            if (_cdnStatsTimer != null)
+            {
+                _cdnStatsTimer.Tick -= CdnStatsTimer_Tick;
+            }
 
             GameListService.StatusChanged -= OnGameListStatusChanged;
             GameListService.ProgressChanged -= OnGameListProgressChanged;
@@ -440,19 +454,41 @@ namespace AnSAM
         /// </summary>
         private async void GamesView_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs e)
         {
-            if (e.InRecycleQueue || e.Item is not GameItem game)
+            if (e.InRecycleQueue)
+                return;
+
+            if (e.Item is not GameItem game)
+                return;
+
+            // Skip during language switching to avoid collection modification conflicts
+            if (_isLanguageSwitching)
             {
+                e.Handled = true;
                 return;
             }
 
-            // If cover is from a different language, reset and reload
-            string currentLanguage = SteamLanguageResolver.GetSteamLanguage();
-            if (game.CoverPath != null && !game.IsCoverFromLanguage(currentLanguage))
+            // Phase 0: Just register for phase 1, don't do any work yet
+            if (e.Phase == 0)
             {
-                game.ResetCover();
+                e.RegisterUpdateCallback(GamesView_ContainerContentChanging);
+                e.Handled = true;
             }
+            // Phase 1: Load the image
+            else if (e.Phase == 1)
+            {
+                // SIMPLIFIED: Only load if it's no_icon (完全重置策略)
+                var isFallbackIcon = game.IconUri == "ms-appx:///Assets/no_icon.png";
 
-            await game.LoadCoverAsync(_imageService);
+#if DEBUG
+                DebugLogger.LogDebug($"ContainerContentChanging Phase1: {game.ID} ({game.Title}), isFallback={isFallbackIcon}");
+#endif
+
+                if (isFallbackIcon)
+                {
+                    await game.LoadCoverAsync(_imageService);
+                }
+                // Otherwise, keep existing image (already loaded during language switch)
+            }
         }
 
 
@@ -461,17 +497,95 @@ namespace AnSAM
         /// </summary>
         private void GameCard_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
         {
-            if (sender is FrameworkElement element && element.DataContext is GameItem game)
+            DebugLogger.LogDebug($"GameCard_DoubleTapped: Event triggered");
+            DebugLogger.LogDebug($"GameCard_DoubleTapped: sender type = {sender?.GetType().Name ?? "null"}");
+
+            if (sender is FrameworkElement element)
             {
-                if (game.IsManagerAvailable)
+                DebugLogger.LogDebug($"GameCard_DoubleTapped: sender is FrameworkElement");
+                DebugLogger.LogDebug($"GameCard_DoubleTapped: DataContext type = {element.DataContext?.GetType().Name ?? "null"}");
+
+                // Try direct DataContext cast
+                if (element.DataContext is GameItem game)
                 {
-                    StartAchievementManager(game);
+                    DebugLogger.LogDebug($"GameCard_DoubleTapped: Game item found via DataContext - {game.ID} ({game.Title})");
+                    if (game.IsManagerAvailable)
+                    {
+                        DebugLogger.LogDebug($"GameCard_DoubleTapped: Manager available, launching");
+                        StartAchievementManager(game);
+                    }
+                    else
+                    {
+                        DebugLogger.LogDebug($"GameCard_DoubleTapped: Manager NOT available");
+                        StatusText.Text = "Achievement manager not found";
+                    }
+                    return;
+                }
+
+                // Try getting GridViewItem parent and use ItemFromContainer
+                var gridViewItem = FindParent<GridViewItem>(element);
+                if (gridViewItem != null)
+                {
+                    DebugLogger.LogDebug($"GameCard_DoubleTapped: Found GridViewItem parent");
+
+                    // Try Content first
+                    if (gridViewItem.Content is GameItem gameFromContent)
+                    {
+                        DebugLogger.LogDebug($"GameCard_DoubleTapped: Game item found via GridViewItem.Content - {gameFromContent.ID} ({gameFromContent.Title})");
+                        if (gameFromContent.IsManagerAvailable)
+                        {
+                            StartAchievementManager(gameFromContent);
+                        }
+                        else
+                        {
+                            StatusText.Text = "Achievement manager not found";
+                        }
+                        return;
+                    }
+
+                    // Try ItemFromContainer (WinUI 3 compiled binding approach)
+                    var dataItem = GamesView.ItemFromContainer(gridViewItem);
+                    DebugLogger.LogDebug($"GameCard_DoubleTapped: ItemFromContainer returned: {dataItem?.GetType().Name ?? "null"}");
+
+                    if (dataItem is GameItem gameFromContainer)
+                    {
+                        DebugLogger.LogDebug($"GameCard_DoubleTapped: Game item found via ItemFromContainer - {gameFromContainer.ID} ({gameFromContainer.Title})");
+                        if (gameFromContainer.IsManagerAvailable)
+                        {
+                            StartAchievementManager(gameFromContainer);
+                        }
+                        else
+                        {
+                            StatusText.Text = "Achievement manager not found";
+                        }
+                        return;
+                    }
+                    else
+                    {
+                        DebugLogger.LogDebug($"GameCard_DoubleTapped: GridViewItem.Content is null and ItemFromContainer failed");
+                    }
                 }
                 else
                 {
-                    StatusText.Text = "Achievement manager not found";
+                    DebugLogger.LogDebug($"GameCard_DoubleTapped: Could not find GridViewItem parent");
                 }
             }
+            else
+            {
+                DebugLogger.LogDebug($"GameCard_DoubleTapped: sender is not FrameworkElement");
+            }
+        }
+
+        private T? FindParent<T>(DependencyObject child) where T : DependencyObject
+        {
+            var parent = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(child);
+            while (parent != null)
+            {
+                if (parent is T typedParent)
+                    return typedParent;
+                parent = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(parent);
+            }
+            return null;
         }
 
 
@@ -480,17 +594,34 @@ namespace AnSAM
         /// </summary>
         private void OnLaunchManagerClicked(object sender, RoutedEventArgs e)
         {
-            if (sender is FrameworkElement element && element.DataContext is GameItem game)
+            DebugLogger.LogDebug($"OnLaunchManagerClicked: Event triggered");
+
+            if (sender is MenuFlyoutItem menuItem)
             {
-                if (game.IsManagerAvailable)
+                DebugLogger.LogDebug($"OnLaunchManagerClicked: sender is MenuFlyoutItem");
+                DebugLogger.LogDebug($"OnLaunchManagerClicked: CommandParameter type = {menuItem.CommandParameter?.GetType().Name ?? "null"}");
+
+                // Try CommandParameter (set via x:Bind in XAML)
+                if (menuItem.CommandParameter is GameItem game)
                 {
-                    StartAchievementManager(game);
-                }
-                else
-                {
-                    StatusText.Text = "Achievement manager not found";
+                    DebugLogger.LogDebug($"OnLaunchManagerClicked: Game item found via CommandParameter - {game.ID} ({game.Title})");
+                    if (game.IsManagerAvailable)
+                    {
+                        StartAchievementManager(game);
+                    }
+                    else
+                    {
+                        StatusText.Text = "Achievement manager not found";
+                    }
+                    return;
                 }
             }
+            else
+            {
+                DebugLogger.LogDebug($"OnLaunchManagerClicked: sender is not MenuFlyoutItem: {sender?.GetType().Name ?? "null"}");
+            }
+
+            DebugLogger.LogDebug($"OnLaunchManagerClicked: Could not get GameItem");
         }
 
         /// <summary>
@@ -498,10 +629,27 @@ namespace AnSAM
         /// </summary>
         private void OnLaunchGameClicked(object sender, RoutedEventArgs e)
         {
-            if (sender is FrameworkElement element && element.DataContext is GameItem game)
+            DebugLogger.LogDebug($"OnLaunchGameClicked: Event triggered");
+
+            if (sender is MenuFlyoutItem menuItem)
             {
-                StartGame(game);
+                DebugLogger.LogDebug($"OnLaunchGameClicked: sender is MenuFlyoutItem");
+                DebugLogger.LogDebug($"OnLaunchGameClicked: CommandParameter type = {menuItem.CommandParameter?.GetType().Name ?? "null"}");
+
+                // Try CommandParameter (set via x:Bind in XAML)
+                if (menuItem.CommandParameter is GameItem game)
+                {
+                    DebugLogger.LogDebug($"OnLaunchGameClicked: Game item found via CommandParameter - {game.ID} ({game.Title})");
+                    StartGame(game);
+                    return;
+                }
             }
+            else
+            {
+                DebugLogger.LogDebug($"OnLaunchGameClicked: sender is not MenuFlyoutItem: {sender?.GetType().Name ?? "null"}");
+            }
+
+            DebugLogger.LogDebug($"OnLaunchGameClicked: Could not get GameItem");
         }
 
         /// <summary>
@@ -781,6 +929,131 @@ namespace AnSAM
         }
 
         /// <summary>
+        /// Gets currently visible and hidden game items based on viewport position.
+        /// </summary>
+        private (List<GameItem> visible, List<GameItem> hidden) GetVisibleAndHiddenGameItems()
+        {
+            var visibleItems = new List<GameItem>();
+            var hiddenItems = new List<GameItem>();
+
+            if (GamesView?.ItemsPanelRoot is ItemsWrapGrid wrapGrid)
+            {
+                var scrollViewer = _gamesScrollViewer ??= FindScrollViewer(GamesView);
+                if (scrollViewer != null)
+                {
+                    var viewportHeight = scrollViewer.ViewportHeight;
+                    var verticalOffset = scrollViewer.VerticalOffset;
+
+                    // Estimate visible items based on viewport (ItemHeight=180 from XAML)
+                    var itemHeight = 180;
+                    var itemsPerRow = Math.Max(1, (int)(scrollViewer.ViewportWidth / 240)); // ItemWidth=240
+                    var firstVisibleRow = Math.Max(0, (int)(verticalOffset / itemHeight));
+                    var lastVisibleRow = (int)((verticalOffset + viewportHeight) / itemHeight) + 1;
+
+                    var firstVisibleIndex = firstVisibleRow * itemsPerRow;
+                    var lastVisibleIndex = Math.Min(Games.Count - 1, (lastVisibleRow + 1) * itemsPerRow);
+
+                    for (int i = 0; i < Games.Count; i++)
+                    {
+                        if (i >= firstVisibleIndex && i <= lastVisibleIndex)
+                            visibleItems.Add(Games[i]);
+                        else
+                            hiddenItems.Add(Games[i]);
+                    }
+                }
+                else
+                {
+                    // Fallback: assume first 20 items are visible
+                    for (int i = 0; i < Games.Count; i++)
+                    {
+                        if (i < 20)
+                            visibleItems.Add(Games[i]);
+                        else
+                            hiddenItems.Add(Games[i]);
+                    }
+                }
+            }
+            else
+            {
+                // Fallback: assume first 20 items are visible
+                for (int i = 0; i < Games.Count; i++)
+                {
+                    if (i < 20)
+                        visibleItems.Add(Games[i]);
+                    else
+                        hiddenItems.Add(Games[i]);
+                }
+            }
+
+            return (visibleItems, hiddenItems);
+        }
+
+        /// <summary>
+        /// Refreshes game cover images after language switch.
+        /// Uses CLEAN SLATE approach: unbind GridView, reset all states, rebind.
+        /// This forces GridView to recreate all containers and trigger ContainerContentChanging.
+        /// </summary>
+        private async Task RefreshImagesForLanguageSwitch(string newLanguage)
+        {
+            try
+            {
+                DebugLogger.LogDebug($"Starting CLEAN SLATE refresh for {newLanguage}");
+
+                // STEP 1: Unbind GridView from Games collection (prevents crashes during reset)
+                var tcs1 = new TaskCompletionSource<bool>();
+                _dispatcher.TryEnqueue(() =>
+                {
+                    try
+                    {
+                        GamesView.ItemsSource = null;
+                        DebugLogger.LogDebug($"Unbound GridView ItemsSource");
+                        tcs1.SetResult(true);
+                    }
+                    catch (Exception ex)
+                    {
+                        tcs1.SetException(ex);
+                    }
+                });
+                await tcs1.Task;
+
+                // Wait for unbind to take effect
+                await Task.Delay(100);
+
+                // STEP 2: Reset all game states for new language
+                DebugLogger.LogDebug($"Resetting all {Games.Count} game states for {newLanguage}");
+                foreach (var game in Games)
+                {
+                    // Reset to clean state - IconUri will be no_icon, ready for lazy loading
+                    game.IconUri = "ms-appx:///Assets/no_icon.png";
+                    game.ClearLoadingState();
+                }
+
+                // STEP 3: Rebind GridView to Games collection (forces container recreation)
+                var tcs2 = new TaskCompletionSource<bool>();
+                _dispatcher.TryEnqueue(() =>
+                {
+                    try
+                    {
+                        GamesView.ItemsSource = Games;
+                        DebugLogger.LogDebug($"Rebound GridView ItemsSource - containers will recreate");
+                        tcs2.SetResult(true);
+                    }
+                    catch (Exception ex)
+                    {
+                        tcs2.SetException(ex);
+                    }
+                });
+                await tcs2.Task;
+
+                DebugLogger.LogDebug($"CLEAN SLATE refresh complete for {newLanguage}. ContainerContentChanging will load images on-demand.");
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error during clean slate refresh: {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// Loads localized game titles from the cached steam_games.xml file.
         /// </summary>
         private void LoadLocalizedTitlesFromXml()
@@ -851,19 +1124,35 @@ namespace AnSAM
         /// </summary>
         private void UpdateAllGameTitles(string language)
         {
+            // NOTE: _isLanguageSwitching is managed by caller (LanguageComboBox_SelectionChanged)
+            // Do NOT set it here to avoid premature reset before image loading completes
+
             foreach (var game in _allGames)
             {
                 game.UpdateDisplayTitle(language);
             }
-            
-            // Also update filtered games in the UI
-            foreach (var game in Games)
+
+            // Re-sort _allGames based on new titles
+            _allGames.Sort((a, b) => string.Compare(a.Title, b.Title, StringComparison.OrdinalIgnoreCase));
+
+            // Re-sort Games ObservableCollection in-place using Move (avoids Clear/Add crash)
+            // Get sorted order
+            var sortedGames = Games.OrderBy(g => g.Title, StringComparer.OrdinalIgnoreCase).ToList();
+
+            // Move items to correct positions
+            for (int i = 0; i < sortedGames.Count; i++)
             {
-                game.UpdateDisplayTitle(language);
+                var currentItem = sortedGames[i];
+                var currentIndex = Games.IndexOf(currentItem);
+
+                if (currentIndex != i)
+                {
+                    Games.Move(currentIndex, i);
+                }
             }
-            
+
             _currentLanguage = language;
-            DebugLogger.LogDebug($"Updated all game titles to language: {language}");
+            DebugLogger.LogDebug($"Updated and re-sorted all game titles to language: {language}");
         }
 
         /// <summary>
@@ -875,16 +1164,25 @@ namespace AnSAM
             DebugLogger.LogDebug($"Refreshing game images for {language}");
 
             // Give UI time to stabilize after title updates before determining visible games
-            await Task.Delay(50);
+            // Title changes trigger PropertyChanged which causes WinUI to re-render items
+            // We need to wait for the UI virtualization to settle before calculating visible range
+            await Task.Delay(200);
+            DebugLogger.LogDebug($"UI stabilization delay completed, calculating visible games");
 
             var (visibleGames, hiddenGames) = GetVisibleAndHiddenGames();
             DebugLogger.LogDebug($"Found {visibleGames.Count} visible games, {hiddenGames.Count} hidden games");
 
-            // Reset ALL game covers to prevent showing images from wrong language
-            // This is especially important when switching while downloads are in progress
-            foreach (var game in _allGames)
+            // Reset visible game covers to prevent showing images from wrong language
+            foreach (var game in visibleGames)
             {
                 game.ResetCover();
+            }
+
+            // For hidden games, set to fallback icon to avoid black blocks
+            // They will be properly loaded when scrolled into view (ContainerContentChanging)
+            foreach (var game in hiddenGames)
+            {
+                game.ResetCover(); // ResetCover now uses dispatcher internally
             }
 
             // Categorize visible games for optimal loading
@@ -1038,63 +1336,34 @@ namespace AnSAM
         
         public int ID { get; set; }
         public int AppId => ID;
-        public Uri? CoverPath
+
+        // Simplified image handling - store URI as string and let WinUI handle BitmapImage creation
+        private string _iconUri = "ms-appx:///Assets/no_icon.png";
+        private volatile bool _isUpdatingIcon = false;
+
+        public string IconUri
         {
-            get => _coverPath;
+            get => _iconUri;
             set
             {
-                if (_coverPath != value)
-                {
-                    _coverPath = value;
-
-                    // Dispose old BitmapImage to prevent memory leak
-                    var oldImage = _coverImage;
-                    _coverImage = null;
-
-                    // BitmapImage doesn't implement IDisposable in WinUI 3, but we can help GC by clearing reference
-                    // and triggering property changed events to update UI bindings
-                    if (oldImage != null)
-                    {
-                        // In WinUI 3, BitmapImage cleanup is handled by the framework
-                        // Setting to null and notifying property changes helps release references
-                        oldImage = null;
-                    }
-
-                    PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(CoverPath)));
-                    PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(CoverImage)));
-                }
-            }
-        }
-
-        public ImageSource? CoverImage
-        {
-            get
-            {
-                if (_coverImage != null)
-                {
-                    return _coverImage;
-                }
-
-                if (_coverPath == null)
-                {
-                    return null;
-                }
+                if (_isUpdatingIcon) return; // Prevent concurrent updates
 
                 try
                 {
-                    _coverImage = new BitmapImage(_coverPath);
-                }
-                catch
-                {
-                    _coverImage = null;
-                }
+                    _isUpdatingIcon = true;
 
-                return _coverImage;
+                    if (_iconUri != value || !string.IsNullOrEmpty(value)) // Force update if new value is not empty
+                    {
+                        _iconUri = value;
+                        PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(IconUri)));
+                    }
+                }
+                finally
+                {
+                    _isUpdatingIcon = false;
+                }
             }
         }
-
-        private Uri? _coverPath;
-        private BitmapImage? _coverImage;
 
         public string? ExePath { get; set; }
         public string? Arguments { get; set; }
@@ -1114,7 +1383,20 @@ namespace AnSAM
         /// </summary>
         public void ResetCover()
         {
-            CoverPath = null;
+            // CRITICAL: Always use dispatcher when setting IconUri to prevent threading issues
+            _dispatcher.TryEnqueue(() =>
+            {
+                IconUri = "ms-appx:///Assets/no_icon.png";
+            });
+            _coverLoading = false;
+            _loadedLanguage = null;
+        }
+
+        /// <summary>
+        /// Clears the loading state flags (for use when IconUri is already set directly on UI thread).
+        /// </summary>
+        public void ClearLoadingState()
+        {
             _coverLoading = false;
             _loadedLanguage = null;
         }
@@ -1128,15 +1410,51 @@ namespace AnSAM
                    string.Equals(_loadedLanguage, language, StringComparison.OrdinalIgnoreCase);
         }
 
+        /// <summary>
+        /// Gets the language of the currently loaded cover (for debugging).
+        /// </summary>
+        public string? GetLoadedLanguage() => _loadedLanguage;
+
+        /// <summary>
+        /// Determines the actual language of an image from its file path.
+        /// </summary>
+        private static string DetermineLanguageFromPath(string path, string requestedLanguage)
+        {
+            // Check path for language folder indicators
+            // Path format is typically: .../ImageCache/{language}/{appid}.jpg
+            if (path.Contains("/english/") || path.Contains("\\english\\"))
+            {
+                return "english";
+            }
+            else if (path.Contains("/tchinese/") || path.Contains("\\tchinese\\"))
+            {
+                return "tchinese";
+            }
+            else if (path.Contains("/schinese/") || path.Contains("\\schinese\\"))
+            {
+                return "schinese";
+            }
+            else if (path.Contains("/japanese/") || path.Contains("\\japanese\\"))
+            {
+                return "japanese";
+            }
+            else if (path.Contains("/koreana/") || path.Contains("\\koreana\\"))
+            {
+                return "koreana";
+            }
+
+            // If no language folder detected, assume requested language
+            return requestedLanguage;
+        }
+
         public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
 
         /// <summary>
-        /// Initializes a new game item with optional launch information and cover path.
+        /// Initializes a new game item with optional launch information.
         /// </summary>
         public GameItem(string title,
                          int id,
                          DispatcherQueue dispatcher,
-                         Uri? coverPath = null,
                          string? exePath = null,
                          string? arguments = null,
                          string? uriScheme = null)
@@ -1145,7 +1463,6 @@ namespace AnSAM
             _displayTitle = title; // Initialize display title
             ID = id;
             _dispatcher = dispatcher;
-            CoverPath = coverPath;
             ExePath = exePath;
             Arguments = arguments;
             UriScheme = uriScheme;
@@ -1174,66 +1491,132 @@ namespace AnSAM
 
         /// <summary>
         /// Asynchronously loads the game's cover image using the shared image service.
+        /// Simplified approach: Let WinUI handle BitmapImage creation from string URI.
         /// </summary>
         public async Task LoadCoverAsync(SharedImageService imageService, string? languageOverride = null)
         {
-            if (CoverPath != null || _coverLoading)
+            // Skip if already loading
+            if (_coverLoading)
             {
+#if DEBUG
+                DebugLogger.LogDebug($"Skipping LoadCoverAsync for {ID} ({Title}): already loading");
+#endif
+                return;
+            }
+
+            // SIMPLIFIED: Only skip if we already have a valid image (not no_icon)
+            string currentLanguage = languageOverride ?? SteamLanguageResolver.GetSteamLanguage();
+            if (!string.IsNullOrEmpty(IconUri) && IconUri != "ms-appx:///Assets/no_icon.png")
+            {
+#if DEBUG
+                DebugLogger.LogDebug($"Skipping LoadCoverAsync for {ID} ({Title}): already has valid image");
+#endif
                 return;
             }
 
             _coverLoading = true;
-            var coverAssigned = false;
+
+#if DEBUG
+            DebugLogger.LogDebug($"LoadCoverAsync started for {ID} ({Title}), language={currentLanguage}");
+#endif
 
             try
             {
-                string language = languageOverride ?? SteamLanguageResolver.GetSteamLanguage();
+                // For non-English languages, check if English fallback is cached
+                // If so, display it immediately while downloading target language
+                bool isNonEnglish = currentLanguage != "english";
+                bool englishCached = isNonEnglish && imageService.IsImageCached(ID, "english");
 
-                // If requesting non-English language and English is cached, load English first for immediate display
-                bool isNonEnglish = !string.Equals(language, "english", StringComparison.OrdinalIgnoreCase);
-                if (languageOverride == null && isNonEnglish && imageService.IsImageCached(ID, "english"))
+                if (englishCached)
                 {
+                    // Load English fallback immediately for instant display
                     var englishPath = await imageService.GetGameImageAsync(ID, "english").ConfigureAwait(false);
-                    if (!string.IsNullOrEmpty(englishPath) && Uri.TryCreate(englishPath, UriKind.Absolute, out var englishUri))
+                    if (!string.IsNullOrEmpty(englishPath) && File.Exists(englishPath))
                     {
-                        coverAssigned = true;
                         _loadedLanguage = "english";
-                        if (!_dispatcher.TryEnqueue(() => CoverPath = englishUri))
+                        var englishUri = new Uri(englishPath).AbsoluteUri;
+                        _dispatcher.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.High, () =>
                         {
-                            CoverPath = englishUri;
-                        }
+                            // CRITICAL: Verify language hasn't changed
+                            var globalLanguage = SteamLanguageResolver.GetSteamLanguage();
+                            if (currentLanguage == globalLanguage)
+                            {
+                                IconUri = englishUri;
+#if DEBUG
+                                DebugLogger.LogDebug($"UI updated: {ID} ({Title}) showing English fallback immediately");
+#endif
+                            }
+                            else
+                            {
+#if DEBUG
+                                DebugLogger.LogDebug($"Skipping English fallback for {ID} ({Title}) - language changed to {globalLanguage}");
+#endif
+                            }
+                        });
                     }
                 }
 
-                // Now attempt to load the requested language (might download in background)
-                var path = await imageService.GetGameImageAsync(ID, language).ConfigureAwait(false);
-                if (!string.IsNullOrEmpty(path) && Uri.TryCreate(path, UriKind.Absolute, out var localUri))
+                // Now try to get the target language image
+                var imagePath = await imageService.GetGameImageAsync(ID, currentLanguage).ConfigureAwait(false);
+
+                if (!string.IsNullOrEmpty(imagePath) && File.Exists(imagePath))
                 {
-                    coverAssigned = true;
-                    _loadedLanguage = language;
-                    if (!_dispatcher.TryEnqueue(() => CoverPath = localUri))
+                    // Determine actual language from path
+                    _loadedLanguage = DetermineLanguageFromPath(imagePath, currentLanguage);
+
+                    // Convert to URI string and update UI
+                    var fileUri = new Uri(imagePath).AbsoluteUri;
+
+                    // Use dispatcher for thread-safe UI update
+                    var priority = imageService.IsImageCached(ID, currentLanguage)
+                        ? Microsoft.UI.Dispatching.DispatcherQueuePriority.High
+                        : Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal;
+
+                    _dispatcher.TryEnqueue(priority, () =>
                     {
-                        CoverPath = localUri;
-                    }
+                        // CRITICAL: Verify language hasn't changed since download started
+                        // This prevents old downloads from overwriting new language images
+                        var globalLanguage = SteamLanguageResolver.GetSteamLanguage();
+                        if (currentLanguage == globalLanguage || _loadedLanguage == globalLanguage)
+                        {
+                            IconUri = fileUri;
+#if DEBUG
+                            DebugLogger.LogDebug($"UI updated: {ID} ({Title}) IconUri set to {_loadedLanguage}");
+#endif
+                        }
+                        else
+                        {
+#if DEBUG
+                            DebugLogger.LogDebug($"Skipping IconUri update for {ID} ({Title}) - language mismatch (requested: {currentLanguage}, current: {globalLanguage})");
+#endif
+                        }
+                    });
+                }
+                else if (!englishCached)
+                {
+                    // Only set no_icon if we didn't already show English fallback
+                    _dispatcher.TryEnqueue(() =>
+                    {
+                        IconUri = "ms-appx:///Assets/no_icon.png";
+                    });
+#if DEBUG
+                    DebugLogger.LogDebug($"Image not found for {ID}, using fallback icon");
+#endif
                 }
             }
             catch (Exception ex)
             {
 #if DEBUG
-                DebugLogger.LogDebug($"Icon download failed for {ID}: {ex.GetBaseException().Message}");
+                DebugLogger.LogDebug($"Error loading image for {ID}: {ex.Message}");
 #endif
+                // Fallback to no_icon.png on error
+                _dispatcher.TryEnqueue(() =>
+                {
+                    IconUri = "ms-appx:///Assets/no_icon.png";
+                });
             }
             finally
             {
-                if (!coverAssigned && CoverPath == null)
-                {
-                    var fallback = new Uri("ms-appx:///Assets/no_icon.png", UriKind.Absolute);
-                    if (!_dispatcher.TryEnqueue(() => CoverPath = fallback))
-                    {
-                        CoverPath = fallback;
-                    }
-                }
-
                 _coverLoading = false;
             }
         }
@@ -1246,7 +1629,6 @@ namespace AnSAM
             return new GameItem(app.Title,
                                 app.AppId,
                                 dispatcher,
-                                null,
                                 app.ExePath,
                                 app.Arguments,
                                 app.UriScheme);
