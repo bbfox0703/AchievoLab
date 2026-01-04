@@ -524,17 +524,95 @@ namespace AnSAM
         /// </summary>
         private void GameCard_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
         {
-            if (sender is FrameworkElement element && element.DataContext is GameItem game)
+            DebugLogger.LogDebug($"GameCard_DoubleTapped: Event triggered");
+            DebugLogger.LogDebug($"GameCard_DoubleTapped: sender type = {sender?.GetType().Name ?? "null"}");
+
+            if (sender is FrameworkElement element)
             {
-                if (game.IsManagerAvailable)
+                DebugLogger.LogDebug($"GameCard_DoubleTapped: sender is FrameworkElement");
+                DebugLogger.LogDebug($"GameCard_DoubleTapped: DataContext type = {element.DataContext?.GetType().Name ?? "null"}");
+
+                // Try direct DataContext cast
+                if (element.DataContext is GameItem game)
                 {
-                    StartAchievementManager(game);
+                    DebugLogger.LogDebug($"GameCard_DoubleTapped: Game item found via DataContext - {game.ID} ({game.Title})");
+                    if (game.IsManagerAvailable)
+                    {
+                        DebugLogger.LogDebug($"GameCard_DoubleTapped: Manager available, launching");
+                        StartAchievementManager(game);
+                    }
+                    else
+                    {
+                        DebugLogger.LogDebug($"GameCard_DoubleTapped: Manager NOT available");
+                        StatusText.Text = "Achievement manager not found";
+                    }
+                    return;
+                }
+
+                // Try getting GridViewItem parent and use ItemFromContainer
+                var gridViewItem = FindParent<GridViewItem>(element);
+                if (gridViewItem != null)
+                {
+                    DebugLogger.LogDebug($"GameCard_DoubleTapped: Found GridViewItem parent");
+
+                    // Try Content first
+                    if (gridViewItem.Content is GameItem gameFromContent)
+                    {
+                        DebugLogger.LogDebug($"GameCard_DoubleTapped: Game item found via GridViewItem.Content - {gameFromContent.ID} ({gameFromContent.Title})");
+                        if (gameFromContent.IsManagerAvailable)
+                        {
+                            StartAchievementManager(gameFromContent);
+                        }
+                        else
+                        {
+                            StatusText.Text = "Achievement manager not found";
+                        }
+                        return;
+                    }
+
+                    // Try ItemFromContainer (WinUI 3 compiled binding approach)
+                    var dataItem = GamesView.ItemFromContainer(gridViewItem);
+                    DebugLogger.LogDebug($"GameCard_DoubleTapped: ItemFromContainer returned: {dataItem?.GetType().Name ?? "null"}");
+
+                    if (dataItem is GameItem gameFromContainer)
+                    {
+                        DebugLogger.LogDebug($"GameCard_DoubleTapped: Game item found via ItemFromContainer - {gameFromContainer.ID} ({gameFromContainer.Title})");
+                        if (gameFromContainer.IsManagerAvailable)
+                        {
+                            StartAchievementManager(gameFromContainer);
+                        }
+                        else
+                        {
+                            StatusText.Text = "Achievement manager not found";
+                        }
+                        return;
+                    }
+                    else
+                    {
+                        DebugLogger.LogDebug($"GameCard_DoubleTapped: GridViewItem.Content is null and ItemFromContainer failed");
+                    }
                 }
                 else
                 {
-                    StatusText.Text = "Achievement manager not found";
+                    DebugLogger.LogDebug($"GameCard_DoubleTapped: Could not find GridViewItem parent");
                 }
             }
+            else
+            {
+                DebugLogger.LogDebug($"GameCard_DoubleTapped: sender is not FrameworkElement");
+            }
+        }
+
+        private T? FindParent<T>(DependencyObject child) where T : DependencyObject
+        {
+            var parent = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(child);
+            while (parent != null)
+            {
+                if (parent is T typedParent)
+                    return typedParent;
+                parent = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(parent);
+            }
+            return null;
         }
 
 
@@ -543,17 +621,34 @@ namespace AnSAM
         /// </summary>
         private void OnLaunchManagerClicked(object sender, RoutedEventArgs e)
         {
-            if (sender is FrameworkElement element && element.DataContext is GameItem game)
+            DebugLogger.LogDebug($"OnLaunchManagerClicked: Event triggered");
+
+            if (sender is MenuFlyoutItem menuItem)
             {
-                if (game.IsManagerAvailable)
+                DebugLogger.LogDebug($"OnLaunchManagerClicked: sender is MenuFlyoutItem");
+                DebugLogger.LogDebug($"OnLaunchManagerClicked: CommandParameter type = {menuItem.CommandParameter?.GetType().Name ?? "null"}");
+
+                // Try CommandParameter (set via x:Bind in XAML)
+                if (menuItem.CommandParameter is GameItem game)
                 {
-                    StartAchievementManager(game);
-                }
-                else
-                {
-                    StatusText.Text = "Achievement manager not found";
+                    DebugLogger.LogDebug($"OnLaunchManagerClicked: Game item found via CommandParameter - {game.ID} ({game.Title})");
+                    if (game.IsManagerAvailable)
+                    {
+                        StartAchievementManager(game);
+                    }
+                    else
+                    {
+                        StatusText.Text = "Achievement manager not found";
+                    }
+                    return;
                 }
             }
+            else
+            {
+                DebugLogger.LogDebug($"OnLaunchManagerClicked: sender is not MenuFlyoutItem: {sender?.GetType().Name ?? "null"}");
+            }
+
+            DebugLogger.LogDebug($"OnLaunchManagerClicked: Could not get GameItem");
         }
 
         /// <summary>
@@ -561,10 +656,27 @@ namespace AnSAM
         /// </summary>
         private void OnLaunchGameClicked(object sender, RoutedEventArgs e)
         {
-            if (sender is FrameworkElement element && element.DataContext is GameItem game)
+            DebugLogger.LogDebug($"OnLaunchGameClicked: Event triggered");
+
+            if (sender is MenuFlyoutItem menuItem)
             {
-                StartGame(game);
+                DebugLogger.LogDebug($"OnLaunchGameClicked: sender is MenuFlyoutItem");
+                DebugLogger.LogDebug($"OnLaunchGameClicked: CommandParameter type = {menuItem.CommandParameter?.GetType().Name ?? "null"}");
+
+                // Try CommandParameter (set via x:Bind in XAML)
+                if (menuItem.CommandParameter is GameItem game)
+                {
+                    DebugLogger.LogDebug($"OnLaunchGameClicked: Game item found via CommandParameter - {game.ID} ({game.Title})");
+                    StartGame(game);
+                    return;
+                }
             }
+            else
+            {
+                DebugLogger.LogDebug($"OnLaunchGameClicked: sender is not MenuFlyoutItem: {sender?.GetType().Name ?? "null"}");
+            }
+
+            DebugLogger.LogDebug($"OnLaunchGameClicked: Could not get GameItem");
         }
 
         /// <summary>

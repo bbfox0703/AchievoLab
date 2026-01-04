@@ -68,8 +68,8 @@
                         <StackPanel Width="231" DoubleTapped="GameCard_DoubleTapped">
                             <StackPanel.ContextFlyout>
                                 <MenuFlyout>
-                                    <MenuFlyoutItem Text="Launch Achievement Manager" Click="OnLaunchManagerClicked" IsEnabled="{x:Bind IsManagerAvailable}"/>
-                                    <MenuFlyoutItem Text="Launch Game" Click="OnLaunchGameClicked"/>
+                                    <MenuFlyoutItem Text="Launch Achievement Manager" Click="OnLaunchManagerClicked" CommandParameter="{x:Bind}" IsEnabled="{x:Bind IsManagerAvailable}"/>
+                                    <MenuFlyoutItem Text="Launch Game" Click="OnLaunchGameClicked" CommandParameter="{x:Bind}"/>
                                 </MenuFlyout>
                             </StackPanel.ContextFlyout>
                             <Border Height="100" CornerRadius="8"

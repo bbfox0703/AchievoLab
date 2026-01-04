@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using CommonUtilities;
 
 namespace AnSAM.Services
 {
@@ -15,7 +16,16 @@ namespace AnSAM.Services
         /// <summary>
         /// Indicates whether the bundled achievement manager executable is available.
         /// </summary>
-        public static bool IsManagerAvailable => File.Exists(RunGamePath);
+        public static bool IsManagerAvailable
+        {
+            get
+            {
+                var fullPath = Path.GetFullPath(RunGamePath);
+                var exists = File.Exists(fullPath);
+                DebugLogger.LogDebug($"RunGame path check: {fullPath}, exists={exists}");
+                return exists;
+            }
+        }
 
         /// <summary>
         /// Launches the given <see cref="GameItem"/> by trying, in order:
@@ -28,26 +38,37 @@ namespace AnSAM.Services
         {
             if (item == null)
             {
+                DebugLogger.LogDebug("Launch: item is null");
                 return;
             }
 
+            DebugLogger.LogDebug($"Launch: Attempting to launch game {item.ID} ({item.Title})");
+
             // Try custom URI scheme first
-            if (!string.IsNullOrWhiteSpace(item.UriScheme) && TryStart(item.UriScheme))
+            if (!string.IsNullOrWhiteSpace(item.UriScheme))
             {
-                return;
+                DebugLogger.LogDebug($"Launch: Trying URI scheme: {item.UriScheme}");
+                if (TryStart(item.UriScheme))
+                {
+                    DebugLogger.LogDebug($"Launch: Successfully launched via URI scheme");
+                    return;
+                }
             }
 
             // Then try executable path with arguments
             if (!string.IsNullOrWhiteSpace(item.ExePath))
             {
+                DebugLogger.LogDebug($"Launch: Trying executable: {item.ExePath}");
                 if (TryStart(item.ExePath, item.Arguments))
                 {
+                    DebugLogger.LogDebug($"Launch: Successfully launched via executable");
                     return;
                 }
             }
 
             // Fallback to Steam run URL
             var steamUri = $"steam://run/{item.ID.ToString(CultureInfo.InvariantCulture)}";
+            DebugLogger.LogDebug($"Launch: Falling back to Steam URI: {steamUri}");
             TryStart(steamUri);
         }
 
@@ -59,15 +80,24 @@ namespace AnSAM.Services
         {
             if (item == null)
             {
+                DebugLogger.LogDebug("LaunchAchievementManager: item is null");
                 return;
             }
+
+            DebugLogger.LogDebug($"LaunchAchievementManager: Attempting to launch for game {item.ID} ({item.Title})");
 
             if (!IsManagerAvailable)
             {
+                DebugLogger.LogDebug("LaunchAchievementManager: RunGame.exe not available");
                 return;
             }
 
-            TryStart(RunGamePath, item.ID.ToString(CultureInfo.InvariantCulture));
+            var appId = item.ID.ToString(CultureInfo.InvariantCulture);
+            var fullPath = Path.GetFullPath(RunGamePath);
+            DebugLogger.LogDebug($"LaunchAchievementManager: Launching {fullPath} with argument {appId}");
+
+            var success = TryStart(RunGamePath, appId);
+            DebugLogger.LogDebug($"LaunchAchievementManager: Launch success={success}");
         }
 
         private static bool TryStart(string fileName, string? arguments = null)
@@ -84,11 +114,14 @@ namespace AnSAM.Services
                     startInfo.Arguments = arguments;
                 }
 
+                DebugLogger.LogDebug($"TryStart: FileName={fileName}, Arguments={arguments ?? "(none)"}");
                 Process.Start(startInfo);
+                DebugLogger.LogDebug($"TryStart: Process started successfully");
                 return true;
             }
-            catch
+            catch (Exception ex)
             {
+                DebugLogger.LogDebug($"TryStart: Failed to start process - {ex.Message}");
                 // Ignore launch failures and allow fallback.
             }
 
