@@ -26,7 +26,7 @@ namespace CommonUtilities
 
         // Concurrency limiter to prevent resource exhaustion
         private const int MAX_CONCURRENT_DOWNLOADS = 10;
-        private const int MAX_PENDING_QUEUE_SIZE = 200; // Increased from 100 for better coverage with 600+ games
+        private const int MAX_PENDING_QUEUE_SIZE = 50; // Aggressively reduced from 100 to prevent WinUI 3 native crash
         private readonly SemaphoreSlim _downloadSemaphore = new(MAX_CONCURRENT_DOWNLOADS, MAX_CONCURRENT_DOWNLOADS);
 
         // CDN load balancer for intelligent CDN selection
@@ -117,16 +117,40 @@ namespace CommonUtilities
                     staleKeys.Add(kvp.Key);
                 }
             }
-            
+
             foreach (var key in staleKeys)
             {
                 _pendingRequests.TryRemove(key, out _);
             }
-            
+
             if (staleKeys.Count > 0)
             {
                 DebugLogger.LogDebug($"Cleaned up {staleKeys.Count} stale pending requests. Remaining: {_pendingRequests.Count}");
             }
+        }
+
+        /// <summary>
+        /// Cancels all pending downloads (for rapid scrolling/viewport changes).
+        /// Unlike SetLanguage(), this does NOT clear caches - only stops in-flight downloads.
+        /// </summary>
+        public void CancelPendingDownloads()
+        {
+            var pendingCount = _pendingRequests.Count;
+            if (pendingCount == 0)
+                return;
+
+            DebugLogger.LogDebug($"Cancelling {pendingCount} pending downloads due to rapid viewport change");
+
+            // Cancel all in-flight downloads
+            _cts.Cancel();
+
+            // Create new CTS for future requests
+            _cts = new CancellationTokenSource();
+
+            // Clean up cancelled tasks from pending dictionary
+            CleanupStaleRequests();
+
+            DebugLogger.LogDebug($"Pending downloads cancelled. Remaining: {_pendingRequests.Count}");
         }
 
         public bool HasImage(int appId, string language, bool checkEnglishFallback = false)
@@ -600,7 +624,17 @@ namespace CommonUtilities
                 }
                 _completedEvents.Add(eventKey);
             }
-            ImageDownloadCompleted?.Invoke(appId, path);
+
+            try
+            {
+                ImageDownloadCompleted?.Invoke(appId, path);
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error in ImageDownloadCompleted event handler for {appId}: {ex.GetType().Name}: {ex.Message}");
+                DebugLogger.LogDebug($"Stack trace: {ex.StackTrace}");
+                // Don't rethrow - event handler errors shouldn't crash the image service
+            }
         }
         private async Task<string?> GetHeaderImageFromStoreApiAsync(int appId, string language, CancellationToken cancellationToken)
         {
@@ -809,10 +843,12 @@ namespace CommonUtilities
                 }
 
                 var info = new FileInfo(path);
-                if (DateTime.UtcNow - info.LastWriteTimeUtc > TimeSpan.FromDays(30))
-                {
-                    return false;
-                }
+                // CHANGED: Successfully downloaded images never expire (was 30 days)
+                // Check removed - cached images are always considered fresh
+                // if (DateTime.UtcNow - info.LastWriteTimeUtc > TimeSpan.FromDays(30))
+                // {
+                //     return false;
+                // }
                 return true;
             }
             catch { }

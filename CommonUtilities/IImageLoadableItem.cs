@@ -28,8 +28,9 @@ namespace CommonUtilities
         /// </summary>
         /// <param name="imageService">The image service to use for loading.</param>
         /// <param name="languageOverride">Optional language override. If null, uses current global language.</param>
+        /// <param name="forceReload">If true, forces reload even if a valid image is already loaded (for language upgrades).</param>
         /// <returns>A task representing the asynchronous operation.</returns>
-        Task LoadCoverAsync(SharedImageService imageService, string? languageOverride = null);
+        Task LoadCoverAsync(SharedImageService imageService, string? languageOverride = null, bool forceReload = false);
 
         /// <summary>
         /// Clears the loading state to allow reloading.

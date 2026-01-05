@@ -56,7 +56,18 @@ namespace CommonUtilities
 
             // First acquire domain-specific semaphore to limit concurrent requests
             var domainSemaphore = GetOrCreateDomainSemaphore(host);
-            await domainSemaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+            try
+            {
+                await domainSemaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (ObjectDisposedException)
+            {
+                // CRITICAL: Domain semaphore was disposed during language switch or app shutdown
+                // This happens when downloads are waiting to acquire semaphore and it gets disposed
+                DebugLogger.LogDebug($"Domain semaphore for {host} disposed while waiting, aborting request");
+                throw; // Re-throw to let caller handle it
+            }
 
             try
             {
@@ -129,7 +140,15 @@ namespace CommonUtilities
             catch
             {
                 // If we fail to get through rate limiting, release the semaphore
-                domainSemaphore.Release();
+                try
+                {
+                    domainSemaphore.Release();
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Semaphore was disposed during language switch or app shutdown
+                    DebugLogger.LogDebug($"Domain semaphore already disposed in catch block, skipping release");
+                }
                 throw;
             }
         }
@@ -189,7 +208,16 @@ namespace CommonUtilities
                 // Release the domain semaphore
                 if (_domainSemaphores.TryGetValue(host, out var semaphore))
                 {
-                    semaphore.Release();
+                    try
+                    {
+                        semaphore.Release();
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        // CRITICAL: Semaphore was disposed during language switch or app shutdown
+                        // This is expected when downloads complete after language switch starts
+                        DebugLogger.LogDebug($"Domain semaphore for {host} already disposed, skipping release");
+                    }
                 }
             }
         }

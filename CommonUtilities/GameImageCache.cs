@@ -62,7 +62,8 @@ namespace CommonUtilities
             Directory.CreateDirectory(_baseCacheDir);
             _failureTracker = failureTracker;
             _concurrency = new SemaphoreSlim(maxConcurrency);
-            _cacheDuration = cacheDuration ?? TimeSpan.FromDays(30);
+            // CHANGED: Successfully downloaded images never expire (was 30 days)
+            _cacheDuration = cacheDuration ?? TimeSpan.MaxValue;
 
             _rateLimiter = new DomainRateLimiter(maxConcurrentRequestsPerDomain, tokenBucketCapacity, fillRatePerSecond, initialTokens ?? tokenBucketCapacity, baseDomainDelay, jitterSeconds);
             _http = httpClient ?? HttpClientProvider.Shared;
@@ -372,6 +373,13 @@ namespace CommonUtilities
             {
                 await _concurrency.WaitAsync(cancellationToken).ConfigureAwait(false);
             }
+            catch (ObjectDisposedException)
+            {
+                // CRITICAL: Semaphore was disposed during language switch or app shutdown
+                // This happens when downloads are in-flight and semaphore gets disposed
+                DebugLogger.LogDebug($"Concurrency semaphore disposed while waiting for {uri}, aborting download");
+                return new ImageResult(string.Empty, false);
+            }
             catch (OperationCanceledException ex)
             {
                 if (!cancellationToken.IsCancellationRequested)
@@ -481,6 +489,13 @@ namespace CommonUtilities
                     }
                     return new ImageResult(string.Empty, false);
                 }
+                catch (ObjectDisposedException ex)
+                {
+                    // CRITICAL: Semaphore (concurrency or rate limiter) was disposed during download
+                    // This happens during language switch or app shutdown
+                    DebugLogger.LogDebug($"Semaphore disposed during download for {uri}: {ex.Message}");
+                    return new ImageResult(string.Empty, false);
+                }
                 catch (Exception ex)
                 {
                     DebugLogger.LogDebug($"Unexpected error downloading {uri}: {ex.GetType().Name} - {ex.Message}");
@@ -494,7 +509,16 @@ namespace CommonUtilities
                 {
                     if (rateLimiterAcquired)
                     {
-                        _rateLimiter.RecordCall(uri, success, retryDelay);
+                        try
+                        {
+                            _rateLimiter.RecordCall(uri, success, retryDelay);
+                        }
+                        catch (Exception ex)
+                        {
+                            // CRITICAL: Catch exceptions from RecordCall (especially ObjectDisposedException during language switch)
+                            // If semaphore.Release() throws in RecordCall, this prevents crash
+                            DebugLogger.LogDebug($"Error in RecordCall for {uri}: {ex.GetType().Name}: {ex.Message}");
+                        }
                     }
                 }
             }

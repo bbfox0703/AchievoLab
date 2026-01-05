@@ -62,8 +62,9 @@ namespace CommonUtilities
                     var lastFailedStr = languageElement.Attribute("LastFailed")?.Value;
                     if (DateTime.TryParse(lastFailedStr, out var lastFailed))
                     {
-                        // Use different thresholds: 7 days for language-specific, 15 days for general
-                        var thresholdDays = language == "english" ? 15 : 7;
+                        // Use different thresholds: 14 days for language-specific, 15 days for English
+                        // CHANGED: Increased retry threshold from 7 to 14 days for non-English languages
+                        var thresholdDays = language == "english" ? 15 : 14;
                         var daysSinceFailure = (DateTime.Now - lastFailed).TotalDays;
                         
                         if (daysSinceFailure <= thresholdDays)

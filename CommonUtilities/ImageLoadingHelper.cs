@@ -53,7 +53,18 @@ namespace CommonUtilities
                     }
 
                     // Notify caller about English fallback (for immediate UI update)
-                    onEnglishFallbackLoaded?.Invoke(englishPath);
+                    try
+                    {
+                        onEnglishFallbackLoaded?.Invoke(englishPath);
+                    }
+                    catch (Exception ex)
+                    {
+#if DEBUG
+                        DebugLogger.LogDebug($"Error in English fallback callback for {appId}: {ex.GetType().Name}: {ex.Message}");
+                        DebugLogger.LogDebug($"Stack trace: {ex.StackTrace}");
+#endif
+                        // Don't rethrow - callback errors shouldn't stop image loading
+                    }
 
 #if DEBUG
                     DebugLogger.LogDebug($"Loaded English fallback for {appId}, will attempt {targetLanguage} next");

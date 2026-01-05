@@ -31,14 +31,14 @@ namespace CommonUtilities
     // Maximum concurrent downloads per CDN domain to avoid overwhelming servers (default: 4)
     ""MaxConcurrentPerDomain"": 4,
 
-    // How long to keep cached images before re-downloading, in days (default: 30)
-    ""CacheDurationDays"": 30,
+    // How long to keep cached images before re-downloading, in days (CHANGED: never expire, was 30)
+    ""CacheDurationDays"": 36500,
 
     // Days to wait before retrying failed English image downloads (default: 15)
     ""FailureTrackingDaysEnglish"": 15,
 
-    // Days to wait before retrying failed non-English image downloads (default: 7)
-    ""FailureTrackingDaysOtherLanguages"": 7,
+    // Days to wait before retrying failed non-English image downloads (CHANGED: 14, was 7)
+    ""FailureTrackingDaysOtherLanguages"": 14,
 
     // Minutes to block a CDN after receiving rate limit errors (429/403) (default: 5)
     ""CdnBlockDurationMinutes"": 5
@@ -159,14 +159,14 @@ namespace CommonUtilities
     // Maximum concurrent downloads per CDN domain (default: 4)
     ""MaxConcurrentPerDomain"": 4,
 
-    // How long to keep cached images in days (default: 30)
-    ""CacheDurationDays"": 30,
+    // How long to keep cached images in days (CHANGED: never expire, was 30)
+    ""CacheDurationDays"": 36500,
 
     // Days to wait before retrying failed English image downloads (default: 15)
     ""FailureTrackingDaysEnglish"": 15,
 
-    // Days to wait before retrying failed non-English image downloads (default: 7)
-    ""FailureTrackingDaysOtherLanguages"": 7,
+    // Days to wait before retrying failed non-English image downloads (CHANGED: 14, was 7)
+    ""FailureTrackingDaysOtherLanguages"": 14,
 
     // Minutes to block a CDN after rate limit errors (default: 5)
     ""CdnBlockDurationMinutes"": 5

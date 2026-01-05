@@ -48,6 +48,7 @@ namespace AnSAM
         private string _currentLanguage = "english";
         private CancellationTokenSource? _languageSwitchCts;
         private readonly SemaphoreSlim _languageSwitchLock = new(1, 1); // Mutex for language switch
+        private CancellationTokenSource _sequentialLoadCts = new(); // Cancel sequential image loading
 
         private bool _autoLoaded;
         private bool _languageInitialized;
@@ -223,12 +224,13 @@ namespace AnSAM
                         _isLanguageSwitching = true;
 
                         SteamLanguageResolver.OverrideLanguage = lang;
+                        // NOTE: SetLanguage internally cancels pending downloads and waits up to 5s for them to complete
                         await _imageService.SetLanguage(lang);
 
                         _settingsService.TrySetString("Language", lang);
 
                         // CRITICAL: Scroll to top FIRST to avoid scroll position conflicts during re-sorting
-                        var scrollViewer = _gamesScrollViewer ??= FindScrollViewer(GamesView);
+                        var scrollViewer = GetOrAttachScrollViewer();
                         if (scrollViewer != null)
                         {
                             scrollViewer.ChangeView(null, 0, null, true); // Instant scroll to top
@@ -247,8 +249,18 @@ namespace AnSAM
                         // Wait for any ongoing UI operations to complete before starting image refresh
                         await Task.Delay(200);
 
+                        // CRITICAL: Save focused element before language switch to restore it after
+                        // CleanSlateLanguageSwitcher rebinds ItemsSource, causing focus to shift to GridView
+                        var focusedElement = Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(Content.XamlRoot) as UIElement;
+
                         // Refresh images using batched strategy
                         await RefreshImagesForLanguageSwitch(lang);
+
+                        // Restore focus to the previously focused element (typically LanguageComboBox)
+                        if (focusedElement != null)
+                        {
+                            focusedElement.Focus(FocusState.Programmatic);
+                        }
 
                         StatusText.Text = lang == "english"
                             ? $"Switched to English - displaying original titles"
@@ -375,7 +387,7 @@ namespace AnSAM
                 e.Key != Windows.System.VirtualKey.End)
                 return;
 
-            var sv = _gamesScrollViewer ??= FindScrollViewer(GamesView);
+            var sv = GetOrAttachScrollViewer();
             if (sv == null)
                 return;
 
@@ -473,29 +485,11 @@ namespace AnSAM
                 return;
             }
 
-            // Phase 0: Just register for phase 1, don't do any work yet
-            if (e.Phase == 0)
-            {
-                e.RegisterUpdateCallback(GamesView_ContainerContentChanging);
-                e.Handled = true;
-            }
-            // Phase 1: Load the image
-            else if (e.Phase == 1)
-            {
-                // SIMPLIFIED: Only load if it's no_icon (完全重置策略)
-                var isFallbackIcon = game.IconUri == "ms-appx:///Assets/no_icon.png";
-
-#if DEBUG
-                DebugLogger.LogDebug($"ContainerContentChanging Phase1: {game.ID} ({game.Title}), isFallback={isFallbackIcon}");
-#endif
-
-                if (isFallbackIcon)
-                {
-                    // Fire-and-forget pattern - exceptions are caught in LoadCoverAsync
-                    _ = game.LoadCoverAsync(_imageService);
-                }
-                // Otherwise, keep existing image (already loaded during language switch)
-            }
+            // SIMPLIFIED: ContainerContentChanging now does NOTHING
+            // Images are loaded sequentially from top to bottom via StartSequentialImageLoading()
+            // This avoids WinUI 3 native crash from thundering herd of UI updates during fast scrolling
+            // Trade-off: User may see lower games before their images load, but stability > UX
+            e.Handled = true;
         }
 
 
@@ -691,63 +685,82 @@ namespace AnSAM
         /// </summary>
         private async Task RefreshAsync()
         {
-            if (!_steamClient.Initialized)
+            try
             {
+                if (!_steamClient.Initialized)
+                {
+                    StatusProgress.IsIndeterminate = false;
+                    StatusProgress.Value = 0;
+                    StatusExtra.Text = string.Empty;
+                    StatusText.Text = "Steam unavailable";
+
+                    var dialog = new ContentDialog
+                    {
+                        Title = "Steam unavailable",
+                        Content = "Unable to refresh because Steam is not available.",
+                        CloseButtonText = "OK",
+                        XamlRoot = Content.XamlRoot
+                    };
+
+                    await dialog.ShowAsync();
+                    return;
+                }
+
+                StatusText.Text = "Refresh";
                 StatusProgress.IsIndeterminate = false;
                 StatusProgress.Value = 0;
-                StatusExtra.Text = string.Empty;
-                StatusText.Text = "Steam unavailable";
+                StatusExtra.Text = "0%";
 
-                var dialog = new ContentDialog
+                var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab");
+
+                var http = HttpClientProvider.Shared;
+                var apps = await GameCacheService.RefreshAsync(baseDir, _steamClient, http);
+
+                var (allGames, filteredGames) = await BuildGameListAsync(apps, null);
+
+                _ = DispatcherQueue.TryEnqueue(() =>
                 {
-                    Title = "Steam unavailable",
-                    Content = "Unable to refresh because Steam is not available.",
-                    CloseButtonText = "OK",
-                    XamlRoot = Content.XamlRoot
-                };
+                    _allGames.Clear();
+                    _allGames.AddRange(allGames);
 
-                await dialog.ShowAsync();
-                return;
+                    // Load localized titles if current language is not English
+                    if (_currentLanguage != "english")
+                    {
+                        LoadLocalizedTitlesFromXml();
+                    }
+
+                    // Update all game titles to current language
+                    UpdateAllGameTitles(_currentLanguage);
+
+                    Games.Clear();
+                    foreach (var game in filteredGames)
+                    {
+                        Games.Add(game);
+                    }
+
+                    StatusText.Text = _steamClient.Initialized
+                        ? $"Loaded {_allGames.Count} games (Language: {_currentLanguage})"
+                        : $"Steam unavailable - showing {_allGames.Count} games (Language: {_currentLanguage})";
+
+                    // CRITICAL: Start sequential image loading after initial load
+                    StartSequentialImageLoading();
+                    StatusProgress.Value = 0;
+                    StatusExtra.Text = $"{Games.Count}/{_allGames.Count}";
+                });
             }
-
-            StatusText.Text = "Refresh";
-            StatusProgress.IsIndeterminate = false;
-            StatusProgress.Value = 0;
-            StatusExtra.Text = "0%";
-
-            var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab");
-
-            var http = HttpClientProvider.Shared;
-            var apps = await GameCacheService.RefreshAsync(baseDir, _steamClient, http);
-
-            var (allGames, filteredGames) = await BuildGameListAsync(apps, null);
-
-            _ = DispatcherQueue.TryEnqueue(() =>
+            catch (Exception ex)
             {
-                _allGames.Clear();
-                _allGames.AddRange(allGames);
+                DebugLogger.LogDebug($"Error in RefreshAsync: {ex.GetType().Name}: {ex.Message}");
+                DebugLogger.LogDebug($"Stack trace: {ex.StackTrace}");
 
-                // Load localized titles if current language is not English
-                if (_currentLanguage != "english")
+                _ = DispatcherQueue.TryEnqueue(() =>
                 {
-                    LoadLocalizedTitlesFromXml();
-                }
-                
-                // Update all game titles to current language
-                UpdateAllGameTitles(_currentLanguage);
-
-                Games.Clear();
-                foreach (var game in filteredGames)
-                {
-                    Games.Add(game);
-                }
-
-                StatusText.Text = _steamClient.Initialized
-                    ? $"Loaded {_allGames.Count} games (Language: {_currentLanguage})"
-                    : $"Steam unavailable - showing {_allGames.Count} games (Language: {_currentLanguage})";
-                StatusProgress.Value = 0;
-                StatusExtra.Text = $"{Games.Count}/{_allGames.Count}";
-            });
+                    StatusText.Text = $"Refresh failed: {ex.Message}";
+                    StatusProgress.Value = 0;
+                    StatusExtra.Text = string.Empty;
+                    StatusProgress.IsIndeterminate = false;
+                });
+            }
         }
 
         /// <summary>
@@ -957,6 +970,258 @@ namespace AnSAM
         }
 
         /// <summary>
+        /// Gets ScrollViewer and attaches ViewChanged handler to cancel pending loads on rapid scroll/jump
+        /// </summary>
+        private ScrollViewer? GetOrAttachScrollViewer()
+        {
+            if (_gamesScrollViewer == null)
+            {
+                _gamesScrollViewer = FindScrollViewer(GamesView);
+                if (_gamesScrollViewer != null)
+                {
+                    // Attach ViewChanged to detect rapid scrolling (Home/End keys)
+                    _gamesScrollViewer.ViewChanged += GamesScrollViewer_ViewChanged;
+                }
+            }
+            return _gamesScrollViewer;
+        }
+
+        /// <summary>
+        /// ViewChanged handler - no longer needed since ContainerContentChanging doesn't trigger loads.
+        /// Kept as placeholder in case ScrollViewer is still attached via GetOrAttachScrollViewer().
+        /// </summary>
+        private void GamesScrollViewer_ViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
+        {
+            // Do nothing - sequential loading is independent of scrolling
+        }
+
+        /// <summary>
+        /// Loads game images sequentially from top to bottom (like old SAM).
+        /// THREE-PHASE LOADING STRATEGY:
+        /// Phase 1 (Instant): Load all cached images (target language or English)
+        /// Phase 2 (Fast): Download English fallback for games with no cache
+        /// Phase 3 (Slow): Download target language for games showing English
+        /// This ensures users see English fallbacks quickly, then target language updates.
+        /// </summary>
+        private async void StartSequentialImageLoading()
+        {
+            // Cancel any previous sequential loading
+            var oldCts = _sequentialLoadCts;
+            _sequentialLoadCts = new CancellationTokenSource();
+            oldCts.Cancel();
+            oldCts.Dispose();
+
+            var ct = _sequentialLoadCts.Token;
+            var currentLanguage = _currentLanguage;
+            bool isEnglish = string.Equals(currentLanguage, "english", StringComparison.OrdinalIgnoreCase);
+
+#if DEBUG
+            DebugLogger.LogDebug($"StartSequentialImageLoading: THREE-PHASE loading for {_allGames.Count} games in {currentLanguage}");
+#endif
+
+            // PHASE 1: Instant load of cached images only (no downloads, no LoadCoverAsync)
+            var gamesNeedingEnglish = new List<GameItem>();
+            var gamesNeedingTarget = new List<GameItem>();
+            const int phase1BatchSize = 50; // Larger batch since we're directly reading cache
+
+            for (int i = 0; i < _allGames.Count; i += phase1BatchSize)
+            {
+                try
+                {
+                    if (ct.IsCancellationRequested || _currentLanguage != currentLanguage)
+                        break;
+
+                    for (int j = 0; j < phase1BatchSize && (i + j) < _allGames.Count; j++)
+                    {
+                        var game = _allGames[i + j];
+                        if (game.IconUri == "ms-appx:///Assets/no_icon.png")
+                        {
+                            // Try target language cache first
+                            string? cachedPath = _imageService.TryGetCachedPath(game.ID, currentLanguage, checkEnglishFallback: false);
+
+                            if (!string.IsNullOrEmpty(cachedPath) && File.Exists(cachedPath))
+                            {
+                                // Target language cached - show it immediately
+                                var uri = new Uri(cachedPath).AbsoluteUri;
+                                DispatcherQueue.TryEnqueue(() => game.IconUri = uri);
+                            }
+                            else if (!isEnglish)
+                            {
+                                // Try English fallback cache
+                                cachedPath = _imageService.TryGetCachedPath(game.ID, "english", checkEnglishFallback: false);
+
+                                if (!string.IsNullOrEmpty(cachedPath) && File.Exists(cachedPath))
+                                {
+                                    // English cached - show it immediately
+                                    var uri = new Uri(cachedPath).AbsoluteUri;
+                                    DispatcherQueue.TryEnqueue(() => game.IconUri = uri);
+
+                                    // Will need target language in Phase 3
+                                    gamesNeedingTarget.Add(game);
+                                }
+                                else
+                                {
+                                    // No cache at all - need English download in Phase 2
+                                    gamesNeedingEnglish.Add(game);
+                                }
+                            }
+                            else
+                            {
+                                // English mode, no cache - need download in Phase 2
+                                gamesNeedingEnglish.Add(game);
+                            }
+                        }
+                    }
+
+                    // No async waiting in Phase 1 - just direct cache reads!
+                    await Task.Delay(1, ct); // Minimal delay
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+#if DEBUG
+                    DebugLogger.LogDebug($"Phase 1 error at {i}: {ex.Message}");
+#endif
+                }
+            }
+
+#if DEBUG
+            DebugLogger.LogDebug($"Phase 1 complete. Need English: {gamesNeedingEnglish.Count}, Need target: {gamesNeedingTarget.Count}");
+#endif
+
+            // PHASE 2: Fast download of English fallback (larger batch, English usually exists)
+            const int phase2BatchSize = 5;
+
+            for (int i = 0; i < gamesNeedingEnglish.Count; i += phase2BatchSize)
+            {
+                try
+                {
+                    if (ct.IsCancellationRequested || _currentLanguage != currentLanguage)
+                    {
+#if DEBUG
+                        DebugLogger.LogDebug($"Phase 2 cancelled at {i}/{gamesNeedingEnglish.Count}");
+#endif
+                        break;
+                    }
+
+                    var phase2Tasks = new List<Task>();
+                    for (int j = 0; j < phase2BatchSize && (i + j) < gamesNeedingEnglish.Count; j++)
+                    {
+                        var game = gamesNeedingEnglish[i + j];
+                        var tcs = new TaskCompletionSource<bool>();
+                        DispatcherQueue.TryEnqueue(async () =>
+                        {
+                            try
+                            {
+                                await game.LoadCoverAsync(_imageService);
+                                tcs.SetResult(true);
+                            }
+                            catch (Exception ex)
+                            {
+                                tcs.SetException(ex);
+                            }
+                        });
+                        phase2Tasks.Add(tcs.Task);
+
+                        // If not English mode, will need target language in Phase 3
+                        if (!isEnglish)
+                        {
+                            gamesNeedingTarget.Add(game);
+                        }
+                    }
+
+                    if (phase2Tasks.Count > 0)
+                    {
+                        await Task.WhenAll(phase2Tasks);
+                    }
+
+                    // Shorter delay for English (usually exists and fast)
+                    await Task.Delay(50, ct);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+#if DEBUG
+                    DebugLogger.LogDebug($"Phase 2 error at {i}: {ex.Message}");
+#endif
+                }
+            }
+
+#if DEBUG
+            DebugLogger.LogDebug($"Phase 2 complete. Now downloading target language for {gamesNeedingTarget.Count} games.");
+#endif
+
+            // PHASE 3: Slow download of target language (smallest batch, may not exist)
+            if (!isEnglish)
+            {
+                const int phase3BatchSize = 3;
+
+                for (int i = 0; i < gamesNeedingTarget.Count; i += phase3BatchSize)
+                {
+                    try
+                    {
+                        if (ct.IsCancellationRequested || _currentLanguage != currentLanguage)
+                        {
+#if DEBUG
+                            DebugLogger.LogDebug($"Phase 3 cancelled at {i}/{gamesNeedingTarget.Count}");
+#endif
+                            break;
+                        }
+
+                        var phase3Tasks = new List<Task>();
+                        for (int j = 0; j < phase3BatchSize && (i + j) < gamesNeedingTarget.Count; j++)
+                        {
+                            var game = gamesNeedingTarget[i + j];
+                            var tcs = new TaskCompletionSource<bool>();
+                            DispatcherQueue.TryEnqueue(async () =>
+                            {
+                                try
+                                {
+                                    // Force reload to upgrade from English to target language
+                                    await game.LoadCoverAsync(_imageService, languageOverride: null, forceReload: true);
+                                    tcs.SetResult(true);
+                                }
+                                catch (Exception ex)
+                                {
+                                    tcs.SetException(ex);
+                                }
+                            });
+                            phase3Tasks.Add(tcs.Task);
+                        }
+
+                        if (phase3Tasks.Count > 0)
+                        {
+                            await Task.WhenAll(phase3Tasks);
+                        }
+
+                        // Longer delay for target language (may not exist, respects rate limits)
+                        await Task.Delay(100, ct);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+#if DEBUG
+                        DebugLogger.LogDebug($"Phase 3 error at {i}: {ex.Message}");
+#endif
+                    }
+                }
+            }
+
+#if DEBUG
+            DebugLogger.LogDebug("Sequential image loading completed");
+#endif
+        }
+
+        /// <summary>
         /// Gets currently visible and hidden game items based on viewport position.
         /// </summary>
         private (List<GameItem> visible, List<GameItem> hidden) GetVisibleAndHiddenGameItems()
@@ -966,7 +1231,7 @@ namespace AnSAM
 
             if (GamesView?.ItemsPanelRoot is ItemsWrapGrid wrapGrid)
             {
-                var scrollViewer = _gamesScrollViewer ??= FindScrollViewer(GamesView);
+                var scrollViewer = GetOrAttachScrollViewer();
                 if (scrollViewer != null)
                 {
                     var viewportHeight = scrollViewer.ViewportHeight;
@@ -1019,7 +1284,7 @@ namespace AnSAM
         /// <summary>
         /// Refreshes game cover images after language switch.
         /// Uses CLEAN SLATE approach: unbind GridView, reset all states, rebind.
-        /// This forces GridView to recreate all containers and trigger ContainerContentChanging.
+        /// Then starts sequential image loading from top to bottom (like old SAM).
         /// </summary>
         private async Task RefreshImagesForLanguageSwitch(string newLanguage)
         {
@@ -1030,6 +1295,10 @@ namespace AnSAM
                 newLanguage,
                 _dispatcher
             );
+
+            // CRITICAL: Start sequential loading from top to bottom (like old SAM)
+            // This avoids WinUI 3 native crash from thundering herd during fast scrolling
+            StartSequentialImageLoading();
         }
 
         /// <summary>
@@ -1245,7 +1514,7 @@ namespace AnSAM
             var visible = new List<GameItem>();
             var hidden = new List<GameItem>();
 
-            var sv = _gamesScrollViewer ??= FindScrollViewer(GamesView);
+            var sv = GetOrAttachScrollViewer();
             if (GamesView.ItemsPanelRoot is ItemsWrapGrid wrapGrid && sv != null)
             {
                 var itemHeight = wrapGrid.ItemHeight;
@@ -1302,7 +1571,15 @@ namespace AnSAM
                 if (_displayTitle != value)
                 {
                     _displayTitle = value;
-                    PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(Title)));
+                    try
+                    {
+                        PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(Title)));
+                    }
+                    catch (Exception ex)
+                    {
+                        DebugLogger.LogDebug($"Error in PropertyChanged for Title (ID: {ID}): {ex.GetType().Name}: {ex.Message}");
+                        DebugLogger.LogDebug($"Stack trace: {ex.StackTrace}");
+                    }
                 }
             }
         }
@@ -1334,7 +1611,15 @@ namespace AnSAM
                     if (_iconUri != value || !string.IsNullOrEmpty(value)) // Force update if new value is not empty
                     {
                         _iconUri = value;
-                        PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(IconUri)));
+                        try
+                        {
+                            PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(IconUri)));
+                        }
+                        catch (Exception ex)
+                        {
+                            DebugLogger.LogDebug($"Error in PropertyChanged for IconUri (ID: {ID}): {ex.GetType().Name}: {ex.Message}");
+                            DebugLogger.LogDebug($"Stack trace: {ex.StackTrace}");
+                        }
                     }
                 }
                 finally
@@ -1443,7 +1728,7 @@ namespace AnSAM
         /// Asynchronously loads the game's cover image using the shared image service.
         /// Simplified approach: Let WinUI handle BitmapImage creation from string URI.
         /// </summary>
-        public async Task LoadCoverAsync(SharedImageService imageService, string? languageOverride = null)
+        public async Task LoadCoverAsync(SharedImageService imageService, string? languageOverride = null, bool forceReload = false)
         {
             // Skip if already loading
             if (_coverLoading)
@@ -1455,8 +1740,9 @@ namespace AnSAM
             }
 
             // SIMPLIFIED: Only skip if we already have a valid image (not no_icon)
+            // Unless forceReload is true (for language upgrade in Phase 3)
             string currentLanguage = languageOverride ?? SteamLanguageResolver.GetSteamLanguage();
-            if (!string.IsNullOrEmpty(IconUri) && IconUri != "ms-appx:///Assets/no_icon.png")
+            if (!forceReload && !string.IsNullOrEmpty(IconUri) && IconUri != "ms-appx:///Assets/no_icon.png")
             {
 #if DEBUG
                 DebugLogger.LogDebug($"Skipping LoadCoverAsync for {ID} ({Title}): already has valid image");
@@ -1536,12 +1822,20 @@ namespace AnSAM
 #endif
                 }
             }
+            catch (OperationCanceledException)
+            {
+                // Download was cancelled (e.g., due to rapid scrolling/viewport change)
+                // CRITICAL: Don't reset IconUri - keep existing image (English fallback or previous load)
+#if DEBUG
+                DebugLogger.LogDebug($"LoadCoverAsync cancelled for {ID} ({Title}) - keeping existing IconUri");
+#endif
+            }
             catch (Exception ex)
             {
 #if DEBUG
                 DebugLogger.LogDebug($"Error loading image for {ID}: {ex.Message}");
 #endif
-                // Fallback to no_icon.png on error
+                // Fallback to no_icon.png only on real error (not cancellation)
                 _dispatcher.TryEnqueue(() =>
                 {
                     IconUri = "ms-appx:///Assets/no_icon.png";
