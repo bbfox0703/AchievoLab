@@ -48,6 +48,7 @@ namespace AnSAM
         private string _currentLanguage = "english";
         private CancellationTokenSource? _languageSwitchCts;
         private readonly SemaphoreSlim _languageSwitchLock = new(1, 1); // Mutex for language switch
+        private CancellationTokenSource _containerLoadCts = new(); // Cancel pending delayed loads on rapid scroll/jump
 
         private bool _autoLoaded;
         private bool _languageInitialized;
@@ -223,12 +224,13 @@ namespace AnSAM
                         _isLanguageSwitching = true;
 
                         SteamLanguageResolver.OverrideLanguage = lang;
+                        // NOTE: SetLanguage internally cancels pending downloads and waits up to 5s for them to complete
                         await _imageService.SetLanguage(lang);
 
                         _settingsService.TrySetString("Language", lang);
 
                         // CRITICAL: Scroll to top FIRST to avoid scroll position conflicts during re-sorting
-                        var scrollViewer = _gamesScrollViewer ??= FindScrollViewer(GamesView);
+                        var scrollViewer = GetOrAttachScrollViewer();
                         if (scrollViewer != null)
                         {
                             scrollViewer.ChangeView(null, 0, null, true); // Instant scroll to top
@@ -375,7 +377,7 @@ namespace AnSAM
                 e.Key != Windows.System.VirtualKey.End)
                 return;
 
-            var sv = _gamesScrollViewer ??= FindScrollViewer(GamesView);
+            var sv = GetOrAttachScrollViewer();
             if (sv == null)
                 return;
 
@@ -491,8 +493,44 @@ namespace AnSAM
 
                 if (isFallbackIcon)
                 {
-                    // Fire-and-forget pattern - exceptions are caught in LoadCoverAsync
-                    _ = game.LoadCoverAsync(_imageService);
+                    // CRITICAL: Add random delay to prevent thundering herd of UI updates
+                    // When scrolling fast, 50-100 items call LoadCoverAsync simultaneously
+                    // Each LoadCoverAsync updates IconUri 2x (English fallback + target language)
+                    // This overwhelms WinUI 3 rendering pipeline causing native crash (0xc000027b)
+                    var delay = Random.Shared.Next(0, 300); // 0-300ms random delay to spread load
+                    var gameCapture = game; // Capture for async lambda
+                    var cts = _containerLoadCts; // Capture current CTS
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await Task.Delay(delay, cts.Token);
+
+                            // CRITICAL: Check if language switch started during delay
+                            // If switching, skip this load to avoid piling up cancelled operations
+                            if (_isLanguageSwitching)
+                            {
+#if DEBUG
+                                DebugLogger.LogDebug($"Skipping LoadCoverAsync for {gameCapture.ID} - language switch in progress");
+#endif
+                                return;
+                            }
+
+                            // MUST enqueue back to UI thread - game object has UI bindings
+                            // CRITICAL: Don't use async lambda with TryEnqueue - becomes async void!
+                            DispatcherQueue.TryEnqueue(() =>
+                            {
+                                _ = gameCapture.LoadCoverAsync(_imageService);
+                            });
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            // Expected when rapid scrolling/jumping cancels pending loads
+#if DEBUG
+                            DebugLogger.LogDebug($"Delayed load cancelled for {gameCapture.ID}");
+#endif
+                        }
+                    });
                 }
                 // Otherwise, keep existing image (already loaded during language switch)
             }
@@ -973,6 +1011,41 @@ namespace AnSAM
         }
 
         /// <summary>
+        /// Gets ScrollViewer and attaches ViewChanged handler to cancel pending loads on rapid scroll/jump
+        /// </summary>
+        private ScrollViewer? GetOrAttachScrollViewer()
+        {
+            if (_gamesScrollViewer == null)
+            {
+                _gamesScrollViewer = FindScrollViewer(GamesView);
+                if (_gamesScrollViewer != null)
+                {
+                    // Attach ViewChanged to detect rapid scrolling (Home/End keys)
+                    _gamesScrollViewer.ViewChanged += GamesScrollViewer_ViewChanged;
+                }
+            }
+            return _gamesScrollViewer;
+        }
+
+        /// <summary>
+        /// Cancel pending delayed loads when viewport changes significantly (Home/End keys)
+        /// </summary>
+        private void GamesScrollViewer_ViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
+        {
+            if (!e.IsIntermediate)
+            {
+                // Scroll/jump completed - cancel all pending delayed loads to prevent pile-up
+                var oldCts = _containerLoadCts;
+                _containerLoadCts = new CancellationTokenSource();
+                oldCts.Cancel();
+                oldCts.Dispose();
+#if DEBUG
+                DebugLogger.LogDebug("Viewport changed - cancelled pending delayed loads");
+#endif
+            }
+        }
+
+        /// <summary>
         /// Gets currently visible and hidden game items based on viewport position.
         /// </summary>
         private (List<GameItem> visible, List<GameItem> hidden) GetVisibleAndHiddenGameItems()
@@ -982,7 +1055,7 @@ namespace AnSAM
 
             if (GamesView?.ItemsPanelRoot is ItemsWrapGrid wrapGrid)
             {
-                var scrollViewer = _gamesScrollViewer ??= FindScrollViewer(GamesView);
+                var scrollViewer = GetOrAttachScrollViewer();
                 if (scrollViewer != null)
                 {
                     var viewportHeight = scrollViewer.ViewportHeight;
@@ -1261,7 +1334,7 @@ namespace AnSAM
             var visible = new List<GameItem>();
             var hidden = new List<GameItem>();
 
-            var sv = _gamesScrollViewer ??= FindScrollViewer(GamesView);
+            var sv = GetOrAttachScrollViewer();
             if (GamesView.ItemsPanelRoot is ItemsWrapGrid wrapGrid && sv != null)
             {
                 var itemHeight = wrapGrid.ItemHeight;
@@ -1318,7 +1391,15 @@ namespace AnSAM
                 if (_displayTitle != value)
                 {
                     _displayTitle = value;
-                    PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(Title)));
+                    try
+                    {
+                        PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(Title)));
+                    }
+                    catch (Exception ex)
+                    {
+                        DebugLogger.LogDebug($"Error in PropertyChanged for Title (ID: {ID}): {ex.GetType().Name}: {ex.Message}");
+                        DebugLogger.LogDebug($"Stack trace: {ex.StackTrace}");
+                    }
                 }
             }
         }
@@ -1350,7 +1431,15 @@ namespace AnSAM
                     if (_iconUri != value || !string.IsNullOrEmpty(value)) // Force update if new value is not empty
                     {
                         _iconUri = value;
-                        PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(IconUri)));
+                        try
+                        {
+                            PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(IconUri)));
+                        }
+                        catch (Exception ex)
+                        {
+                            DebugLogger.LogDebug($"Error in PropertyChanged for IconUri (ID: {ID}): {ex.GetType().Name}: {ex.Message}");
+                            DebugLogger.LogDebug($"Stack trace: {ex.StackTrace}");
+                        }
                     }
                 }
                 finally
