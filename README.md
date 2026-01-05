@@ -52,6 +52,8 @@ winget install Microsoft.DotNet.DesktopRuntime.8 Microsoft.WindowsAppSDK.1.7
 ###
 
 ## Using *MyOwnGames*
+Unlike AnSAM, MyOwnGames get localized game title data via Steam API. Data shared between AnSAM & MyOwnGames.
+To get localized game title data:
 1. Obtain a Steam API key from [Steam Developer](https://steamcommunity.com/dev/apikey).  
    ⚠️ Your API key is sensitive and tied to your Steam account. **Do not share it with anyone.**
 2. Obtain your **SteamID64**. This tool saves your game list data, which will then be used by the main program (*AnASM*).

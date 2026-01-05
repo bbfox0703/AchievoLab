@@ -53,6 +53,7 @@ namespace AnSAM
         private bool _languageInitialized;
         private ScrollViewer? _gamesScrollViewer;
         private readonly DispatcherTimer _cdnStatsTimer;
+        private DispatcherQueueTimer? _searchDebounceTimer;
         private readonly ThemeManagementService _themeService = new();
         private readonly ApplicationSettingsService _settingsService = new();
 
@@ -108,6 +109,11 @@ namespace AnSAM
             };
             _cdnStatsTimer.Tick += CdnStatsTimer_Tick;
             _cdnStatsTimer.Start();
+
+            // Initialize search debounce timer for real-time filtering
+            _searchDebounceTimer = DispatcherQueue.CreateTimer();
+            _searchDebounceTimer.Interval = TimeSpan.FromMilliseconds(300);
+            _searchDebounceTimer.IsRepeating = false;
         }
 
         /// <summary>
@@ -452,7 +458,7 @@ namespace AnSAM
         /// <summary>
         /// Lazily loads cover images as items appear in the list.
         /// </summary>
-        private async void GamesView_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs e)
+        private void GamesView_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs e)
         {
             if (e.InRecycleQueue)
                 return;
@@ -485,7 +491,8 @@ namespace AnSAM
 
                 if (isFallbackIcon)
                 {
-                    await game.LoadCoverAsync(_imageService);
+                    // Fire-and-forget pattern - exceptions are caught in LoadCoverAsync
+                    _ = game.LoadCoverAsync(_imageService);
                 }
                 // Otherwise, keep existing image (already loaded during language switch)
             }
@@ -792,6 +799,8 @@ namespace AnSAM
             if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput)
             {
                 var keyword = sender.Text.Trim();
+
+                // Provide autocomplete suggestions (up to 10 matches)
                 List<string> matches;
                 if (string.IsNullOrWhiteSpace(keyword))
                 {
@@ -814,7 +823,26 @@ namespace AnSAM
                     }
                 }
                 sender.ItemsSource = matches;
+
+                // Real-time filtering with debounce (300ms delay)
+                if (_searchDebounceTimer != null)
+                {
+                    _searchDebounceTimer.Stop();
+                    _searchDebounceTimer.Tick -= OnSearchDebounceTimerTick;
+                    _searchDebounceTimer.Tick += OnSearchDebounceTimerTick;
+                    _searchDebounceTimer.Start();
+                }
             }
+        }
+
+        /// <summary>
+        /// Debounce timer tick handler - performs the actual filtering after user stops typing.
+        /// </summary>
+        private void OnSearchDebounceTimerTick(DispatcherQueueTimer sender, object args)
+        {
+            sender.Stop();
+            var keyword = SearchBox.Text.Trim();
+            FilterGames(keyword);
         }
 
         /// <summary>
@@ -995,62 +1023,13 @@ namespace AnSAM
         /// </summary>
         private async Task RefreshImagesForLanguageSwitch(string newLanguage)
         {
-            try
-            {
-                DebugLogger.LogDebug($"Starting CLEAN SLATE refresh for {newLanguage}");
-
-                // STEP 1: Unbind GridView from Games collection (prevents crashes during reset)
-                var tcs1 = new TaskCompletionSource<bool>();
-                _dispatcher.TryEnqueue(() =>
-                {
-                    try
-                    {
-                        GamesView.ItemsSource = null;
-                        DebugLogger.LogDebug($"Unbound GridView ItemsSource");
-                        tcs1.SetResult(true);
-                    }
-                    catch (Exception ex)
-                    {
-                        tcs1.SetException(ex);
-                    }
-                });
-                await tcs1.Task;
-
-                // Wait for unbind to take effect
-                await Task.Delay(100);
-
-                // STEP 2: Reset all game states for new language
-                DebugLogger.LogDebug($"Resetting all {Games.Count} game states for {newLanguage}");
-                foreach (var game in Games)
-                {
-                    // Reset to clean state - IconUri will be no_icon, ready for lazy loading
-                    game.IconUri = "ms-appx:///Assets/no_icon.png";
-                    game.ClearLoadingState();
-                }
-
-                // STEP 3: Rebind GridView to Games collection (forces container recreation)
-                var tcs2 = new TaskCompletionSource<bool>();
-                _dispatcher.TryEnqueue(() =>
-                {
-                    try
-                    {
-                        GamesView.ItemsSource = Games;
-                        DebugLogger.LogDebug($"Rebound GridView ItemsSource - containers will recreate");
-                        tcs2.SetResult(true);
-                    }
-                    catch (Exception ex)
-                    {
-                        tcs2.SetException(ex);
-                    }
-                });
-                await tcs2.Task;
-
-                DebugLogger.LogDebug($"CLEAN SLATE refresh complete for {newLanguage}. ContainerContentChanging will load images on-demand.");
-            }
-            catch (Exception ex)
-            {
-                DebugLogger.LogDebug($"Error during clean slate refresh: {ex.Message}");
-            }
+            // Use shared CleanSlateLanguageSwitcher for consistent CLEAN SLATE behavior
+            await CommonUtilities.CleanSlateLanguageSwitcher.SwitchLanguageAsync(
+                GamesView,
+                Games,
+                newLanguage,
+                _dispatcher
+            );
         }
 
         /// <summary>
@@ -1312,11 +1291,11 @@ namespace AnSAM
 
     }
 
-    public class GameItem : System.ComponentModel.INotifyPropertyChanged
+    public class GameItem : System.ComponentModel.INotifyPropertyChanged, CommonUtilities.IImageLoadableItem
     {
         private string _displayTitle;
-        public string Title 
-        { 
+        public string Title
+        {
             get => _displayTitle;
             set
             {
@@ -1327,13 +1306,13 @@ namespace AnSAM
                 }
             }
         }
-        
+
         // Store original English title from Steam client
         public string EnglishTitle { get; set; }
-        
+
         // Store localized titles from steam_games.xml if available
         public Dictionary<string, string> LocalizedTitles { get; set; } = new();
-        
+
         public int ID { get; set; }
         public int AppId => ID;
 
@@ -1378,6 +1357,9 @@ namespace AnSAM
         private string? _loadedLanguage;
         public bool IsCoverLoading => _coverLoading;
 
+        // IImageLoadableItem implementation
+        public DispatcherQueue Dispatcher => _dispatcher;
+
         /// <summary>
         /// Resets the cover image state, allowing it to be reloaded.
         /// </summary>
@@ -1414,38 +1396,6 @@ namespace AnSAM
         /// Gets the language of the currently loaded cover (for debugging).
         /// </summary>
         public string? GetLoadedLanguage() => _loadedLanguage;
-
-        /// <summary>
-        /// Determines the actual language of an image from its file path.
-        /// </summary>
-        private static string DetermineLanguageFromPath(string path, string requestedLanguage)
-        {
-            // Check path for language folder indicators
-            // Path format is typically: .../ImageCache/{language}/{appid}.jpg
-            if (path.Contains("/english/") || path.Contains("\\english\\"))
-            {
-                return "english";
-            }
-            else if (path.Contains("/tchinese/") || path.Contains("\\tchinese\\"))
-            {
-                return "tchinese";
-            }
-            else if (path.Contains("/schinese/") || path.Contains("\\schinese\\"))
-            {
-                return "schinese";
-            }
-            else if (path.Contains("/japanese/") || path.Contains("\\japanese\\"))
-            {
-                return "japanese";
-            }
-            else if (path.Contains("/koreana/") || path.Contains("\\koreana\\"))
-            {
-                return "koreana";
-            }
-
-            // If no language folder detected, assume requested language
-            return requestedLanguage;
-        }
 
         public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
 
@@ -1522,22 +1472,19 @@ namespace AnSAM
 
             try
             {
-                // For non-English languages, check if English fallback is cached
-                // If so, display it immediately while downloading target language
-                bool isNonEnglish = currentLanguage != "english";
-                bool englishCached = isNonEnglish && imageService.IsImageCached(ID, "english");
-
-                if (englishCached)
-                {
-                    // Load English fallback immediately for instant display
-                    var englishPath = await imageService.GetGameImageAsync(ID, "english").ConfigureAwait(false);
-                    if (!string.IsNullOrEmpty(englishPath) && File.Exists(englishPath))
+                // Use shared ImageLoadingHelper for English fallback logic
+                var (imagePath, loadedLanguage) = await CommonUtilities.ImageLoadingHelper.LoadWithEnglishFallbackAsync(
+                    imageService,
+                    ID,
+                    currentLanguage,
+                    _dispatcher,
+                    onEnglishFallbackLoaded: (englishPath) =>
                     {
+                        // Update UI with English fallback immediately
                         _loadedLanguage = "english";
                         var englishUri = new Uri(englishPath).AbsoluteUri;
                         _dispatcher.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.High, () =>
                         {
-                            // CRITICAL: Verify language hasn't changed
                             var globalLanguage = SteamLanguageResolver.GetSteamLanguage();
                             if (currentLanguage == globalLanguage)
                             {
@@ -1546,36 +1493,21 @@ namespace AnSAM
                                 DebugLogger.LogDebug($"UI updated: {ID} ({Title}) showing English fallback immediately");
 #endif
                             }
-                            else
-                            {
-#if DEBUG
-                                DebugLogger.LogDebug($"Skipping English fallback for {ID} ({Title}) - language changed to {globalLanguage}");
-#endif
-                            }
                         });
-                    }
-                }
-
-                // Now try to get the target language image
-                var imagePath = await imageService.GetGameImageAsync(ID, currentLanguage).ConfigureAwait(false);
+                    },
+                    currentLanguageGetter: () => SteamLanguageResolver.GetSteamLanguage()
+                );
 
                 if (!string.IsNullOrEmpty(imagePath) && File.Exists(imagePath))
                 {
-                    // Determine actual language from path
-                    _loadedLanguage = DetermineLanguageFromPath(imagePath, currentLanguage);
-
-                    // Convert to URI string and update UI
+                    _loadedLanguage = loadedLanguage;
                     var fileUri = new Uri(imagePath).AbsoluteUri;
-
-                    // Use dispatcher for thread-safe UI update
                     var priority = imageService.IsImageCached(ID, currentLanguage)
                         ? Microsoft.UI.Dispatching.DispatcherQueuePriority.High
                         : Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal;
 
                     _dispatcher.TryEnqueue(priority, () =>
                     {
-                        // CRITICAL: Verify language hasn't changed since download started
-                        // This prevents old downloads from overwriting new language images
                         var globalLanguage = SteamLanguageResolver.GetSteamLanguage();
                         if (currentLanguage == globalLanguage || _loadedLanguage == globalLanguage)
                         {
@@ -1587,14 +1519,14 @@ namespace AnSAM
                         else
                         {
 #if DEBUG
-                            DebugLogger.LogDebug($"Skipping IconUri update for {ID} ({Title}) - language mismatch (requested: {currentLanguage}, current: {globalLanguage})");
+                            DebugLogger.LogDebug($"Skipping IconUri update for {ID} ({Title}) - language mismatch");
 #endif
                         }
                     });
                 }
-                else if (!englishCached)
+                else
                 {
-                    // Only set no_icon if we didn't already show English fallback
+                    // No image found
                     _dispatcher.TryEnqueue(() =>
                     {
                         IconUri = "ms-appx:///Assets/no_icon.png";

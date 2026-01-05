@@ -19,7 +19,7 @@ public class SteamLanguageResolverTests
     [InlineData("id", "indonesian")]
     [InlineData("it", "italian")]
     [InlineData("ja", "japanese")]
-    [InlineData("ko", "koreana")]
+    [InlineData("ko", "korean")]
     [InlineData("es-419", "latam")]
     [InlineData("no", "norwegian")]
     [InlineData("pl", "polish")]

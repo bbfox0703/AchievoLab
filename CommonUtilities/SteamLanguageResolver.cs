@@ -19,7 +19,7 @@ namespace CommonUtilities
         {
             "arabic", "brazilian", "bulgarian", "czech", "danish", "dutch",
             "english", "finnish", "french", "german", "greek", "hungarian",
-            "indonesian", "italian", "japanese", "koreana", "latam", "norwegian",
+            "indonesian", "italian", "japanese", "korean", "latam", "norwegian",
             "polish", "portuguese", "romanian", "russian", "schinese", "spanish",
             "swedish", "thai", "turkish", "ukrainian", "vietnamese", "tchinese"
         };
@@ -63,7 +63,7 @@ namespace CommonUtilities
                     "id" => "indonesian",
                     "it" => "italian",
                     "ja" => "japanese",
-                    "ko" => "koreana",
+                    "ko" => "korean",
                     "nb" or "nn" or "no" => "norwegian",
                     "pl" => "polish",
                     "pt" => "portuguese",
