@@ -600,7 +600,17 @@ namespace CommonUtilities
                 }
                 _completedEvents.Add(eventKey);
             }
-            ImageDownloadCompleted?.Invoke(appId, path);
+
+            try
+            {
+                ImageDownloadCompleted?.Invoke(appId, path);
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error in ImageDownloadCompleted event handler for {appId}: {ex.GetType().Name}: {ex.Message}");
+                DebugLogger.LogDebug($"Stack trace: {ex.StackTrace}");
+                // Don't rethrow - event handler errors shouldn't crash the image service
+            }
         }
         private async Task<string?> GetHeaderImageFromStoreApiAsync(int appId, string language, CancellationToken cancellationToken)
         {

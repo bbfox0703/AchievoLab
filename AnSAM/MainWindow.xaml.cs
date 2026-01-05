@@ -691,63 +691,79 @@ namespace AnSAM
         /// </summary>
         private async Task RefreshAsync()
         {
-            if (!_steamClient.Initialized)
+            try
             {
+                if (!_steamClient.Initialized)
+                {
+                    StatusProgress.IsIndeterminate = false;
+                    StatusProgress.Value = 0;
+                    StatusExtra.Text = string.Empty;
+                    StatusText.Text = "Steam unavailable";
+
+                    var dialog = new ContentDialog
+                    {
+                        Title = "Steam unavailable",
+                        Content = "Unable to refresh because Steam is not available.",
+                        CloseButtonText = "OK",
+                        XamlRoot = Content.XamlRoot
+                    };
+
+                    await dialog.ShowAsync();
+                    return;
+                }
+
+                StatusText.Text = "Refresh";
                 StatusProgress.IsIndeterminate = false;
                 StatusProgress.Value = 0;
-                StatusExtra.Text = string.Empty;
-                StatusText.Text = "Steam unavailable";
+                StatusExtra.Text = "0%";
 
-                var dialog = new ContentDialog
+                var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab");
+
+                var http = HttpClientProvider.Shared;
+                var apps = await GameCacheService.RefreshAsync(baseDir, _steamClient, http);
+
+                var (allGames, filteredGames) = await BuildGameListAsync(apps, null);
+
+                _ = DispatcherQueue.TryEnqueue(() =>
                 {
-                    Title = "Steam unavailable",
-                    Content = "Unable to refresh because Steam is not available.",
-                    CloseButtonText = "OK",
-                    XamlRoot = Content.XamlRoot
-                };
+                    _allGames.Clear();
+                    _allGames.AddRange(allGames);
 
-                await dialog.ShowAsync();
-                return;
+                    // Load localized titles if current language is not English
+                    if (_currentLanguage != "english")
+                    {
+                        LoadLocalizedTitlesFromXml();
+                    }
+
+                    // Update all game titles to current language
+                    UpdateAllGameTitles(_currentLanguage);
+
+                    Games.Clear();
+                    foreach (var game in filteredGames)
+                    {
+                        Games.Add(game);
+                    }
+
+                    StatusText.Text = _steamClient.Initialized
+                        ? $"Loaded {_allGames.Count} games (Language: {_currentLanguage})"
+                        : $"Steam unavailable - showing {_allGames.Count} games (Language: {_currentLanguage})";
+                    StatusProgress.Value = 0;
+                    StatusExtra.Text = $"{Games.Count}/{_allGames.Count}";
+                });
             }
-
-            StatusText.Text = "Refresh";
-            StatusProgress.IsIndeterminate = false;
-            StatusProgress.Value = 0;
-            StatusExtra.Text = "0%";
-
-            var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab");
-
-            var http = HttpClientProvider.Shared;
-            var apps = await GameCacheService.RefreshAsync(baseDir, _steamClient, http);
-
-            var (allGames, filteredGames) = await BuildGameListAsync(apps, null);
-
-            _ = DispatcherQueue.TryEnqueue(() =>
+            catch (Exception ex)
             {
-                _allGames.Clear();
-                _allGames.AddRange(allGames);
+                DebugLogger.LogDebug($"Error in RefreshAsync: {ex.GetType().Name}: {ex.Message}");
+                DebugLogger.LogDebug($"Stack trace: {ex.StackTrace}");
 
-                // Load localized titles if current language is not English
-                if (_currentLanguage != "english")
+                _ = DispatcherQueue.TryEnqueue(() =>
                 {
-                    LoadLocalizedTitlesFromXml();
-                }
-                
-                // Update all game titles to current language
-                UpdateAllGameTitles(_currentLanguage);
-
-                Games.Clear();
-                foreach (var game in filteredGames)
-                {
-                    Games.Add(game);
-                }
-
-                StatusText.Text = _steamClient.Initialized
-                    ? $"Loaded {_allGames.Count} games (Language: {_currentLanguage})"
-                    : $"Steam unavailable - showing {_allGames.Count} games (Language: {_currentLanguage})";
-                StatusProgress.Value = 0;
-                StatusExtra.Text = $"{Games.Count}/{_allGames.Count}";
-            });
+                    StatusText.Text = $"Refresh failed: {ex.Message}";
+                    StatusProgress.Value = 0;
+                    StatusExtra.Text = string.Empty;
+                    StatusProgress.IsIndeterminate = false;
+                });
+            }
         }
 
         /// <summary>

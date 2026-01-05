@@ -102,8 +102,17 @@ namespace RunGame
             _searchDebounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
             _searchDebounceTimer.Tick += async (_, _) =>
             {
-                _searchDebounceTimer.Stop();
-                await LoadAchievements();
+                try
+                {
+                    _searchDebounceTimer.Stop();
+                    await LoadAchievements();
+                }
+                catch (Exception ex)
+                {
+                    DebugLogger.LogDebug($"Error in search debounce timer: {ex.GetType().Name}: {ex.Message}");
+                    DebugLogger.LogDebug($"Stack trace: {ex.StackTrace}");
+                    StatusLabel.Text = $"Search error: {ex.Message}";
+                }
             };
 
             // Set up event handlers
@@ -311,63 +320,73 @@ namespace RunGame
         private void OnUserStatsReceived(object? sender, UserStatsReceivedEventArgs e)
         {
             DebugLogger.LogDebug($"MainWindow.OnUserStatsReceived - GameId: {e.GameId}, Result: {e.Result}, UserId: {e.UserId}");
-            
+
             this.DispatcherQueue.TryEnqueue(async () =>
             {
-                DebugLogger.LogDebug($"MainWindow.OnUserStatsReceived dispatched to UI thread");
-                
-                if (e.Result != 1)
+                try
                 {
-                    DebugLogger.LogDebug($"UserStatsReceived failed with result: {e.Result}");
-                    StatusLabel.Text = $"Error retrieving stats: {GetErrorDescription(e.Result)}";
-                    return;
-                }
+                    DebugLogger.LogDebug($"MainWindow.OnUserStatsReceived dispatched to UI thread");
 
-                string currentLanguage = LanguageComboBox.SelectedItem as string ?? "english";
-                DebugLogger.LogDebug($"Loading schema for language: {currentLanguage}");
-                
-                if (!_gameStatsService.LoadUserGameStatsSchema(currentLanguage))
-                {
-                    StatusLabel.Text = "Failed to load game schema";
-                    return;
-                }
-
-                DebugLogger.LogDebug("Loading achievements and statistics...");
-                LoadingRing.IsActive = true;
-
-                foreach (var achievement in _allAchievements)
-                {
-                    achievement.PropertyChanged -= OnAchievementPropertyChanged;
-                }
-
-                _allAchievements = _gameStatsService.GetAchievements().ToList();
-
-                foreach (var achievement in _allAchievements)
-                {
-                    if (_achievementCounters.TryGetValue(achievement.Id, out int counter))
+                    if (e.Result != 1)
                     {
-                        achievement.Counter = counter;
+                        DebugLogger.LogDebug($"UserStatsReceived failed with result: {e.Result}");
+                        StatusLabel.Text = $"Error retrieving stats: {GetErrorDescription(e.Result)}";
+                        return;
                     }
-                    achievement.OriginalIsAchieved = achievement.IsAchieved;
-                    achievement.PropertyChanged += OnAchievementPropertyChanged;
+
+                    string currentLanguage = LanguageComboBox.SelectedItem as string ?? "english";
+                    DebugLogger.LogDebug($"Loading schema for language: {currentLanguage}");
+
+                    if (!_gameStatsService.LoadUserGameStatsSchema(currentLanguage))
+                    {
+                        StatusLabel.Text = "Failed to load game schema";
+                        return;
+                    }
+
+                    DebugLogger.LogDebug("Loading achievements and statistics...");
+                    LoadingRing.IsActive = true;
+
+                    foreach (var achievement in _allAchievements)
+                    {
+                        achievement.PropertyChanged -= OnAchievementPropertyChanged;
+                    }
+
+                    _allAchievements = _gameStatsService.GetAchievements().ToList();
+
+                    foreach (var achievement in _allAchievements)
+                    {
+                        if (_achievementCounters.TryGetValue(achievement.Id, out int counter))
+                        {
+                            achievement.Counter = counter;
+                        }
+                        achievement.OriginalIsAchieved = achievement.IsAchieved;
+                        achievement.PropertyChanged += OnAchievementPropertyChanged;
+                    }
+
+                    await LoadAchievements();
+                    LoadStatistics();
+
+                    // Restore timer display after loading achievements
+                    UpdateScheduledTimesDisplay();
+
+                    DebugLogger.LogDebug($"UI updated - {_achievements.Count} achievements, {_statistics.Count} statistics");
+                    StatusLabel.Text = $"Retrieved {_achievements.Count} achievements and {_statistics.Count} statistics";
+
+                    // Start loading achievement icons
+                    await LoadAchievementIconsAsync();
+
+                    // Notify timer service that stats have been reloaded
+                    _achievementTimerService?.NotifyStatsReloaded();
+
+                    LoadingRing.IsActive = false;
                 }
-
-                await LoadAchievements();
-                LoadStatistics();
-
-                // Restore timer display after loading achievements
-                UpdateScheduledTimesDisplay();
-
-                DebugLogger.LogDebug($"UI updated - {_achievements.Count} achievements, {_statistics.Count} statistics");
-                StatusLabel.Text = $"Retrieved {_achievements.Count} achievements and {_statistics.Count} statistics";
-
-                // Start loading achievement icons
-                await LoadAchievementIconsAsync();
-
-                // Notify timer service that stats have been reloaded
-                _achievementTimerService?.NotifyStatsReloaded();
-
-                LoadingRing.IsActive = false;
+                catch (Exception ex)
+                {
+                    DebugLogger.LogDebug($"Error in OnUserStatsReceived: {ex.GetType().Name}: {ex.Message}");
+                    DebugLogger.LogDebug($"Stack trace: {ex.StackTrace}");
+                    StatusLabel.Text = $"Error loading stats: {ex.Message}";
+                    LoadingRing.IsActive = false;
+                }
             });
         }
 
@@ -445,7 +464,17 @@ namespace RunGame
 
         private async void OnRefresh(object sender, RoutedEventArgs e)
         {
-            await LoadStatsAsync();
+            try
+            {
+                await LoadStatsAsync();
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error in OnRefresh: {ex.GetType().Name}: {ex.Message}");
+                DebugLogger.LogDebug($"Stack trace: {ex.StackTrace}");
+                StatusLabel.Text = $"Refresh failed: {ex.Message}";
+                LoadingRing.IsActive = false;
+            }
         }
 
         private async void OnStore(object sender, RoutedEventArgs e)
@@ -499,6 +528,12 @@ namespace RunGame
             {
                 await Task.Run(() => PerformStoreToggle(selectedAchievements));
             }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Error in OnStore: {ex.GetType().Name}: {ex.Message}");
+                DebugLogger.LogDebug($"Stack trace: {ex.StackTrace}");
+                StatusLabel.Text = $"Store failed: {ex.Message}";
+            }
             finally
             {
                 LoadingRing.IsActive = false;
@@ -545,23 +580,59 @@ namespace RunGame
                     if (DebugLogger.IsDebugMode)
                     {
                         StatusLabel.Text = $"[DEBUG MODE] Fake toggled {achievementCount} achievements and {Math.Max(0, statCount)} statistics (not written to Steam). Refreshing to show actual state...";
-                        
+
                         // Even in debug mode, reload to show Steam's actual state
                         _ = Task.Run(async () =>
                         {
-                            await Task.Delay(500);
-                            this.DispatcherQueue.TryEnqueue(async () => await LoadStatsAsync());
+                            try
+                            {
+                                await Task.Delay(500);
+                                this.DispatcherQueue.TryEnqueue(async () =>
+                                {
+                                    try
+                                    {
+                                        await LoadStatsAsync();
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        DebugLogger.LogDebug($"Error reloading stats (debug mode): {ex.GetType().Name}: {ex.Message}");
+                                        DebugLogger.LogDebug($"Stack trace: {ex.StackTrace}");
+                                    }
+                                });
+                            }
+                            catch (Exception ex)
+                            {
+                                DebugLogger.LogDebug($"Error in delayed reload task (debug mode): {ex.GetType().Name}: {ex.Message}");
+                            }
                         });
                     }
                     else
                     {
                         StatusLabel.Text = $"Successfully toggled {achievementCount} achievements and {Math.Max(0, statCount)} statistics to Steam. Refreshing...";
-                        
+
                         // Reload data from Steam after successful store
                         _ = Task.Run(async () =>
                         {
-                            await Task.Delay(500);
-                            this.DispatcherQueue.TryEnqueue(async () => await LoadStatsAsync());
+                            try
+                            {
+                                await Task.Delay(500);
+                                this.DispatcherQueue.TryEnqueue(async () =>
+                                {
+                                    try
+                                    {
+                                        await LoadStatsAsync();
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        DebugLogger.LogDebug($"Error reloading stats: {ex.GetType().Name}: {ex.Message}");
+                                        DebugLogger.LogDebug($"Stack trace: {ex.StackTrace}");
+                                    }
+                                });
+                            }
+                            catch (Exception ex)
+                            {
+                                DebugLogger.LogDebug($"Error in delayed reload task: {ex.GetType().Name}: {ex.Message}");
+                            }
                         });
                     }
                 });
@@ -608,8 +679,26 @@ namespace RunGame
                             // Refresh in debug mode to show that changes weren't actually applied
                             _ = Task.Run(async () =>
                             {
-                                await Task.Delay(500); // Brief delay to show status message
-                                this.DispatcherQueue.TryEnqueue(async () => await LoadStatsAsync());
+                                try
+                                {
+                                    await Task.Delay(500); // Brief delay to show status message
+                                    this.DispatcherQueue.TryEnqueue(async () =>
+                                    {
+                                        try
+                                        {
+                                            await LoadStatsAsync();
+                                        }
+                                        catch (Exception ex)
+                                        {
+                                            DebugLogger.LogDebug($"Error reloading stats (debug mode, PerformStore): {ex.GetType().Name}: {ex.Message}");
+                                            DebugLogger.LogDebug($"Stack trace: {ex.StackTrace}");
+                                        }
+                                    });
+                                }
+                                catch (Exception ex)
+                                {
+                                    DebugLogger.LogDebug($"Error in delayed reload task (debug mode, PerformStore): {ex.GetType().Name}: {ex.Message}");
+                                }
                             });
                         }
                         else
@@ -618,8 +707,26 @@ namespace RunGame
                             // Reload data from Steam after successful store
                             _ = Task.Run(async () =>
                             {
-                                await Task.Delay(500); // Brief delay to allow Steam to update
-                                this.DispatcherQueue.TryEnqueue(async () => await LoadStatsAsync());
+                                try
+                                {
+                                    await Task.Delay(500); // Brief delay to allow Steam to update
+                                    this.DispatcherQueue.TryEnqueue(async () =>
+                                    {
+                                        try
+                                        {
+                                            await LoadStatsAsync();
+                                        }
+                                        catch (Exception ex)
+                                        {
+                                            DebugLogger.LogDebug($"Error reloading stats (PerformStore): {ex.GetType().Name}: {ex.Message}");
+                                            DebugLogger.LogDebug($"Stack trace: {ex.StackTrace}");
+                                        }
+                                    });
+                                }
+                                catch (Exception ex)
+                                {
+                                    DebugLogger.LogDebug($"Error in delayed reload task (PerformStore): {ex.GetType().Name}: {ex.Message}");
+                                }
                             });
                         }
                     });
