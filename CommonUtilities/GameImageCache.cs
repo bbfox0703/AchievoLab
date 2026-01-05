@@ -62,7 +62,8 @@ namespace CommonUtilities
             Directory.CreateDirectory(_baseCacheDir);
             _failureTracker = failureTracker;
             _concurrency = new SemaphoreSlim(maxConcurrency);
-            _cacheDuration = cacheDuration ?? TimeSpan.FromDays(30);
+            // CHANGED: Successfully downloaded images never expire (was 30 days)
+            _cacheDuration = cacheDuration ?? TimeSpan.MaxValue;
 
             _rateLimiter = new DomainRateLimiter(maxConcurrentRequestsPerDomain, tokenBucketCapacity, fillRatePerSecond, initialTokens ?? tokenBucketCapacity, baseDomainDelay, jitterSeconds);
             _http = httpClient ?? HttpClientProvider.Shared;

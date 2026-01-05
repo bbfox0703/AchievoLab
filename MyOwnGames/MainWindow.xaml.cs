@@ -49,6 +49,7 @@ namespace MyOwnGames
         private SteamApiService? _steamService;
         private bool _isShuttingDown = false;
         private CancellationTokenSource? _cancellationTokenSource;
+        private CancellationTokenSource _sequentialLoadCts = new(); // Cancel sequential image loading
         private ScrollViewer? _gamesScrollViewer;
         private DispatcherQueueTimer? _searchDebounceTimer;
         private DispatcherQueueTimer? _cdnStatsTimer;
@@ -390,10 +391,11 @@ namespace MyOwnGames
                             GameItems.Add(entry);
                             AllGameItems.Add(entry);
                         });
-
-                        // Images will load automatically via ContainerContentChanging
                     }
                 });
+
+                // CRITICAL: Start sequential image loading after games are loaded
+                StartSequentialImageLoading();
 
                 var exportInfo = await _dataService.GetExportInfoAsync();
                 if (exportInfo != null)
@@ -716,6 +718,9 @@ namespace MyOwnGames
 
                 StatusText = $"Completed full scan: {total} games processed with {selectedLanguage} data. Current list: {GameItems.Count} games. Saved to {xmlPath}";
                 AppendLog($"Full language scan complete - Total games: {total}, All games now have {selectedLanguage} data, Current display: {GameItems.Count} games, saved to {xmlPath}");
+
+                // CRITICAL: Start sequential image loading after games are loaded
+                StartSequentialImageLoading();
             }
             catch (OperationCanceledException)
             {
@@ -914,33 +919,243 @@ namespace MyOwnGames
 
         private void GamesGridView_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs e)
         {
-            if (e.InRecycleQueue)
-                return;
+            // SIMPLIFIED: ContainerContentChanging now does NOTHING
+            // Images are loaded sequentially from top to bottom via StartSequentialImageLoading()
+            // This avoids WinUI 3 native crash from thundering herd of UI updates during fast scrolling
+            // Trade-off: User may see lower games before their images load, but stability > UX
+            e.Handled = true;
+        }
 
-            if (e.Phase == 0)
-            {
-                e.RegisterUpdateCallback(GamesGridView_ContainerContentChanging);
-                e.Handled = true;
-            }
-            else if (e.Phase == 1 && e.Item is GameEntry entry)
-            {
-                // SIMPLIFIED: Only load if it's no_icon (CLEAN SLATE approach)
-                var isFallbackIcon = ImageLoadingHelper.IsNoIcon(entry.IconUri);
+        /// <summary>
+        /// Loads game images sequentially from top to bottom (like old SAM).
+        /// TWO-PHASE LOADING STRATEGY:
+        /// Phase 1 (Fast): Load all cached images (target language or English fallback)
+        /// Phase 2 (Slow): Download uncached target language images in background
+        /// This ensures users see cached images immediately (~600 games in <1 second),
+        /// then missing images download slowly in background without blocking UI.
+        /// </summary>
+        private async void StartSequentialImageLoading()
+        {
+            // Cancel any previous sequential loading
+            var oldCts = _sequentialLoadCts;
+            _sequentialLoadCts = new CancellationTokenSource();
+            oldCts.Cancel();
+            oldCts.Dispose();
+
+            var ct = _sequentialLoadCts.Token;
+            var currentLanguage = GetCurrentLanguage();
 
 #if DEBUG
-                DebugLogger.LogDebug($"ContainerContentChanging Phase1: {entry.AppId}, isFallback={isFallbackIcon}");
+            DebugLogger.LogDebug($"StartSequentialImageLoading: TWO-PHASE loading for {AllGameItems.Count} games in {currentLanguage}");
 #endif
 
-                if (isFallbackIcon)
-                {
-                    // Ensure dispatcher is set
-                    if (entry.Dispatcher == null)
-                        entry.Dispatcher = this.DispatcherQueue;
+            // PHASE 1: Instant load of cached images only (no downloads, no LoadCoverAsync)
+            var gamesNeedingEnglish = new List<GameEntry>();
+            var gamesNeedingTarget = new List<GameEntry>();
+            bool isEnglish = string.Equals(currentLanguage, "english", StringComparison.OrdinalIgnoreCase);
+            const int phase1BatchSize = 50; // Larger batch since we're directly reading cache
 
-                    _ = entry.LoadCoverAsync(_imageService);
+            for (int i = 0; i < AllGameItems.Count; i += phase1BatchSize)
+            {
+                try
+                {
+                    if (ct.IsCancellationRequested)
+                        break;
+
+                    for (int j = 0; j < phase1BatchSize && (i + j) < AllGameItems.Count; j++)
+                    {
+                        var entry = AllGameItems[i + j];
+                        if (ImageLoadingHelper.IsNoIcon(entry.IconUri))
+                        {
+                            // Try target language cache first
+                            string? cachedPath = _imageService.TryGetCachedPath(entry.AppId, currentLanguage, checkEnglishFallback: false);
+
+                            if (!string.IsNullOrEmpty(cachedPath) && File.Exists(cachedPath))
+                            {
+                                // Target language cached - show it immediately
+                                var uri = new Uri(cachedPath).AbsoluteUri;
+                                DispatcherQueue.TryEnqueue(() => entry.IconUri = uri);
+                            }
+                            else if (!isEnglish)
+                            {
+                                // Try English fallback cache
+                                cachedPath = _imageService.TryGetCachedPath(entry.AppId, "english", checkEnglishFallback: false);
+
+                                if (!string.IsNullOrEmpty(cachedPath) && File.Exists(cachedPath))
+                                {
+                                    // English cached - show it immediately
+                                    var uri = new Uri(cachedPath).AbsoluteUri;
+                                    DispatcherQueue.TryEnqueue(() => entry.IconUri = uri);
+
+                                    // Will need target language in Phase 3
+                                    gamesNeedingTarget.Add(entry);
+                                }
+                                else
+                                {
+                                    // No cache at all - need English download in Phase 2
+                                    gamesNeedingEnglish.Add(entry);
+                                }
+                            }
+                            else
+                            {
+                                // English mode, no cache - need download in Phase 2
+                                gamesNeedingEnglish.Add(entry);
+                            }
+                        }
+                    }
+
+                    // No async waiting in Phase 1 - just direct cache reads!
+                    await Task.Delay(1, ct); // Minimal delay
                 }
-                // Otherwise, keep existing image (already loaded during language switch)
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+#if DEBUG
+                    DebugLogger.LogDebug($"Phase 1 error at {i}: {ex.Message}");
+#endif
+                }
             }
+
+#if DEBUG
+            DebugLogger.LogDebug($"Phase 1 complete. Need English: {gamesNeedingEnglish.Count}, Need target: {gamesNeedingTarget.Count}");
+#endif
+
+            // PHASE 2: Fast download of English fallback (larger batch, English usually exists)
+            const int phase2BatchSize = 5;
+
+            for (int i = 0; i < gamesNeedingEnglish.Count; i += phase2BatchSize)
+            {
+                try
+                {
+                    if (ct.IsCancellationRequested)
+                    {
+#if DEBUG
+                        DebugLogger.LogDebug($"Phase 2 cancelled at {i}/{gamesNeedingEnglish.Count}");
+#endif
+                        break;
+                    }
+
+                    var phase2Tasks = new List<Task>();
+                    for (int j = 0; j < phase2BatchSize && (i + j) < gamesNeedingEnglish.Count; j++)
+                    {
+                        var entry = gamesNeedingEnglish[i + j];
+                        if (entry.Dispatcher == null)
+                            entry.Dispatcher = this.DispatcherQueue;
+
+                        var tcs = new TaskCompletionSource<bool>();
+                        DispatcherQueue.TryEnqueue(async () =>
+                        {
+                            try
+                            {
+                                await entry.LoadCoverAsync(_imageService);
+                                tcs.SetResult(true);
+                            }
+                            catch (Exception ex)
+                            {
+                                tcs.SetException(ex);
+                            }
+                        });
+                        phase2Tasks.Add(tcs.Task);
+
+                        // If not English mode, will need target language in Phase 3
+                        if (!isEnglish)
+                        {
+                            gamesNeedingTarget.Add(entry);
+                        }
+                    }
+
+                    if (phase2Tasks.Count > 0)
+                    {
+                        await Task.WhenAll(phase2Tasks);
+                    }
+
+                    // Shorter delay for English (usually exists and fast)
+                    await Task.Delay(50, ct);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+#if DEBUG
+                    DebugLogger.LogDebug($"Phase 2 error at {i}: {ex.Message}");
+#endif
+                }
+            }
+
+#if DEBUG
+            DebugLogger.LogDebug($"Phase 2 complete. Now downloading target language for {gamesNeedingTarget.Count} games.");
+#endif
+
+            // PHASE 3: Slow download of target language (smallest batch, may not exist)
+            if (!isEnglish)
+            {
+                const int phase3BatchSize = 3;
+
+                for (int i = 0; i < gamesNeedingTarget.Count; i += phase3BatchSize)
+                {
+                    try
+                    {
+                        if (ct.IsCancellationRequested)
+                        {
+#if DEBUG
+                            DebugLogger.LogDebug($"Phase 3 cancelled at {i}/{gamesNeedingTarget.Count}");
+#endif
+                            break;
+                        }
+
+                        var phase3Tasks = new List<Task>();
+                        for (int j = 0; j < phase3BatchSize && (i + j) < gamesNeedingTarget.Count; j++)
+                        {
+                            var entry = gamesNeedingTarget[i + j];
+                            if (entry.Dispatcher == null)
+                                entry.Dispatcher = this.DispatcherQueue;
+
+                            var tcs = new TaskCompletionSource<bool>();
+                            DispatcherQueue.TryEnqueue(async () =>
+                            {
+                                try
+                                {
+                                    // Force reload to upgrade from English to target language
+                                    await entry.LoadCoverAsync(_imageService, languageOverride: null, forceReload: true);
+                                    tcs.SetResult(true);
+                                }
+                                catch (Exception ex)
+                                {
+                                    tcs.SetException(ex);
+                                }
+                            });
+                            phase3Tasks.Add(tcs.Task);
+                        }
+
+                        if (phase3Tasks.Count > 0)
+                        {
+                            await Task.WhenAll(phase3Tasks);
+                        }
+
+                        // Longer delay for target language (may not exist, respects rate limits)
+                        await Task.Delay(100, ct);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+#if DEBUG
+                        DebugLogger.LogDebug($"Phase 3 error at {i}: {ex.Message}");
+#endif
+                    }
+                }
+            }
+
+#if DEBUG
+            DebugLogger.LogDebug("Sequential image loading completed");
+#endif
         }
 
         private GameEntry? FindGameEntryFromElement(FrameworkElement element)
@@ -1176,6 +1391,17 @@ namespace MyOwnGames
         {
             try
             {
+                // CRITICAL: Save focused element before language switch to restore it after
+                // CleanSlateLanguageSwitcher rebinds ItemsSource, causing focus to shift to GridView
+                UIElement? focusedElement = null;
+                var tcsSaveFocus = new TaskCompletionSource<bool>();
+                this.DispatcherQueue.TryEnqueue(() =>
+                {
+                    focusedElement = Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(Content.XamlRoot) as UIElement;
+                    tcsSaveFocus.SetResult(true);
+                });
+                await tcsSaveFocus.Task;
+
                 // Use shared CleanSlateLanguageSwitcher
                 // CRITICAL: Must pass GameItems (filtered collection bound to GridView), not AllGameItems
                 await CleanSlateLanguageSwitcher.SwitchLanguageAsync(
@@ -1184,9 +1410,16 @@ namespace MyOwnGames
                     newLanguage,
                     this.DispatcherQueue);
 
+                // CRITICAL: Start sequential image loading after language switch
+                // and restore focus to the previously focused element (typically LanguageComboBox)
                 this.DispatcherQueue.TryEnqueue(() =>
                 {
-                    StatusText = $"Language switched to {newLanguage}. Images will load on-demand.";
+                    if (focusedElement != null)
+                    {
+                        focusedElement.Focus(FocusState.Programmatic);
+                    }
+                    StartSequentialImageLoading();
+                    StatusText = $"Language switched to {newLanguage}. Loading images...";
                 });
             }
             catch (Exception ex)
@@ -1360,7 +1593,7 @@ namespace MyOwnGames
         /// Asynchronously loads the game's cover image using the shared image service.
         /// Implements English fallback strategy for non-English languages.
         /// </summary>
-        public async Task LoadCoverAsync(SharedImageService imageService, string? languageOverride = null)
+        public async Task LoadCoverAsync(SharedImageService imageService, string? languageOverride = null, bool forceReload = false)
         {
             // Skip if already loading
             if (_coverLoading)
@@ -1372,7 +1605,8 @@ namespace MyOwnGames
             }
 
             // Only skip if we already have a valid image (not no_icon)
-            if (!ImageLoadingHelper.IsNoIcon(IconUri))
+            // Unless forceReload is true (for language upgrade in Phase 3)
+            if (!forceReload && !ImageLoadingHelper.IsNoIcon(IconUri))
             {
 #if DEBUG
                 DebugLogger.LogDebug($"Skipping LoadCoverAsync for {AppId}: already has valid image");
