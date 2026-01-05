@@ -548,7 +548,7 @@ namespace CommonUtilities
         /// <returns>Number of duplicated files found (and deleted if not dry run)</returns>
         public int CleanupDuplicatedEnglishImages(bool dryRun = false)
         {
-            var languages = new[] { "tchinese", "schinese", "japanese", "korean", "koreana" };
+            var languages = new[] { "tchinese", "schinese", "japanese", "korean" };
             var englishDir = GetCacheDir("english");
             int duplicatesFound = 0;
             long spaceReclaimed = 0;

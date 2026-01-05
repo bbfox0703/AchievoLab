@@ -458,7 +458,7 @@ namespace AnSAM
         /// <summary>
         /// Lazily loads cover images as items appear in the list.
         /// </summary>
-        private async void GamesView_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs e)
+        private void GamesView_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs e)
         {
             if (e.InRecycleQueue)
                 return;
@@ -491,7 +491,8 @@ namespace AnSAM
 
                 if (isFallbackIcon)
                 {
-                    await game.LoadCoverAsync(_imageService);
+                    // Fire-and-forget pattern - exceptions are caught in LoadCoverAsync
+                    _ = game.LoadCoverAsync(_imageService);
                 }
                 // Otherwise, keep existing image (already loaded during language switch)
             }

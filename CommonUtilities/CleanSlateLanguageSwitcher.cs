@@ -106,13 +106,29 @@ namespace CommonUtilities
                 await Task.Delay(100); // Wait for unbind to take effect
 
                 // STEP 3: Reset all items to clean state
+                // CRITICAL: This must run on UI thread since items may be bound to UI
                 DebugLogger.LogDebug($"Resetting items for {newLanguage}");
-
-                foreach (var item in items)
+                var tcsReset = new TaskCompletionSource<bool>();
+                dispatcher.TryEnqueue(() =>
                 {
-                    item.IconUri = ImageLoadingHelper.GetNoIconPath();
-                    item.ClearLoadingState();
-                }
+                    try
+                    {
+                        foreach (var item in items)
+                        {
+                            item.IconUri = ImageLoadingHelper.GetNoIconPath();
+                            item.ClearLoadingState();
+                        }
+                        DebugLogger.LogDebug($"Reset {items.Count()} items to no_icon");
+                        tcsReset.SetResult(true);
+                    }
+                    catch (Exception ex)
+                    {
+                        DebugLogger.LogDebug($"Error during item reset: {ex.Message}");
+                        tcsReset.SetException(ex);
+                    }
+                });
+                await tcsReset.Task;
+                await Task.Delay(100); // Wait for reset to propagate
 
                 // STEP 4: Rebind GridView (forces container recreation)
                 // CRITICAL: Rebind to original collection, NOT a copy, to maintain ObservableCollection binding
