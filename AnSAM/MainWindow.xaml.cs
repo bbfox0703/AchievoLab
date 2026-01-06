@@ -196,6 +196,81 @@ namespace AnSAM
         /// <summary>Switches to the dark theme.</summary>
         private void Theme_Dark_Click(object sender, RoutedEventArgs e) => ApplyTheme(ElementTheme.Dark);
 
+        /// <summary>Launches RunGame with a manually entered App ID.</summary>
+        private async void LaunchByAppId_Click(object sender, RoutedEventArgs e)
+        {
+            var dialog = new ContentDialog
+            {
+                Title = "Launch by App ID",
+                Content = new TextBox
+                {
+                    PlaceholderText = "Enter Steam App ID (e.g., 730 for CS:GO)",
+                    Name = "AppIdInput"
+                },
+                PrimaryButtonText = "Launch",
+                CloseButtonText = "Cancel",
+                DefaultButton = ContentDialogButton.Primary,
+                XamlRoot = Content?.XamlRoot
+            };
+
+            if (Content?.XamlRoot == null)
+                return; // UI not ready
+
+            var result = await dialog.ShowAsync();
+            if (result == ContentDialogResult.Primary)
+            {
+                var textBox = dialog.Content as TextBox;
+                var input = textBox?.Text?.Trim();
+
+                if (string.IsNullOrEmpty(input))
+                {
+                    StatusText.Text = "No App ID entered";
+                    return;
+                }
+
+                if (!uint.TryParse(input, out var appId) || appId == 0)
+                {
+                    StatusText.Text = "Invalid App ID format";
+                    return;
+                }
+
+                // Verify ownership and add to usergames.xml
+                var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab");
+                bool isOwned = Services.GameCacheService.TryAddUserGame(baseDir, _steamClient, (int)appId);
+
+                if (!isOwned && _steamClient.Initialized)
+                {
+                    // User doesn't own this game, but allow launch anyway (for testing/debugging)
+                    StatusText.Text = $"Warning: You don't own App ID {appId}. Launching anyway...";
+                }
+                else if (isOwned)
+                {
+                    StatusText.Text = $"App ID {appId} verified and saved to usergames.xml";
+                }
+
+                // Create a temporary GameItem and launch RunGame
+                var tempGame = new GameItem(
+                    $"App {appId}",     // title
+                    (int)appId,         // id
+                    DispatcherQueue     // dispatcher
+                );
+
+                // Set icon to default no_icon.png
+                tempGame.IconUri = "ms-appx:///Assets/no_icon.png";
+
+                StartAchievementManager(tempGame);
+
+                if (isOwned)
+                {
+                    StatusText.Text = $"Launched App ID {appId} (saved to cache)";
+                }
+                else
+                {
+                    StatusText.Text = $"Launched App ID {appId} (not verified)";
+                }
+            }
+        }
+
         /// <summary>
         /// Handles language changes and reloads localized resources.
         /// </summary>
@@ -285,15 +360,18 @@ namespace AnSAM
 
                         DebugLogger.LogDebug($"Language switch error: {ex}");
 
-                        var dialog = new ContentDialog
+                        if (Content?.XamlRoot != null)
                         {
-                            Title = "Language switch failed",
-                            Content = "Unable to switch language. Please try again.",
-                            CloseButtonText = "OK",
-                            XamlRoot = Content.XamlRoot
-                        };
+                            var dialog = new ContentDialog
+                            {
+                                Title = "Language switch failed",
+                                Content = "Unable to switch language. Please try again.",
+                                CloseButtonText = "OK",
+                                XamlRoot = Content.XamlRoot
+                            };
 
-                        await dialog.ShowAsync();
+                            await dialog.ShowAsync();
+                        }
                         StatusText.Text = "Ready";
                     }
                     finally
@@ -721,15 +799,19 @@ namespace AnSAM
                     ClearProgress(ProgressContext.InitialLoad);
                     StatusText.Text = "Steam unavailable";
 
-                    var dialog = new ContentDialog
+                    // Only show dialog if XamlRoot is available (window is fully initialized)
+                    if (Content?.XamlRoot != null)
                     {
-                        Title = "Steam unavailable",
-                        Content = "Unable to refresh because Steam is not available.",
-                        CloseButtonText = "OK",
-                        XamlRoot = Content.XamlRoot
-                    };
+                        var dialog = new ContentDialog
+                        {
+                            Title = "Steam unavailable",
+                            Content = "Unable to refresh because Steam is not available.",
+                            CloseButtonText = "OK",
+                            XamlRoot = Content.XamlRoot
+                        };
 
-                    await dialog.ShowAsync();
+                        await dialog.ShowAsync();
+                    }
                     return;
                 }
 
