@@ -207,13 +207,20 @@ namespace RunGame
                 _achievementTimerService?.Dispose();
                 _mouseMoverService?.Dispose();
                 _achievementIconService?.Dispose();
-                
+
                 // Stop timers
                 _callbackTimer?.Stop();
                 _timeTimer?.Stop();
                 _achievementTimer?.Stop();
                 _mouseTimer?.Stop();
-                
+
+                // Dispose Steam client to release Steam pipe and user handles
+                if (_steamClient is IDisposable disposableSteamClient)
+                {
+                    DebugLogger.LogDebug("Disposing Steam client");
+                    disposableSteamClient.Dispose();
+                }
+
                 DebugLogger.LogDebug("MainWindow closed and resources cleaned up");
             }
             catch (Exception ex)
