@@ -34,6 +34,9 @@
                           SelectionChanged="LanguageComboBox_SelectionChanged"/>
             </AppBarElementContainer>
             <AppBarSeparator/>
+            <!-- ▼ 手動輸入 App ID -->
+            <AppBarButton Icon="Add" Label="Launch by App ID" Click="LaunchByAppId_Click"/>
+            <AppBarSeparator/>
             <!-- ▼ 主題切換下拉 -->
             <AppBarButton Icon="Setting" Label="Theme">
                 <AppBarButton.Flyout>

@@ -41,7 +41,7 @@ namespace MyOwnGames
     {
         public ObservableCollection<GameEntry> GameItems { get; } = new();
         private List<GameEntry> AllGameItems { get; } = new();
-        public ObservableCollection<string> LogEntries { get; } = new();
+        // REMOVED: LogEntries - all logs now go to Debug log only
         private readonly HttpClient _imageHttpClient = new();
         private readonly SharedImageService _imageService;
         private readonly GameDataService _dataService = new();
@@ -125,54 +125,15 @@ namespace MyOwnGames
             }
         }
 
+        /// <summary>
+        /// AppendLog now does nothing (UI log removed).
+        /// All logging already happens through DebugLogger.LogDebug() at source.
+        /// Kept as no-op method to avoid changing 52 call sites.
+        /// </summary>
         public void AppendLog(string message)
         {
-            if (_isShuttingDown) return; // Don't add logs during shutdown
-
-            try
-            {
-                var entry = $"[{DateTime.Now:HH:mm:ss}] {message}";
-
-                void addEntry()
-                {
-                    if (_isShuttingDown) return;
-                    LogEntries.Add(entry);
-
-                    // Scroll to the newly added item immediately in the same UI update cycle
-                    try
-                    {
-                        if (LogEntries.Count > 0)
-                        {
-                            LogList?.ScrollIntoView(LogEntries[LogEntries.Count - 1]);
-                        }
-                    }
-                    catch (System.Runtime.InteropServices.COMException)
-                    {
-                        // Ignore COM exceptions during shutdown
-                    }
-                    catch
-                    {
-                        // Ignore other exceptions during UI updates
-                    }
-                }
-
-                if (DispatcherQueue?.HasThreadAccess == false)
-                {
-                    DispatcherQueue?.TryEnqueue(addEntry);
-                }
-                else
-                {
-                    addEntry();
-                }
-            }
-            catch (Exception ex)
-            {
-                if (!_isShuttingDown)
-                {
-                    DebugLogger.LogDebug($"Exception in AppendLog: {ex.Message}");
-                }
-                // Ignore all exceptions during shutdown
-            }
+            // NO-OP: UI log removed, and DebugLogger already handles all logging at source
+            // Removing this avoids infinite loop with DebugLogger.OnLog subscription
         }
 
         private static string GetDefaultLanguage()
@@ -228,12 +189,9 @@ namespace MyOwnGames
                 LanguageComboBox.SelectedItem = defaultItem;
             }
 
-            _logHandler = msg =>
-            {
-                var queue = DispatcherQueue;
-                queue?.TryEnqueue(() => AppendLog(msg));
-            };
-            DebugLogger.OnLog += _logHandler;
+            // REMOVED: Log handler subscription (UI log removed, would cause infinite loop)
+            // _logHandler previously fed DebugLogger output to UI ListView
+            _logHandler = msg => { }; // Keep field for disposal, but do nothing
             
             // Subscribe to image download completion events
             _imageService.ImageDownloadCompleted += OnImageDownloadCompleted;

@@ -145,6 +145,7 @@ namespace AnSAM.Services
         /// </summary>
         private static byte[] HandleDownloadFailure(string cachePath, Exception ex)
         {
+            // Try local cache first (if exists and valid)
             if (File.Exists(cachePath))
             {
                 try
@@ -157,8 +158,32 @@ namespace AnSAM.Services
                 }
                 catch
                 {
-                    // Ignore cache failures and rethrow below
+                    // Ignore cache failures and try embedded resource
                 }
+            }
+
+            // Try embedded fallback resource (from Assets/games.xml)
+            try
+            {
+                var embeddedPath = Path.Combine(AppContext.BaseDirectory, "Assets", "games.xml");
+                if (File.Exists(embeddedPath))
+                {
+                    var embedded = File.ReadAllBytes(embeddedPath);
+                    ValidateAndParse(embedded);
+                    ReportStatus("Using embedded game list (network unavailable)...");
+                    ReportProgress(100);
+#if DEBUG
+                    DebugLogger.LogDebug($"Using embedded fallback game list from {embeddedPath}");
+#endif
+                    return embedded;
+                }
+            }
+            catch (Exception embeddedEx)
+            {
+#if DEBUG
+                DebugLogger.LogDebug($"Failed to load embedded game list: {embeddedEx.Message}");
+#endif
+                // Fall through to throw below
             }
 
             throw new GameListDownloadException("Failed to download game list.", ex);

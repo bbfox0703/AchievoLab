@@ -50,6 +50,17 @@ namespace AnSAM
         private readonly SemaphoreSlim _languageSwitchLock = new(1, 1); // Mutex for language switch
         private CancellationTokenSource _sequentialLoadCts = new(); // Cancel sequential image loading
 
+        // Progress bar management with priority system
+        private enum ProgressContext
+        {
+            None = 0,
+            InitialLoad = 1,      // Highest priority
+            LanguageSwitch = 2,   // Medium priority
+            CacheCheck = 3        // Lowest priority
+        }
+        private ProgressContext _currentProgressContext = ProgressContext.None;
+        private readonly object _progressLock = new object();
+
         private bool _autoLoaded;
         private bool _languageInitialized;
         private ScrollViewer? _gamesScrollViewer;
@@ -185,6 +196,81 @@ namespace AnSAM
         /// <summary>Switches to the dark theme.</summary>
         private void Theme_Dark_Click(object sender, RoutedEventArgs e) => ApplyTheme(ElementTheme.Dark);
 
+        /// <summary>Launches RunGame with a manually entered App ID.</summary>
+        private async void LaunchByAppId_Click(object sender, RoutedEventArgs e)
+        {
+            var dialog = new ContentDialog
+            {
+                Title = "Launch by App ID",
+                Content = new TextBox
+                {
+                    PlaceholderText = "Enter Steam App ID (e.g., 730 for CS:GO)",
+                    Name = "AppIdInput"
+                },
+                PrimaryButtonText = "Launch",
+                CloseButtonText = "Cancel",
+                DefaultButton = ContentDialogButton.Primary,
+                XamlRoot = Content?.XamlRoot
+            };
+
+            if (Content?.XamlRoot == null)
+                return; // UI not ready
+
+            var result = await dialog.ShowAsync();
+            if (result == ContentDialogResult.Primary)
+            {
+                var textBox = dialog.Content as TextBox;
+                var input = textBox?.Text?.Trim();
+
+                if (string.IsNullOrEmpty(input))
+                {
+                    StatusText.Text = "No App ID entered";
+                    return;
+                }
+
+                if (!uint.TryParse(input, out var appId) || appId == 0)
+                {
+                    StatusText.Text = "Invalid App ID format";
+                    return;
+                }
+
+                // Verify ownership and add to usergames.xml
+                var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab");
+                bool isOwned = Services.GameCacheService.TryAddUserGame(baseDir, _steamClient, (int)appId);
+
+                if (!isOwned && _steamClient.Initialized)
+                {
+                    // User doesn't own this game, but allow launch anyway (for testing/debugging)
+                    StatusText.Text = $"Warning: You don't own App ID {appId}. Launching anyway...";
+                }
+                else if (isOwned)
+                {
+                    StatusText.Text = $"App ID {appId} verified and saved to usergames.xml";
+                }
+
+                // Create a temporary GameItem and launch RunGame
+                var tempGame = new GameItem(
+                    $"App {appId}",     // title
+                    (int)appId,         // id
+                    DispatcherQueue     // dispatcher
+                );
+
+                // Set icon to default no_icon.png
+                tempGame.IconUri = "ms-appx:///Assets/no_icon.png";
+
+                StartAchievementManager(tempGame);
+
+                if (isOwned)
+                {
+                    StatusText.Text = $"Launched App ID {appId} (saved to cache)";
+                }
+                else
+                {
+                    StatusText.Text = $"Launched App ID {appId} (not verified)";
+                }
+            }
+        }
+
         /// <summary>
         /// Handles language changes and reloads localized resources.
         /// </summary>
@@ -269,21 +355,23 @@ namespace AnSAM
                     catch (Exception ex)
                     {
                         StatusProgress.IsIndeterminate = false;
-                        StatusProgress.Value = 0;
-                        StatusExtra.Text = string.Empty;
+                        ClearProgress(ProgressContext.LanguageSwitch);
                         StatusText.Text = "Language switch failed";
 
                         DebugLogger.LogDebug($"Language switch error: {ex}");
 
-                        var dialog = new ContentDialog
+                        if (Content?.XamlRoot != null)
                         {
-                            Title = "Language switch failed",
-                            Content = "Unable to switch language. Please try again.",
-                            CloseButtonText = "OK",
-                            XamlRoot = Content.XamlRoot
-                        };
+                            var dialog = new ContentDialog
+                            {
+                                Title = "Language switch failed",
+                                Content = "Unable to switch language. Please try again.",
+                                CloseButtonText = "OK",
+                                XamlRoot = Content.XamlRoot
+                            };
 
-                        await dialog.ShowAsync();
+                            await dialog.ShowAsync();
+                        }
                         StatusText.Text = "Ready";
                     }
                     finally
@@ -660,7 +748,16 @@ namespace AnSAM
         {
             StatusText.Text = $"Launching achievement manager for {game.Title}...";
             StatusProgress.IsIndeterminate = true;
-            StatusExtra.Text = string.Empty;
+
+            // Only clear extra text if no operation is in progress
+            lock (_progressLock)
+            {
+                if (_currentProgressContext == ProgressContext.None)
+                {
+                    StatusExtra.Text = string.Empty;
+                }
+            }
+
             GameLauncher.LaunchAchievementManager(game);
             StatusProgress.IsIndeterminate = false;
             StatusText.Text = "Ready";
@@ -673,7 +770,16 @@ namespace AnSAM
         {
             StatusText.Text = $"Launching {game.Title}...";
             StatusProgress.IsIndeterminate = true;
-            StatusExtra.Text = string.Empty;
+
+            // Only clear extra text if no operation is in progress
+            lock (_progressLock)
+            {
+                if (_currentProgressContext == ProgressContext.None)
+                {
+                    StatusExtra.Text = string.Empty;
+                }
+            }
+
             GameLauncher.Launch(game);
             StatusProgress.IsIndeterminate = false;
             StatusText.Text = "Ready";
@@ -690,26 +796,28 @@ namespace AnSAM
                 if (!_steamClient.Initialized)
                 {
                     StatusProgress.IsIndeterminate = false;
-                    StatusProgress.Value = 0;
-                    StatusExtra.Text = string.Empty;
+                    ClearProgress(ProgressContext.InitialLoad);
                     StatusText.Text = "Steam unavailable";
 
-                    var dialog = new ContentDialog
+                    // Only show dialog if XamlRoot is available (window is fully initialized)
+                    if (Content?.XamlRoot != null)
                     {
-                        Title = "Steam unavailable",
-                        Content = "Unable to refresh because Steam is not available.",
-                        CloseButtonText = "OK",
-                        XamlRoot = Content.XamlRoot
-                    };
+                        var dialog = new ContentDialog
+                        {
+                            Title = "Steam unavailable",
+                            Content = "Unable to refresh because Steam is not available.",
+                            CloseButtonText = "OK",
+                            XamlRoot = Content.XamlRoot
+                        };
 
-                    await dialog.ShowAsync();
+                        await dialog.ShowAsync();
+                    }
                     return;
                 }
 
                 StatusText.Text = "Refresh";
                 StatusProgress.IsIndeterminate = false;
-                StatusProgress.Value = 0;
-                StatusExtra.Text = "0%";
+                UpdateProgress(ProgressContext.InitialLoad, 0, "0%");
 
                 var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab");
 
@@ -744,8 +852,11 @@ namespace AnSAM
 
                     // CRITICAL: Start sequential image loading after initial load
                     StartSequentialImageLoading();
-                    StatusProgress.Value = 0;
-                    StatusExtra.Text = $"{Games.Count}/{_allGames.Count}";
+
+                    // NOTE: Don't reset progress here - StartSequentialImageLoading() manages progress updates
+                    // Old code (removed to prevent overwriting language switch progress):
+                    // StatusProgress.Value = 0;
+                    // StatusExtra.Text = $"{Games.Count}/{_allGames.Count}";
                 });
             }
             catch (Exception ex)
@@ -756,8 +867,7 @@ namespace AnSAM
                 _ = DispatcherQueue.TryEnqueue(() =>
                 {
                     StatusText.Text = $"Refresh failed: {ex.Message}";
-                    StatusProgress.Value = 0;
-                    StatusExtra.Text = string.Empty;
+                    ClearProgress(ProgressContext.InitialLoad);
                     StatusProgress.IsIndeterminate = false;
                 });
             }
@@ -924,8 +1034,16 @@ namespace AnSAM
             }
 
             StatusText.Text = $"Showing {Games.Count} of {_allGames.Count} games";
-            StatusProgress.Value = 0;
-            StatusExtra.Text = $"{Games.Count}/{_allGames.Count}";
+
+            // Only update progress if no operation is in progress (don't interfere with language switching)
+            lock (_progressLock)
+            {
+                if (_currentProgressContext == ProgressContext.None)
+                {
+                    StatusProgress.Value = 0;
+                    StatusExtra.Text = $"{Games.Count}/{_allGames.Count}";
+                }
+            }
 #if DEBUG
             DebugLogger.LogDebug($"FilterGames('{kw}') -> {Games.Count} items");
 #endif
@@ -944,10 +1062,53 @@ namespace AnSAM
         /// </summary>
         private void OnGameListProgressChanged(double progress)
         {
-            _ = DispatcherQueue.TryEnqueue(() =>
+            UpdateProgress(ProgressContext.InitialLoad, progress, $"{progress:0}%");
+        }
+
+        /// <summary>
+        /// Updates progress bar with priority system to prevent conflicts.
+        /// Only updates if the new context has equal or higher priority than current.
+        /// </summary>
+        /// <param name="context">The context requesting the update (determines priority)</param>
+        /// <param name="progress">Progress value (0-100)</param>
+        /// <param name="extraText">Extra text to display (e.g., "120/600")</param>
+        private void UpdateProgress(ProgressContext context, double progress, string extraText)
+        {
+            DispatcherQueue.TryEnqueue(() =>
             {
-                StatusProgress.Value = progress;
-                StatusExtra.Text = $"{progress:0}%";
+                lock (_progressLock)
+                {
+                    // Allow update if:
+                    // 1. No current operation (None)
+                    // 2. New context has equal or higher priority (lower enum value = higher priority)
+                    if (_currentProgressContext == ProgressContext.None || (int)context <= (int)_currentProgressContext)
+                    {
+                        StatusProgress.Value = progress;
+                        StatusExtra.Text = extraText;
+                        _currentProgressContext = context;
+                    }
+                }
+            });
+        }
+
+        /// <summary>
+        /// Clears progress bar only if the requesting context owns it.
+        /// </summary>
+        /// <param name="context">The context requesting the clear</param>
+        private void ClearProgress(ProgressContext context)
+        {
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                lock (_progressLock)
+                {
+                    // Only clear if this context owns the progress bar
+                    if (context == _currentProgressContext)
+                    {
+                        StatusProgress.Value = 0;
+                        StatusExtra.Text = string.Empty;
+                        _currentProgressContext = ProgressContext.None;
+                    }
+                }
             });
         }
 
@@ -1003,7 +1164,8 @@ namespace AnSAM
         /// Phase 3 (Slow): Download target language for games showing English
         /// This ensures users see English fallbacks quickly, then target language updates.
         /// </summary>
-        private async void StartSequentialImageLoading()
+        /// <param name="progressContext">The progress context to use (InitialLoad or LanguageSwitch)</param>
+        private async void StartSequentialImageLoading(ProgressContext progressContext = ProgressContext.InitialLoad)
         {
             // Cancel any previous sequential loading
             var oldCts = _sequentialLoadCts;
@@ -1019,10 +1181,14 @@ namespace AnSAM
             DebugLogger.LogDebug($"StartSequentialImageLoading: THREE-PHASE loading for {_allGames.Count} games in {currentLanguage}");
 #endif
 
+            // Set status text for Phase 1
+            DispatcherQueue.TryEnqueue(() => StatusText.Text = "Loading cached images...");
+
             // PHASE 1: Instant load of cached images only (no downloads, no LoadCoverAsync)
             var gamesNeedingEnglish = new List<GameItem>();
             var gamesNeedingTarget = new List<GameItem>();
             const int phase1BatchSize = 50; // Larger batch since we're directly reading cache
+            int totalGames = _allGames.Count;
 
             for (int i = 0; i < _allGames.Count; i += phase1BatchSize)
             {
@@ -1030,6 +1196,10 @@ namespace AnSAM
                 {
                     if (ct.IsCancellationRequested || _currentLanguage != currentLanguage)
                         break;
+
+                    // Update progress: Phase 1 占 33% (0-33)
+                    double phase1Progress = (i * 33.0) / Math.Max(1, totalGames);
+                    UpdateProgress(progressContext, phase1Progress, $"{i}/{totalGames}");
 
                     for (int j = 0; j < phase1BatchSize && (i + j) < _allGames.Count; j++)
                     {
@@ -1088,9 +1258,15 @@ namespace AnSAM
                 }
             }
 
+            // Update progress to 33% (Phase 1 complete)
+            UpdateProgress(progressContext, 33.0, $"{totalGames}/{totalGames}");
+
 #if DEBUG
             DebugLogger.LogDebug($"Phase 1 complete. Need English: {gamesNeedingEnglish.Count}, Need target: {gamesNeedingTarget.Count}");
 #endif
+
+            // Set status text for Phase 2
+            DispatcherQueue.TryEnqueue(() => StatusText.Text = "Downloading English fallbacks...");
 
             // PHASE 2: Fast download of English fallback (larger batch, English usually exists)
             const int phase2BatchSize = 5;
@@ -1106,6 +1282,10 @@ namespace AnSAM
 #endif
                         break;
                     }
+
+                    // Update progress: Phase 2 占 33% (33-66)
+                    double phase2Progress = 33.0 + (i * 33.0) / Math.Max(1, gamesNeedingEnglish.Count);
+                    UpdateProgress(progressContext, phase2Progress, $"{i}/{gamesNeedingEnglish.Count}");
 
                     var phase2Tasks = new List<Task>();
                     for (int j = 0; j < phase2BatchSize && (i + j) < gamesNeedingEnglish.Count; j++)
@@ -1153,9 +1333,18 @@ namespace AnSAM
                 }
             }
 
+            // Update progress to 66% (Phase 2 complete)
+            UpdateProgress(progressContext, 66.0, $"{gamesNeedingEnglish.Count}/{gamesNeedingEnglish.Count}");
+
 #if DEBUG
             DebugLogger.LogDebug($"Phase 2 complete. Now downloading target language for {gamesNeedingTarget.Count} games.");
 #endif
+
+            // Set status text for Phase 3
+            if (!isEnglish)
+            {
+                DispatcherQueue.TryEnqueue(() => StatusText.Text = $"Downloading {currentLanguage} images...");
+            }
 
             // PHASE 3: Slow download of target language (smallest batch, may not exist)
             if (!isEnglish)
@@ -1173,6 +1362,10 @@ namespace AnSAM
 #endif
                             break;
                         }
+
+                        // Update progress: Phase 3 占 34% (66-100)
+                        double phase3Progress = 66.0 + (i * 34.0) / Math.Max(1, gamesNeedingTarget.Count);
+                        UpdateProgress(progressContext, phase3Progress, $"{i}/{gamesNeedingTarget.Count}");
 
                         var phase3Tasks = new List<Task>();
                         for (int j = 0; j < phase3BatchSize && (i + j) < gamesNeedingTarget.Count; j++)
@@ -1215,6 +1408,10 @@ namespace AnSAM
                     }
                 }
             }
+
+            // Clear progress and reset status text
+            ClearProgress(progressContext);
+            DispatcherQueue.TryEnqueue(() => StatusText.Text = "Ready");
 
 #if DEBUG
             DebugLogger.LogDebug("Sequential image loading completed");
@@ -1298,7 +1495,7 @@ namespace AnSAM
 
             // CRITICAL: Start sequential loading from top to bottom (like old SAM)
             // This avoids WinUI 3 native crash from thundering herd during fast scrolling
-            StartSequentialImageLoading();
+            StartSequentialImageLoading(ProgressContext.LanguageSwitch);
         }
 
         /// <summary>
