@@ -502,28 +502,42 @@ namespace RunGame
                 return;
             }
 
-            // Check for achieved -> unachieved changes and confirm
-            var achievedToUnachieved = selectedAchievements
-                .Where(a => a.IsAchieved)
-                .ToList();
+            // Separate achievements by their current state for clear confirmation
+            var achievedCount = selectedAchievements.Count(a => a.IsAchieved);
+            var unachievedCount = selectedAchievements.Count - achievedCount;
 
-            if (achievedToUnachieved.Count > 0)
+            // Show detailed confirmation dialog
+            string confirmMessage;
+            if (achievedCount > 0 && unachievedCount > 0)
             {
-                var result = await ShowConfirmationDialog(
-                    "Confirm Achievement Reset", 
-                    $"Are you sure you want to reset {achievedToUnachieved.Count} achieved achievement(s) to unachieved?\n\nThis action cannot be easily undone.");
+                confirmMessage = $"You are about to toggle {selectedAchievements.Count} achievement(s):\n\n" +
+                               $"• {unachievedCount} locked achievement(s) will be UNLOCKED\n" +
+                               $"• {achievedCount} unlocked achievement(s) will be LOCKED\n\n" +
+                               $"Are you sure you want to continue?";
+            }
+            else if (achievedCount > 0)
+            {
+                confirmMessage = $"Are you sure you want to LOCK {achievedCount} unlocked achievement(s)?\n\n" +
+                               $"This will reset them to unachieved state.\n" +
+                               $"This action cannot be easily undone.";
+            }
+            else
+            {
+                confirmMessage = $"Are you sure you want to UNLOCK {unachievedCount} locked achievement(s)?";
+            }
 
-                if (result != Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary)
-                {
-                    return;
-                }
+            var result = await ShowConfirmationDialog("Confirm Achievement Toggle", confirmMessage);
+
+            if (result != Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary)
+            {
+                return;
             }
 
             // Show loading indicator and disable Store button to prevent multiple clicks
             LoadingRing.IsActive = true;
             StoreButton.IsEnabled = false;
             StatusLabel.Text = "Storing changes...";
-            
+
             try
             {
                 await Task.Run(() => PerformStoreToggle(selectedAchievements));
@@ -547,32 +561,69 @@ namespace RunGame
             {
                 DebugLogger.LogDebug($"PerformStoreToggle called for {selectedAchievements.Count} achievements");
                 DebugLogger.LogDebug($"Debug mode: {DebugLogger.IsDebugMode}");
-                
+
                 int achievementCount = 0;
                 foreach (var achievement in selectedAchievements)
                 {
+                    // Safety check: Skip protected achievements (double-check even though UI should filter)
+                    if (achievement.IsProtected)
+                    {
+                        DebugLogger.LogDebug($"Skipping protected achievement {achievement.Id}");
+                        continue;
+                    }
+
                     // Toggle the achievement state
                     bool newState = !achievement.IsAchieved;
                     DebugLogger.LogDebug($"Achievement {achievement.Id} toggle: {achievement.IsAchieved} -> {newState}");
-                    
+
                     if (!_gameStatsService.SetAchievement(achievement.Id, newState))
                     {
                         this.DispatcherQueue.TryEnqueue(() =>
                         {
-                            ShowErrorDialog($"Failed to set achievement '{achievement.Id}'");
+                            if (achievement.IsProtected)
+                            {
+                                ShowErrorDialog($"Cannot modify protected achievement:\n\n" +
+                                              $"ID: {achievement.Id}\n" +
+                                              $"Name: {achievement.Name}\n\n" +
+                                              $"This achievement is protected by the game developer and cannot be modified.");
+                            }
+                            else
+                            {
+                                ShowErrorDialog($"Failed to set achievement '{achievement.Id}'. Steam API rejected the change.");
+                            }
                         });
                         return;
                     }
-                    
+
                     achievementCount++;
                 }
                 
                 // Store statistics (if any were modified)
                 int statCount = StoreStatistics(true);
-                
+
+                // If statistics store failed, refresh and return
+                if (statCount < 0)
+                {
+                    DebugLogger.LogDebug("Statistics store failed in PerformStoreToggle - refreshing");
+                    RefreshAfterFailure(false);
+                    return;
+                }
+
                 // Store changes to Steam
                 bool success = _gameStatsService.StoreStats();
                 DebugLogger.LogDebug($"StoreStats result: {success}");
+
+                // If commit failed, refresh to resync
+                if (!success)
+                {
+                    DebugLogger.LogDebug("StoreStats failed in PerformStoreToggle - refreshing");
+                    this.DispatcherQueue.TryEnqueue(() =>
+                    {
+                        StatusLabel.Text = "Failed to commit changes to Steam. Refreshing...";
+                    });
+                    RefreshAfterFailure(false);
+                    return;
+                }
                 
                 // Update UI on main thread
                 this.DispatcherQueue.TryEnqueue(() =>
@@ -652,19 +703,32 @@ namespace RunGame
             try
             {
                 DebugLogger.LogDebug($"PerformStore called (silent: {silent})");
-                
+
                 int achievementCount = StoreAchievements(silent);
-                if (achievementCount < 0) return;
+                if (achievementCount < 0)
+                {
+                    // Refresh on achievement store failure to resync UI with Steam
+                    RefreshAfterFailure(silent);
+                    return;
+                }
 
                 int statCount = StoreStatistics(silent);
-                if (statCount < 0) return;
+                if (statCount < 0)
+                {
+                    // Refresh on statistics store failure to resync UI with Steam
+                    RefreshAfterFailure(silent);
+                    return;
+                }
 
                 if (!_gameStatsService.StoreStats())
                 {
                     if (!silent)
                     {
-                        ShowErrorDialog("Failed to store stats to Steam");
+                        ShowErrorDialog("Failed to commit changes to Steam. Refreshing to restore correct state...");
                     }
+                    DebugLogger.LogDebug("StoreStats failed - refreshing to resync with Steam");
+                    // Refresh to resync UI with actual Steam state
+                    RefreshAfterFailure(silent);
                     return;
                 }
 
@@ -753,34 +817,58 @@ namespace RunGame
         private int StoreAchievements(bool silent)
         {
             int count = 0;
-            
+
             // Get all modified achievements
             var modifiedAchievements = _achievements.Where(a => a.IsModified).ToList();
-            
+
             if (modifiedAchievements.Count == 0)
                 return 0;
-            
+
+            // Filter out protected achievements (safety check - should already be filtered)
+            var protectedAchievements = modifiedAchievements.Where(a => a.IsProtected).ToList();
+            if (protectedAchievements.Count > 0)
+            {
+                if (!silent)
+                {
+                    var protectedIds = string.Join(", ", protectedAchievements.Select(a => a.Id));
+                    ShowErrorDialog($"Cannot modify protected achievements:\n\n{protectedIds}\n\n" +
+                                  $"These achievements are protected by the game developer.");
+                }
+                DebugLogger.LogDebug($"Blocked attempt to modify {protectedAchievements.Count} protected achievements");
+                return -1;
+            }
+
             // Sort achievements by their statistic requirements to ensure proper ordering
             var sortedAchievements = SortAchievementsByStatisticDependency(modifiedAchievements);
-            
+
             foreach (var achievement in sortedAchievements)
             {
                 DebugLogger.LogDebug($"Achievement {achievement.Id} modified: {achievement.OriginalIsAchieved} -> {achievement.IsAchieved}");
-                
+
                 if (!_gameStatsService.SetAchievement(achievement.Id, achievement.IsAchieved))
                 {
                     if (!silent)
                     {
-                        ShowErrorDialog($"Failed to set achievement '{achievement.Id}'");
+                        if (achievement.IsProtected)
+                        {
+                            ShowErrorDialog($"Cannot modify protected achievement:\n\n" +
+                                          $"ID: {achievement.Id}\n" +
+                                          $"Name: {achievement.Name}\n\n" +
+                                          $"This achievement is protected by the game developer.");
+                        }
+                        else
+                        {
+                            ShowErrorDialog($"Failed to set achievement '{achievement.Id}'. Steam API rejected the change.");
+                        }
                     }
                     return -1;
                 }
-                
+
                 // Update original state after successful write
                 achievement.OriginalIsAchieved = achievement.IsAchieved;
                 count++;
             }
-            
+
             return count;
         }
         
@@ -816,24 +904,140 @@ namespace RunGame
             }).ToList();
         }
 
+        private void RefreshAfterFailure(bool silent)
+        {
+            DebugLogger.LogDebug("RefreshAfterFailure called - reloading stats from Steam");
+
+            // Schedule refresh on UI thread
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    // Small delay to allow Steam to stabilize
+                    await Task.Delay(300);
+
+                    this.DispatcherQueue.TryEnqueue(async () =>
+                    {
+                        try
+                        {
+                            if (!silent)
+                            {
+                                StatusLabel.Text = "Refreshing data from Steam...";
+                            }
+                            await LoadStatsAsync();
+                            if (!silent)
+                            {
+                                StatusLabel.Text = "Data refreshed from Steam";
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            DebugLogger.LogDebug($"Error during refresh after failure: {ex.GetType().Name}: {ex.Message}");
+                            if (!silent)
+                            {
+                                StatusLabel.Text = "Error refreshing data from Steam";
+                            }
+                        }
+                    });
+                }
+                catch (Exception ex)
+                {
+                    DebugLogger.LogDebug($"Error in RefreshAfterFailure task: {ex.GetType().Name}: {ex.Message}");
+                }
+            });
+        }
+
         private int StoreStatistics(bool silent)
         {
             int count = 0;
-            
+
             foreach (var stat in _statistics.Where(s => s.IsModified))
             {
                 if (!_gameStatsService.SetStatistic(stat))
                 {
                     if (!silent)
                     {
-                        ShowErrorDialog($"Failed to set statistic '{stat.Id}'");
+                        string errorMessage = BuildStatValidationErrorMessage(stat);
+                        ShowErrorDialog(errorMessage);
                     }
                     return -1;
                 }
                 count++;
             }
-            
+
             return count;
+        }
+
+        private string BuildStatValidationErrorMessage(StatInfo stat)
+        {
+            if (stat is IntStatInfo intStat)
+            {
+                // Check IncrementOnly violation
+                if (intStat.IsIncrementOnly && intStat.IntValue < intStat.OriginalValue)
+                {
+                    return $"Cannot decrease IncrementOnly statistic '{stat.DisplayName}' ({stat.Id})\n" +
+                           $"Original: {intStat.OriginalValue}, Attempted: {intStat.IntValue}\n\n" +
+                           $"This statistic can only be increased, never decreased.";
+                }
+
+                // Check Min/Max violation
+                if (intStat.IntValue < intStat.MinValue || intStat.IntValue > intStat.MaxValue)
+                {
+                    return $"Statistic '{stat.DisplayName}' ({stat.Id}) value out of range\n" +
+                           $"Attempted: {intStat.IntValue}\n" +
+                           $"Valid range: [{intStat.MinValue}, {intStat.MaxValue}]\n\n" +
+                           $"Please enter a value within the allowed range.";
+                }
+
+                // Check MaxChange violation
+                if (intStat.MaxChange > 0)
+                {
+                    int change = Math.Abs(intStat.IntValue - intStat.OriginalValue);
+                    if (change > intStat.MaxChange)
+                    {
+                        return $"Statistic '{stat.DisplayName}' ({stat.Id}) change too large\n" +
+                               $"Original: {intStat.OriginalValue}, Attempted: {intStat.IntValue}\n" +
+                               $"Change: {change} (max allowed: {intStat.MaxChange})\n\n" +
+                               $"This statistic can only change by {intStat.MaxChange} at a time.";
+                    }
+                }
+            }
+            else if (stat is FloatStatInfo floatStat)
+            {
+                // Check IncrementOnly violation
+                if (floatStat.IsIncrementOnly && floatStat.FloatValue < floatStat.OriginalValue)
+                {
+                    return $"Cannot decrease IncrementOnly statistic '{stat.DisplayName}' ({stat.Id})\n" +
+                           $"Original: {floatStat.OriginalValue:F2}, Attempted: {floatStat.FloatValue:F2}\n\n" +
+                           $"This statistic can only be increased, never decreased.";
+                }
+
+                // Check Min/Max violation
+                if (floatStat.FloatValue < floatStat.MinValue || floatStat.FloatValue > floatStat.MaxValue)
+                {
+                    return $"Statistic '{stat.DisplayName}' ({stat.Id}) value out of range\n" +
+                           $"Attempted: {floatStat.FloatValue:F2}\n" +
+                           $"Valid range: [{floatStat.MinValue:F2}, {floatStat.MaxValue:F2}]\n\n" +
+                           $"Please enter a value within the allowed range.";
+                }
+
+                // Check MaxChange violation
+                if (floatStat.MaxChange > float.Epsilon)
+                {
+                    float change = Math.Abs(floatStat.FloatValue - floatStat.OriginalValue);
+                    if (change > floatStat.MaxChange)
+                    {
+                        return $"Statistic '{stat.DisplayName}' ({stat.Id}) change too large\n" +
+                               $"Original: {floatStat.OriginalValue:F2}, Attempted: {floatStat.FloatValue:F2}\n" +
+                               $"Change: {change:F2} (max allowed: {floatStat.MaxChange:F2})\n\n" +
+                               $"This statistic can only change by {floatStat.MaxChange:F2} at a time.";
+                    }
+                }
+            }
+
+            // Generic error message
+            return $"Failed to set statistic '{stat.DisplayName}' ({stat.Id})\n\n" +
+                   $"The value may violate Steam API constraints.";
         }
 
         private void OnLockAll(object sender, RoutedEventArgs e)

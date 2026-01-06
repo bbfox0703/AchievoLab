@@ -18,6 +18,13 @@ namespace RunGame.Services
         private readonly List<AchievementDefinition> _achievementDefinitions = new();
         private readonly List<StatDefinition> _statDefinitions = new();
 
+        /// <summary>
+        /// EXPERIMENTAL: Enable automatic cascading of stat-based achievements.
+        /// WARNING: This feature is game-specific and may cause unintended achievement unlocks.
+        /// Only enable if you understand the risks.
+        /// </summary>
+        public bool EnableAchievementCascading { get; set; } = false;
+
         public event EventHandler<UserStatsReceivedEventArgs>? UserStatsReceived;
 
         public GameStatsService(ISteamUserStats steamClient, long gameId)
@@ -402,10 +409,13 @@ namespace RunGame.Services
                             IntValue = value,
                             OriginalValue = value,
                             IsIncrementOnly = intStat.IncrementOnly,
-                            Permission = intStat.Permission
+                            Permission = intStat.Permission,
+                            MinValue = intStat.MinValue,
+                            MaxValue = intStat.MaxValue,
+                            MaxChange = intStat.MaxChange
                         };
-                        
-                        DebugLogger.LogDebug($"Integer Stat created - ID: {statInfo.Id}, Name: '{statInfo.DisplayName}', Value: {statInfo.IntValue}, IncrementOnly: {statInfo.IsIncrementOnly}");
+
+                        DebugLogger.LogDebug($"Integer Stat created - ID: {statInfo.Id}, Name: '{statInfo.DisplayName}', Value: {statInfo.IntValue}, IncrementOnly: {statInfo.IsIncrementOnly}, Range: [{intStat.MinValue}, {intStat.MaxValue}]");
                         statistics.Add(statInfo);
                     }
                     else
@@ -424,7 +434,10 @@ namespace RunGame.Services
                             FloatValue = value,
                             OriginalValue = value,
                             IsIncrementOnly = floatStat.IncrementOnly,
-                            Permission = floatStat.Permission
+                            Permission = floatStat.Permission,
+                            MinValue = floatStat.MinValue,
+                            MaxValue = floatStat.MaxValue,
+                            MaxChange = floatStat.MaxChange
                         });
                     }
                 }
@@ -435,34 +448,59 @@ namespace RunGame.Services
 
         public bool SetAchievement(string id, bool achieved)
         {
+            // Check if achievement is protected
+            var achievementDef = _achievementDefinitions.FirstOrDefault(a => a.Id == id);
+            if (achievementDef != null)
+            {
+                bool isProtected = (achievementDef.Permission & 3) != 0;
+                if (isProtected)
+                {
+                    DebugLogger.LogDebug($"ERROR: Cannot modify protected achievement {id} (Permission: {achievementDef.Permission})");
+                    return false;
+                }
+            }
+
             if (DebugLogger.IsDebugMode)
             {
                 DebugLogger.LogDebug($"[DEBUG FAKE WRITE] SetAchievement: {id} = {achieved} (not actually written to Steam)");
-                
-                // Even in debug mode, we should adjust related statistics for consistency
-                if (achieved)
+
+                // Only adjust related statistics if cascading is enabled
+                if (achieved && EnableAchievementCascading)
                 {
+                    DebugLogger.LogDebug($"[CASCADING ENABLED] Adjusting related statistics for {id}");
                     AdjustRelatedStatistics(id);
                 }
-                
+
                 return true; // Always return success in debug mode
             }
-            
+
             DebugLogger.LogDebug($"GameStatsService.SetAchievement called: {id} = {achieved}");
-            
-            // If setting achievement to true, check for related statistics and adjust them
-            if (achieved)
+
+            // If setting achievement to true and cascading is enabled, adjust related statistics
+            if (achieved && EnableAchievementCascading)
             {
+                DebugLogger.LogDebug($"[CASCADING ENABLED] Adjusting related statistics for {id}");
                 AdjustRelatedStatistics(id);
             }
-            
+            else if (achieved && !EnableAchievementCascading)
+            {
+                DebugLogger.LogDebug($"[CASCADING DISABLED] Skipping automatic stat adjustment for {id}");
+            }
+
             bool success = _steamClient.SetAchievement(id, achieved);
             DebugLogger.LogDebug($"SetAchievement result: {success} for {id} = {achieved}");
             return success;
         }
         
+        /// <summary>
+        /// EXPERIMENTAL: Adjusts statistics related to achievements for specific games.
+        /// WARNING: This is GAME-SPECIFIC logic hardcoded for Warhammer 40,000: Battlesector.
+        /// This should NOT be used for other games as it may cause incorrect stat values.
+        /// Only activated when EnableAchievementCascading = true.
+        /// </summary>
         private void AdjustRelatedStatistics(string achievementId)
         {
+            // GAME-SPECIFIC: Warhammer 40,000: Battlesector (App ID: 1295480)
             // Define achievement-statistic relationships with required values
             var achievementStatMap = new Dictionary<string, (string statId, int requiredValue)>
             {
@@ -475,9 +513,9 @@ namespace RunGame.Services
                 { "BuildXBuildings", ("BuildXBuildings_Stat", 500) },
                 { "RecruitXUnits", ("RecruitXUnits_Stat", 2000) },
                 { "PlayXCombatCards", ("PlayXCombatCards_Stat", 6000) },
-                { "FindWanderingEruditeOnAllMaps", ("FindWanderingEruditeOnAllMaps_Stat", 8) }, // Assuming 8 maps
+                { "FindWanderingEruditeOnAllMaps", ("FindWanderingEruditeOnAllMaps_Stat", 8) },
                 { "FinishCampaignOnHardDifficulty", ("FinishCampaignOnHardDifficulty_Stat", 1) },
-                { "UnlockXLexicanumEntries", ("UnlockXLexicanumEntries_Stat", 999) } // Assuming all entries
+                { "UnlockXLexicanumEntries", ("UnlockXLexicanumEntries_Stat", 999) }
             };
             
             if (achievementStatMap.TryGetValue(achievementId, out var statInfo))
@@ -570,31 +608,80 @@ namespace RunGame.Services
 
         public bool SetStatistic(StatInfo stat)
         {
-            if (DebugLogger.IsDebugMode)
+            if (stat is IntStatInfo intStat)
             {
-                if (stat is IntStatInfo intStat)
+                // Validate IncrementOnly constraint
+                if (intStat.IsIncrementOnly && intStat.IntValue < intStat.OriginalValue)
+                {
+                    DebugLogger.LogDebug($"ERROR: Cannot decrease IncrementOnly stat {intStat.Id} from {intStat.OriginalValue} to {intStat.IntValue}");
+                    return false;
+                }
+
+                // Validate Min/Max bounds
+                if (intStat.IntValue < intStat.MinValue || intStat.IntValue > intStat.MaxValue)
+                {
+                    DebugLogger.LogDebug($"ERROR: Stat {intStat.Id} value {intStat.IntValue} is out of range [{intStat.MinValue}, {intStat.MaxValue}]");
+                    return false;
+                }
+
+                // Validate MaxChange constraint (if specified)
+                if (intStat.MaxChange > 0)
+                {
+                    int change = Math.Abs(intStat.IntValue - intStat.OriginalValue);
+                    if (change > intStat.MaxChange)
+                    {
+                        DebugLogger.LogDebug($"ERROR: Stat {intStat.Id} change {change} exceeds MaxChange {intStat.MaxChange}");
+                        return false;
+                    }
+                }
+
+                if (DebugLogger.IsDebugMode)
                 {
                     DebugLogger.LogDebug($"[DEBUG FAKE WRITE] SetStatistic: {intStat.Id} = {intStat.IntValue} (not actually written to Steam)");
+                    return true; // Always return success in debug mode
                 }
-                else if (stat is FloatStatInfo floatStat)
-                {
-                    DebugLogger.LogDebug($"[DEBUG FAKE WRITE] SetStatistic: {floatStat.Id} = {floatStat.FloatValue} (not actually written to Steam)");
-                }
-                return true; // Always return success in debug mode
-            }
-            
-            if (stat is IntStatInfo intStatRelease)
-            {
-                DebugLogger.LogDebug($"GameStatsService.SetStatistic called: {intStatRelease.Id} = {intStatRelease.IntValue}");
-                bool success = _steamClient.SetStatValue(intStatRelease.Id, intStatRelease.IntValue);
-                DebugLogger.LogDebug($"SetStatistic result: {success} for {intStatRelease.Id} = {intStatRelease.IntValue}");
+
+                DebugLogger.LogDebug($"GameStatsService.SetStatistic called: {intStat.Id} = {intStat.IntValue}");
+                bool success = _steamClient.SetStatValue(intStat.Id, intStat.IntValue);
+                DebugLogger.LogDebug($"SetStatistic result: {success} for {intStat.Id} = {intStat.IntValue}");
                 return success;
             }
-            else if (stat is FloatStatInfo floatStatRelease)
+            else if (stat is FloatStatInfo floatStat)
             {
-                DebugLogger.LogDebug($"GameStatsService.SetStatistic called: {floatStatRelease.Id} = {floatStatRelease.FloatValue}");
-                bool success = _steamClient.SetStatValue(floatStatRelease.Id, floatStatRelease.FloatValue);
-                DebugLogger.LogDebug($"SetStatistic result: {success} for {floatStatRelease.Id} = {floatStatRelease.FloatValue}");
+                // Validate IncrementOnly constraint
+                if (floatStat.IsIncrementOnly && floatStat.FloatValue < floatStat.OriginalValue)
+                {
+                    DebugLogger.LogDebug($"ERROR: Cannot decrease IncrementOnly stat {floatStat.Id} from {floatStat.OriginalValue} to {floatStat.FloatValue}");
+                    return false;
+                }
+
+                // Validate Min/Max bounds
+                if (floatStat.FloatValue < floatStat.MinValue || floatStat.FloatValue > floatStat.MaxValue)
+                {
+                    DebugLogger.LogDebug($"ERROR: Stat {floatStat.Id} value {floatStat.FloatValue} is out of range [{floatStat.MinValue}, {floatStat.MaxValue}]");
+                    return false;
+                }
+
+                // Validate MaxChange constraint (if specified)
+                if (floatStat.MaxChange > float.Epsilon)
+                {
+                    float change = Math.Abs(floatStat.FloatValue - floatStat.OriginalValue);
+                    if (change > floatStat.MaxChange)
+                    {
+                        DebugLogger.LogDebug($"ERROR: Stat {floatStat.Id} change {change:F2} exceeds MaxChange {floatStat.MaxChange:F2}");
+                        return false;
+                    }
+                }
+
+                if (DebugLogger.IsDebugMode)
+                {
+                    DebugLogger.LogDebug($"[DEBUG FAKE WRITE] SetStatistic: {floatStat.Id} = {floatStat.FloatValue} (not actually written to Steam)");
+                    return true; // Always return success in debug mode
+                }
+
+                DebugLogger.LogDebug($"GameStatsService.SetStatistic called: {floatStat.Id} = {floatStat.FloatValue}");
+                bool success = _steamClient.SetStatValue(floatStat.Id, floatStat.FloatValue);
+                DebugLogger.LogDebug($"SetStatistic result: {success} for {floatStat.Id} = {floatStat.FloatValue}");
                 return success;
             }
             return false;
