@@ -26,7 +26,7 @@ namespace RunGame.Models
     public class IntStatInfo : StatInfo
     {
         private int _intValue;
-        
+
         public int IntValue
         {
             get => _intValue;
@@ -43,6 +43,9 @@ namespace RunGame.Models
         }
 
         public int OriginalValue { get; set; }
+        public int MinValue { get; set; } = int.MinValue;
+        public int MaxValue { get; set; } = int.MaxValue;
+        public int MaxChange { get; set; } = 0;
 
         public override object Value
         {
@@ -58,7 +61,7 @@ namespace RunGame.Models
     public class FloatStatInfo : StatInfo
     {
         private float _floatValue;
-        
+
         public float FloatValue
         {
             get => _floatValue;
@@ -75,6 +78,9 @@ namespace RunGame.Models
         }
 
         public float OriginalValue { get; set; }
+        public float MinValue { get; set; } = float.MinValue;
+        public float MaxValue { get; set; } = float.MaxValue;
+        public float MaxChange { get; set; } = 0.0f;
 
         public override object Value
         {

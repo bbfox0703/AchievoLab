@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows10.0.26100.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <Nullable>enable</Nullable>
+    <Platforms>AnyCPU</Platforms>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)'=='Release'">
+    <PublishReadyToRun>false</PublishReadyToRun>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../RunGame/Services/GameStatsService.cs" Link="GameStatsService.cs" />
+    <Compile Include="../RunGame/Models/StatInfo.cs" Link="StatInfo.cs" />
+    <Compile Include="../RunGame/Models/AchievementDefinition.cs" Link="AchievementDefinition.cs" />
+    <Compile Include="../RunGame/Models/StatDefinition.cs" Link="StatDefinition.cs" />
+    <Compile Include="../RunGame/Models/AchievementInfo.cs" Link="AchievementInfo.cs" />
+    <Compile Include="../RunGame/Steam/ISteamUserStats.cs" Link="ISteamUserStats.cs" />
+    <Compile Include="../RunGame/Steam/SteamGameClient.cs" Link="SteamGameClient.cs" />
+    <Compile Include="../RunGame/Utils/KeyValue.cs" Link="KeyValue.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../CommonUtilities/CommonUtilities.csproj" />
+  </ItemGroup>
+</Project>
