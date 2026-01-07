@@ -608,6 +608,13 @@ namespace RunGame.Services
 
         public bool SetStatistic(StatInfo stat)
         {
+            // Check if stat is protected
+            if (stat.IsProtected)
+            {
+                DebugLogger.LogDebug($"ERROR: Cannot modify protected stat {stat.Id} (Permission: {stat.Permission})");
+                return false;
+            }
+
             if (stat is IntStatInfo intStat)
             {
                 // Validate IncrementOnly constraint
