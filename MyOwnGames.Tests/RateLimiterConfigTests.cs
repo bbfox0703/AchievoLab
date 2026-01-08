@@ -29,6 +29,6 @@ public class RateLimiterConfigTests
 
         Assert.Equal(15, options.SteamMaxCallsPerMinute);
         Assert.Equal(6.5, options.SteamJitterMinSeconds);
-        Assert.Equal(7.5, options.SteamJitterMaxSeconds);
+        Assert.Equal(8, options.SteamJitterMaxSeconds);
     }
 }

@@ -292,28 +292,28 @@ namespace RunGame.Utils
         public static int ReadInt32(this Stream stream)
         {
             var bytes = new byte[4];
-            stream.Read(bytes, 0, 4);
+            stream.ReadExactly(bytes, 0, 4);
             return BitConverter.ToInt32(bytes, 0);
         }
 
         public static uint ReadUInt32(this Stream stream)
         {
             var bytes = new byte[4];
-            stream.Read(bytes, 0, 4);
+            stream.ReadExactly(bytes, 0, 4);
             return BitConverter.ToUInt32(bytes, 0);
         }
 
         public static ulong ReadUInt64(this Stream stream)
         {
             var bytes = new byte[8];
-            stream.Read(bytes, 0, 8);
+            stream.ReadExactly(bytes, 0, 8);
             return BitConverter.ToUInt64(bytes, 0);
         }
 
         public static float ReadSingle(this Stream stream)
         {
             var bytes = new byte[4];
-            stream.Read(bytes, 0, 4);
+            stream.ReadExactly(bytes, 0, 4);
             return BitConverter.ToSingle(bytes, 0);
         }
     }
