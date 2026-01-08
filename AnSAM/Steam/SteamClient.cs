@@ -285,11 +285,30 @@ namespace AnSAM.Steam
         /// </summary>
         public void Dispose()
         {
-            _callbackTimer?.Dispose();
+            // Stop callback timer first to prevent race conditions
+            if (_callbackTimer != null)
+            {
+                // Dispose the timer and wait for any running callbacks to complete
+                _callbackTimer.Dispose();
+
+                // Small delay to ensure callback completes
+                // Timer.Dispose() waits for callbacks to complete, but add extra safety
+                System.Threading.Thread.Sleep(50);
+            }
+
+            // Now safe to release Steam resources
             if (Initialized)
             {
-                _releaseUser?.Invoke(_client, _pipe, _user);
-                _releaseSteamPipe?.Invoke(_client, _pipe);
+                try
+                {
+                    _releaseUser?.Invoke(_client, _pipe, _user);
+                    _releaseSteamPipe?.Invoke(_client, _pipe);
+                    DebugLogger.LogDebug("Steam client resources released successfully");
+                }
+                catch (Exception ex)
+                {
+                    DebugLogger.LogDebug($"Error releasing Steam resources: {ex.Message}");
+                }
             }
             else
             {
