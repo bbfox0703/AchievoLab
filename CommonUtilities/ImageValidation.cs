@@ -38,7 +38,18 @@ namespace CommonUtilities
                         return true; // WEBP
                 }
             }
-            catch { }
+            catch (UnauthorizedAccessException ex)
+            {
+                DebugLogger.LogDebug($"Access denied validating image '{path}': {ex.Message}");
+            }
+            catch (IOException ex)
+            {
+                DebugLogger.LogDebug($"IO error validating image '{path}': {ex.Message}");
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Unexpected error validating image '{path}': {ex.GetType().Name} - {ex.Message}");
+            }
             return false;
         }
     }

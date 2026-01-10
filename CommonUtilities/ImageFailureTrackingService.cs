@@ -8,12 +8,17 @@ namespace CommonUtilities
 {
     /// <summary>
     /// Unified image failure tracking service that manages both general and language-specific image download failures.
+    /// Uses exponential backoff strategy: 5min → 10min → 20min → 40min → 80min → 160min → 320min → 640min → 1280min → 2560min → 5120min → 10240min → 20480min (max)
     /// Replaces both steam_games_failed.xml and manages games_image_failed_log.xml
     /// </summary>
     public class ImageFailureTrackingService
     {
         private readonly string _xmlFilePath;
         private readonly object _lockObject = new object();
+
+        // Exponential backoff configuration
+        private const int BaseBackoffMinutes = 5;
+        private const int MaxBackoffMinutes = 20480; // 失敗 12 次後的上限 (約 14.22 天)
 
         public ImageFailureTrackingService()
         {
@@ -29,6 +34,24 @@ namespace CommonUtilities
         {
             Directory.CreateDirectory(customCacheDirectory);
             _xmlFilePath = Path.Combine(customCacheDirectory, "games_image_failed_log.xml");
+        }
+
+        /// <summary>
+        /// Calculates exponential backoff time in minutes based on failure count
+        /// </summary>
+        /// <param name="failureCount">Number of consecutive failures</param>
+        /// <returns>Backoff time in minutes (capped at MaxBackoffMinutes)</returns>
+        private int CalculateBackoffMinutes(int failureCount)
+        {
+            // 失敗 0 次: 5 分鐘
+            // 失敗 1 次: 10 分鐘
+            // 失敗 2 次: 20 分鐘
+            // ...
+            // 失敗 12 次+: 20480 分鐘 (上限)
+            if (failureCount < 0) failureCount = 0;
+
+            int backoffMinutes = BaseBackoffMinutes * (int)Math.Pow(2, failureCount);
+            return Math.Min(backoffMinutes, MaxBackoffMinutes);
         }
 
         /// <summary>
@@ -60,21 +83,23 @@ namespace CommonUtilities
                         return false;
 
                     var lastFailedStr = languageElement.Attribute("LastFailed")?.Value;
+                    var failureCount = (int?)languageElement.Attribute("FailureCount") ?? 0;
+
                     if (DateTime.TryParse(lastFailedStr, out var lastFailed))
                     {
-                        // Use different thresholds: 14 days for language-specific, 15 days for English
-                        // CHANGED: Increased retry threshold from 7 to 14 days for non-English languages
-                        var thresholdDays = language == "english" ? 15 : 14;
-                        var daysSinceFailure = (DateTime.Now - lastFailed).TotalDays;
-                        
-                        if (daysSinceFailure <= thresholdDays)
+                        // Use exponential backoff based on failure count
+                        var backoffMinutes = CalculateBackoffMinutes(failureCount);
+                        var minutesSinceFailure = (DateTime.Now - lastFailed).TotalMinutes;
+
+                        if (minutesSinceFailure <= backoffMinutes)
                         {
-                            DebugLogger.LogDebug($"Skipping download for {appId} ({language}) - failed {daysSinceFailure:F1} days ago");
+                            var hoursRemaining = (backoffMinutes - minutesSinceFailure) / 60.0;
+                            DebugLogger.LogDebug($"Skipping download for {appId} ({language}) - failed {failureCount} times, retry in {hoursRemaining:F1} hours (backoff: {backoffMinutes} min)");
                             return true;
                         }
                         else
                         {
-                            DebugLogger.LogDebug($"Retrying download for {appId} ({language}) - last failure was {daysSinceFailure:F1} days ago");
+                            DebugLogger.LogDebug($"Retrying download for {appId} ({language}) - last failure was {minutesSinceFailure:F0} minutes ago (failed {failureCount} times)");
                             return false;
                         }
                     }
@@ -144,15 +169,19 @@ namespace CommonUtilities
 
                     if (languageElement == null)
                     {
+                        // New failure record starts at count 1
                         languageElement = new XElement("Language",
                             new XAttribute("Code", language),
-                            new XAttribute("LastFailed", timestamp));
+                            new XAttribute("LastFailed", timestamp),
+                            new XAttribute("FailureCount", 1));
                         gameElement.Add(languageElement);
                     }
                     else
                     {
-                        // Update existing record
+                        // Update existing record - increment failure count
+                        var currentCount = (int?)languageElement.Attribute("FailureCount") ?? 0;
                         languageElement.SetAttributeValue("LastFailed", timestamp);
+                        languageElement.SetAttributeValue("FailureCount", currentCount + 1);
                     }
 
                     // Save with backup mechanism
@@ -160,7 +189,9 @@ namespace CommonUtilities
                     doc.Save(tempPath);
                     File.Move(tempPath, _xmlFilePath, true);
 
-                    DebugLogger.LogDebug($"Recorded failed download for {appId} ({language}) - {gameName ?? "unknown"}");
+                    var finalCount = (int?)languageElement.Attribute("FailureCount") ?? 1;
+                    var backoffMinutes = CalculateBackoffMinutes(finalCount);
+                    DebugLogger.LogDebug($"Recorded failed download for {appId} ({language}) - {gameName ?? "unknown"} (failure count: {finalCount}, next retry in {backoffMinutes} min)");
                 }
                 catch (Exception ex)
                 {

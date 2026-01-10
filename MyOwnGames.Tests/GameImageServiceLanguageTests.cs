@@ -61,7 +61,11 @@ public class GameImageServiceLanguageTests : IDisposable
     public void Dispose()
     {
         _service.Dispose();
-        try { Directory.Delete(_tempDir, true); } catch { }
+        try { Directory.Delete(_tempDir, true); }
+        catch
+        {
+            // Ignore cleanup failures in test teardown
+        }
     }
 
     private class FakeStoreApiHandler : HttpMessageHandler
