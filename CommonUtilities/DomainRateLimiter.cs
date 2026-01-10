@@ -137,9 +137,10 @@ namespace CommonUtilities
 
                 return;
             }
-            catch
+            catch (Exception ex)
             {
-                // If we fail to get through rate limiting, release the semaphore
+                // If we fail to get through rate limiting, log and release the semaphore
+                DebugLogger.LogDebug($"Failed to wait for rate limiter on '{domain}': {ex.GetType().Name} - {ex.Message}");
                 try
                 {
                     domainSemaphore.Release();

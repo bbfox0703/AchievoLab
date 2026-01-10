@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using System.Xml;
 using System.Xml.Linq;
 using AnSAM.Steam;
+using CommonUtilities;
 
 namespace AnSAM.Services
 {
@@ -26,9 +27,27 @@ namespace AnSAM.Services
         /// <param name="http">HttpClient used to download the game list.</param>
         public static async Task<IReadOnlyList<SteamAppData>> RefreshAsync(string baseDir, ISteamClient steam, HttpClient http)
         {
-            Directory.CreateDirectory(baseDir);
+            try
+            {
+                Directory.CreateDirectory(baseDir);
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Failed to create base directory '{baseDir}': {ex.GetType().Name} - {ex.Message}");
+                throw;
+            }
+
             var cacheDir = Path.Combine(baseDir, "cache");
-            Directory.CreateDirectory(cacheDir);
+            try
+            {
+                Directory.CreateDirectory(cacheDir);
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Failed to create cache directory '{cacheDir}': {ex.GetType().Name} - {ex.Message}");
+                throw;
+            }
+
             var userGamesPath = Path.Combine(cacheDir, "usergames.xml");
             var steamGamesPath = Path.Combine(cacheDir, "steam_games.xml");
 

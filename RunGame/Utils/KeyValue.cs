@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using CommonUtilities;
 
 namespace RunGame.Utils
 {
@@ -96,8 +97,9 @@ namespace RunGame.Utils
                 
                 return null;
             }
-            catch
+            catch (Exception ex)
             {
+                DebugLogger.LogDebug($"Failed to load KeyValue from '{path}': {ex.GetType().Name} - {ex.Message}");
                 return null;
             }
         }
@@ -168,8 +170,9 @@ namespace RunGame.Utils
                 Valid = true;
                 return true;
             }
-            catch
+            catch (Exception ex)
             {
+                DebugLogger.LogDebug($"Failed to read KeyValue binary stream: {ex.GetType().Name} - {ex.Message}");
                 return false;
             }
         }
@@ -234,8 +237,9 @@ namespace RunGame.Utils
 
                 return kv;
             }
-            catch
+            catch (Exception ex)
             {
+                DebugLogger.LogDebug($"Failed to read binary KeyValue: {ex.GetType().Name} - {ex.Message}");
                 return null;
             }
         }

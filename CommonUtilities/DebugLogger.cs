@@ -40,12 +40,18 @@ namespace CommonUtilities
             {
                 Debug.WriteLine(logMessage);
             }
-            catch { }
+            catch
+            {
+                // Ignore Debug.WriteLine failures (e.g., no debugger attached or output errors)
+            }
 
             if (Environment.UserInteractive || Debugger.IsAttached)
             {
                 try { Console.WriteLine(logMessage); }
-                catch { }
+                catch
+                {
+                    // Ignore Console.WriteLine failures (e.g., console redirected or unavailable)
+                }
             }
 
             try
@@ -55,7 +61,11 @@ namespace CommonUtilities
                     File.AppendAllText(LogFilePath, logMessage + Environment.NewLine);
                 }
             }
-            catch { }
+            catch
+            {
+                // Ignore file write failures (e.g., disk full, permissions, or I/O errors)
+                // Cannot log this error without causing infinite recursion
+            }
 #endif
         }
 
@@ -117,7 +127,11 @@ namespace CommonUtilities
                     File.WriteAllText(LogFilePath, string.Empty);
                 }
             }
-            catch { }
+            catch
+            {
+                // Ignore file clear failures (e.g., file locked, permissions, or I/O errors)
+                // Cannot log this error without causing infinite recursion
+            }
 #endif
         }
 

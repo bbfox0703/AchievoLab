@@ -64,7 +64,11 @@ public class GameCacheServiceTests
         }
         finally
         {
-            try { Directory.Delete(baseDir, true); } catch { }
+            try { Directory.Delete(baseDir, true); }
+            catch
+            {
+                // Ignore cleanup failures in test teardown
+            }
         }
     }
 
@@ -94,7 +98,11 @@ public class GameCacheServiceTests
         }
         finally
         {
-            try { Directory.Delete(baseDir, true); } catch { }
+            try { Directory.Delete(baseDir, true); }
+            catch
+            {
+                // Ignore cleanup failures in test teardown
+            }
         }
     }
 
@@ -133,7 +141,11 @@ public class GameCacheServiceTests
         }
         finally
         {
-            try { Directory.Delete(baseDir, true); } catch { }
+            try { Directory.Delete(baseDir, true); }
+            catch
+            {
+                // Ignore cleanup failures in test teardown
+            }
         }
     }
 
@@ -159,7 +171,11 @@ public class GameCacheServiceTests
         }
         finally
         {
-            try { Directory.Delete(baseDir, true); } catch { }
+            try { Directory.Delete(baseDir, true); }
+            catch
+            {
+                // Ignore cleanup failures in test teardown
+            }
         }
     }
 
@@ -181,7 +197,11 @@ public class GameCacheServiceTests
         }
         finally
         {
-            try { Directory.Delete(baseDir, true); } catch { }
+            try { Directory.Delete(baseDir, true); }
+            catch
+            {
+                // Ignore cleanup failures in test teardown
+            }
         }
     }
 
@@ -211,7 +231,11 @@ public class GameCacheServiceTests
         }
         finally
         {
-            try { Directory.Delete(baseDir, true); } catch { }
+            try { Directory.Delete(baseDir, true); }
+            catch
+            {
+                // Ignore cleanup failures in test teardown
+            }
         }
     }
 
@@ -228,7 +252,11 @@ public class GameCacheServiceTests
         }
         finally
         {
-            try { Directory.Delete(baseDir, true); } catch { }
+            try { Directory.Delete(baseDir, true); }
+            catch
+            {
+                // Ignore cleanup failures in test teardown
+            }
         }
     }
 

@@ -560,7 +560,10 @@ namespace CommonUtilities
                     }
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Failed to clear cache for language '{language ?? "all"}': {ex.GetType().Name} - {ex.Message}");
+            }
         }
 
         /// <summary>
@@ -673,7 +676,10 @@ namespace CommonUtilities
                 }
                 return true;
             }
-            catch { }
+            catch (Exception ex)
+            {
+                DebugLogger.LogDebug($"Failed to validate cache for '{path}': {ex.GetType().Name} - {ex.Message}");
+            }
             return false;
         }
 

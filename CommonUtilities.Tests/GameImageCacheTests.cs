@@ -47,7 +47,11 @@ public class GameImageCacheTests : IDisposable
     public void Dispose()
     {
         Environment.SetEnvironmentVariable("XDG_DATA_HOME", _originalXdg);
-        try { Directory.Delete(_baseCacheDir, true); } catch { }
+        try { Directory.Delete(_baseCacheDir, true); }
+        catch
+        {
+            // Ignore cleanup failures in test teardown
+        }
     }
 
     public static IEnumerable<object[]> ValidHeaders()
@@ -265,7 +269,10 @@ public class GameImageCacheTests : IDisposable
                     ctx1.Response.StatusCode = 200;
                     ctx1.Response.Close();
                 }
-                catch { }
+                catch
+                {
+                    // Ignore cancellation and disposal exceptions in test helper task
+                }
             });
 
             var ctx2 = await listener.GetContextAsync();

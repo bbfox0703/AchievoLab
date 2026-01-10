@@ -52,7 +52,11 @@ public class GameImageServiceCancellationTests : IDisposable
     {
         _service.Dispose();
         Environment.SetEnvironmentVariable("XDG_DATA_HOME", _originalXdg);
-        try { Directory.Delete(_tempDir, true); } catch { }
+        try { Directory.Delete(_tempDir, true); }
+        catch
+        {
+            // Ignore cleanup failures in test teardown
+        }
     }
 
     private class FakeStoreApiHandler : HttpMessageHandler
