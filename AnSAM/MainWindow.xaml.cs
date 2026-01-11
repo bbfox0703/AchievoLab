@@ -78,11 +78,11 @@ namespace AnSAM
 
             InitializeLanguageComboBox();
 
-            // ?��? AppWindow
+            // 取得 AppWindow
             var hwnd = WindowNative.GetWindowHandle(this);
             var winId = Win32Interop.GetWindowIdFromWindow(hwnd);
             _appWindow = AppWindow.GetFromWindowId(winId);
-            // 設�? Icon：�??��??��??�實體�?案路�?
+            // 設定 Icon：指向打包後的實體檔案路徑
             var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "AnSAM.ico");
             if (File.Exists(iconPath))
                 _appWindow.SetIcon(iconPath);
@@ -425,7 +425,7 @@ namespace AnSAM
             });
         }
 
-        // ]i^b MainWindow() غcŪ^WܡG
+        // ]i^b MainWindow() 媞c讀^W隉G
         //if (Windows.Storage.ApplicationData.Current.LocalSettings.Values.TryGetValue("AppTheme", out var t)
         //    && Enum.TryParse<ElementTheme>(t?.ToString(), out var saved)) {
         //    ApplyTheme(saved);
@@ -1197,7 +1197,7 @@ namespace AnSAM
                     if (ct.IsCancellationRequested || _currentLanguage != currentLanguage)
                         break;
 
-                    // Update progress: Phase 1 ??33% (0-33)
+                    // Update progress: Phase 1 占 33% (0-33)
                     double phase1Progress = (i * 33.0) / Math.Max(1, totalGames);
                     UpdateProgress(progressContext, phase1Progress, $"{i}/{totalGames}");
 
@@ -1283,7 +1283,7 @@ namespace AnSAM
                         break;
                     }
 
-                    // Update progress: Phase 2 ??33% (33-66)
+                    // Update progress: Phase 2 占 33% (33-66)
                     double phase2Progress = 33.0 + (i * 33.0) / Math.Max(1, gamesNeedingEnglish.Count);
                     UpdateProgress(progressContext, phase2Progress, $"{i}/{gamesNeedingEnglish.Count}");
 
@@ -1363,7 +1363,7 @@ namespace AnSAM
                             break;
                         }
 
-                        // Update progress: Phase 3 ??34% (66-100)
+                        // Update progress: Phase 3 占 34% (66-100)
                         double phase3Progress = 66.0 + (i * 34.0) / Math.Max(1, gamesNeedingTarget.Count);
                         UpdateProgress(progressContext, phase3Progress, $"{i}/{gamesNeedingTarget.Count}");
 

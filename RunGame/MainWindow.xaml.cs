@@ -62,11 +62,11 @@ namespace RunGame
             
             _gameId = gameId;
 
-            // ?��? AppWindow
+            // ?? AppWindow
             var hwnd = WindowNative.GetWindowHandle(this);
             var winId = Win32Interop.GetWindowIdFromWindow(hwnd);
             _appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(winId);
-            // 設�? Icon：�??��??��??�實體�?案路�?
+            // 設定 Icon：指向打包後的實體檔案路徑
             var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "RunGame.ico");
             if (File.Exists(iconPath))
                 _appWindow.SetIcon(iconPath);
@@ -163,8 +163,8 @@ namespace RunGame
             // Set up list views - simplified approach
             AchievementListView.ItemsSource = _achievements;
             StatisticsListView.ItemsSource = _statistics;
-            
-            // 設置 Debug 模�?標籤
+
+            // 設置 Debug 模式標籤
             if (AppLogger.IsDebugMode)
             {
                 DebugModeLabel.Text = "DEBUG MODE";
@@ -174,8 +174,8 @@ namespace RunGame
             {
                 ClearLogButton.Visibility = Visibility.Collapsed;
             }
-            
-            // ?��??�日�?
+
+            // 初始化日誌
             AppLogger.LogDebug($"RunGame started for game {gameId} in {(AppLogger.IsDebugMode ? "DEBUG" : "RELEASE")} mode");
             
             // Initialize new services
@@ -1769,7 +1769,7 @@ namespace RunGame
         {
             if (isActive)
             {
-                TimerStatusText.Text = "?�� Timer On";
+                TimerStatusText.Text = "? Timer On";
                 TimerStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Green);
             }
             else

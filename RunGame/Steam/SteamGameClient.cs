@@ -409,12 +409,12 @@ namespace RunGame.Steam
             AppLogger.LogAchievementSet(id, achieved, AppLogger.IsDebugMode);
             
             if (!Initialized) return false;
-            
+
 #if DEBUG
-            // Debug 模�?下�?實�?寫入，只記�?
+            // Debug 模式下不實際寫入，只記錄
             return true;
 #else
-            // Release 模�?下實?�寫??
+            // Release 模式下實際寫入
             if (achieved)
             {
                 if (_setAchievement == null) return false;
@@ -449,12 +449,12 @@ namespace RunGame.Steam
             AppLogger.LogStatSet(name, value, AppLogger.IsDebugMode);
             
             if (!Initialized || _setStatInt == null) return false;
-            
+
 #if DEBUG
-            // Debug 模�?下�?實�?寫入，只記�?
+            // Debug 模式下不實際寫入，只記錄
             return true;
 #else
-            // Release 模�?下實?�寫??
+            // Release 模式下實際寫入
             return _setStatInt(_userStats, name, value);
 #endif
         }
@@ -464,12 +464,12 @@ namespace RunGame.Steam
             AppLogger.LogStatSet(name, value, AppLogger.IsDebugMode);
             
             if (!Initialized || _setStatFloat == null) return false;
-            
+
 #if DEBUG
-            // Debug 模�?下�?實�?寫入，只記�?
+            // Debug 模式下不實際寫入，只記錄
             return true;
 #else
-            // Release 模�?下實?�寫??
+            // Release 模式下實際寫入
             return _setStatFloat(_userStats, name, value);
 #endif
         }
@@ -479,12 +479,12 @@ namespace RunGame.Steam
             AppLogger.LogStoreStats(AppLogger.IsDebugMode);
             
             if (!Initialized || _storeStats == null) return false;
-            
+
 #if DEBUG
-            // Debug 模�?下�?實�?寫入，只記�?
+            // Debug 模式下不實際寫入，只記錄
             return true;
 #else
-            // Release 模�?下實?�寫??
+            // Release 模式下實際寫入
             return _storeStats(_userStats);
 #endif
         }
@@ -494,12 +494,12 @@ namespace RunGame.Steam
             AppLogger.LogResetAllStats(achievementsToo, AppLogger.IsDebugMode);
             
             if (!Initialized || _resetAllStats == null) return false;
-            
+
 #if DEBUG
-            // Debug 模�?下�?實�?寫入，只記�?
+            // Debug 模式下不實際寫入，只記錄
             return true;
 #else
-            // Release 模�?下實?�寫??
+            // Release 模式下實際寫入
             return _resetAllStats(_userStats, achievementsToo);
 #endif
         }

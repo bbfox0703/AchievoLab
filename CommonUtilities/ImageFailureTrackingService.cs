@@ -18,7 +18,7 @@ namespace CommonUtilities
 
         // Exponential backoff configuration
         private const int BaseBackoffMinutes = 5;
-        private const int MaxBackoffMinutes = 20480; // å¤±æ? 12 æ¬¡å??„ä???(ç´?14.22 å¤?
+        private const int MaxBackoffMinutes = 20480; // å¤±æ•— 12 æ¬¡+: 20480 åˆ†é˜ (ä¸Šé™)
 
         public ImageFailureTrackingService()
         {
@@ -43,11 +43,11 @@ namespace CommonUtilities
         /// <returns>Backoff time in minutes (capped at MaxBackoffMinutes)</returns>
         private int CalculateBackoffMinutes(int failureCount)
         {
-            // å¤±æ? 0 æ¬? 5 ?†é?
-            // å¤±æ? 1 æ¬? 10 ?†é?
-            // å¤±æ? 2 æ¬? 20 ?†é?
+            // å¤±æ•— 0 æ¬¡: 5 åˆ†é˜
+            // å¤±æ•— 1 æ¬¡: 10 åˆ†é˜
+            // å¤±æ•— 2 æ¬¡: 20 åˆ†é˜
             // ...
-            // å¤±æ? 12 æ¬?: 20480 ?†é? (ä¸Šé?)
+            // å¤±æ•— 12 æ¬¡+: 20480 åˆ†é˜ (ä¸Šé™)
             if (failureCount < 0) failureCount = 0;
 
             int backoffMinutes = BaseBackoffMinutes * (int)Math.Pow(2, failureCount);

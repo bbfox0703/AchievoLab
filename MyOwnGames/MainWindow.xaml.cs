@@ -207,12 +207,12 @@ namespace MyOwnGames
             _cdnStatsTimer.Tick += CdnStatsTimer_Tick;
             _cdnStatsTimer.Start();
 
-            // ?–å? AppWindow
+            // ?î¡¼? AppWindow
             var hwnd = WindowNative.GetWindowHandle(this);
             var winId = Win32Interop.GetWindowIdFromWindow(hwnd);
             _appWindow = AppWindow.GetFromWindowId(winId);
             _appWindow.Closing += OnAppWindowClosing;
-            // è¨­å? Iconï¼šæ??‘æ??…å??„å¯¦é«”æ?æ¡ˆè·¯å¾?
+            // è¨­å®š Iconï¼šæŒ‡å‘æ‰“åŒ…å¾Œçš„å¯¦é«”æª”æ¡ˆè·¯å¾‘
             var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "MyOwnGames.ico");
             if (File.Exists(iconPath))
                 _appWindow.SetIcon(iconPath);
@@ -1299,7 +1299,7 @@ namespace MyOwnGames
 
             AppendLog($"Language switching: UI={newLanguage}, ImageService={currentImageServiceLanguage}");
 
-            if (newLanguage == currentImageServiceLanguage) // ?¿å??è??‡æ??Œä?èªžè?
+            if (newLanguage == currentImageServiceLanguage) // é¿å…é‡è¤‡åˆ‡æ›åŒä¸€èªžè¨€
             {
                 AppendLog($"Language switch skipped - already using {newLanguage}");
                 return;
@@ -1310,7 +1310,7 @@ namespace MyOwnGames
 
             try
             {
-                // è¨­å??ºæ­£?¨è??¥ç??‹ï?ä½†ä??»å? UI
+                // è¨­å®šç‚ºæ­£åœ¨è¼‰å…¥ç‹€æ…‹ï¼Œä½†ä¸é˜»å¡ž UI
                 _isLoading = true;
 
                 // Update image service language first
@@ -1319,13 +1319,13 @@ namespace MyOwnGames
                     await _imageService.SetLanguage(newLanguage);
                 }
 
-                // ?ˆå¿«?Ÿæ›´?°è?è¨€é¡¯ç¤º
+                // å…ˆå¿«é€Ÿæ›´æ–°èªžè¨€é¡¯ç¤º
                 foreach (var gameEntry in AllGameItems)
                 {
                     gameEntry.CurrentLanguage = newLanguage;
                 }
 
-                // ?°æ­¥?•ç??–ç??·æ–°ï¼šå„ª?ˆå¯è¦‹å??‡ï??±è??–ç?æ¸…ç©º
+                // ç•°æ­¥è™•ç†åœ–ç‰‡åˆ·æ–°ï¼šå„ªå…ˆå¯è¦‹åœ–ç‰‡ï¼Œéš±è—åœ–ç‰‡æ¸…ç©º
                 _ = Task.Run(async () =>
                 {
                     await ProcessLanguageSwitchImageRefresh(newLanguage);
