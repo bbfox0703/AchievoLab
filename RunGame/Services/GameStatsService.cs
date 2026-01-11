@@ -40,43 +40,43 @@ namespace RunGame.Services
             {
                 string fileName = $"UserGameStatsSchema_{_gameId}.bin";
                 string installPath = GetSteamInstallPath();
-                DebugLogger.LogDebug($"Steam install path: {installPath}");
+                AppLogger.LogDebug($"Steam install path: {installPath}");
                 
                 string appcachePath = Path.Combine(installPath, "appcache", "stats");
-                DebugLogger.LogDebug($"Appcache stats path: {appcachePath}");
+                AppLogger.LogDebug($"Appcache stats path: {appcachePath}");
                 
                 string path = Path.Combine(appcachePath, fileName);
-                DebugLogger.LogDebug($"Looking for schema file: {path}");
+                AppLogger.LogDebug($"Looking for schema file: {path}");
                 
                 if (!Directory.Exists(appcachePath))
                 {
-                    DebugLogger.LogDebug($"Appcache stats directory does not exist: {appcachePath}");
+                    AppLogger.LogDebug($"Appcache stats directory does not exist: {appcachePath}");
                     return false;
                 }
                 
                 if (!File.Exists(path))
                 {
-                    DebugLogger.LogDebug($"Schema file does not exist: {path}");
+                    AppLogger.LogDebug($"Schema file does not exist: {path}");
                     
                     // List all files in the appcache stats directory for debugging
                     try
                     {
                         var files = Directory.GetFiles(appcachePath, "*.bin");
-                        DebugLogger.LogDebug($"Available .bin files in {appcachePath}:");
+                        AppLogger.LogDebug($"Available .bin files in {appcachePath}:");
                         foreach (var file in files)
                         {
-                            DebugLogger.LogDebug($"  - {Path.GetFileName(file)}");
+                            AppLogger.LogDebug($"  - {Path.GetFileName(file)}");
                         }
                     }
                     catch (Exception ex)
                     {
-                        DebugLogger.LogDebug($"Error listing files in {appcachePath}: {ex.Message}");
+                        AppLogger.LogDebug($"Error listing files in {appcachePath}: {ex.Message}");
                     }
                     
                     return false;
                 }
 
-                DebugLogger.LogDebug($"Found schema file, attempting to load: {path}");
+                AppLogger.LogDebug($"Found schema file, attempting to load: {path}");
                 
                 KeyValue? kv = null;
                 try
@@ -89,14 +89,14 @@ namespace RunGame.Services
                             kv = KeyValue.LoadAsBinary(path);
                             if (kv != null)
                             {
-                                DebugLogger.LogDebug($"Successfully loaded KeyValue on attempt {attempt + 1}");
+                                AppLogger.LogDebug($"Successfully loaded KeyValue on attempt {attempt + 1}");
                                 break;
                             }
-                            DebugLogger.LogDebug($"KeyValue.LoadAsBinary returned null on attempt {attempt + 1}");
+                            AppLogger.LogDebug($"KeyValue.LoadAsBinary returned null on attempt {attempt + 1}");
                         }
                         catch (IOException ioEx)
                         {
-                            DebugLogger.LogDebug($"IOException on attempt {attempt + 1}: {ioEx.Message}");
+                            AppLogger.LogDebug($"IOException on attempt {attempt + 1}: {ioEx.Message}");
                             if (attempt < 2) // Wait and retry
                             {
                                 System.Threading.Thread.Sleep(100 * (attempt + 1)); // 100ms, 200ms
@@ -106,51 +106,51 @@ namespace RunGame.Services
                         }
                         catch (UnauthorizedAccessException authEx)
                         {
-                            DebugLogger.LogDebug($"UnauthorizedAccessException: {authEx.Message}");
+                            AppLogger.LogDebug($"UnauthorizedAccessException: {authEx.Message}");
                             throw;
                         }
                     }
                 }
                 catch (Exception ex)
                 {
-                    DebugLogger.LogDebug($"Exception loading KeyValue: {ex.GetType().Name} - {ex.Message}");
+                    AppLogger.LogDebug($"Exception loading KeyValue: {ex.GetType().Name} - {ex.Message}");
                     return false;
                 }
                 
                 if (kv == null)
                 {
-                    DebugLogger.LogDebug("Failed to parse KeyValue from schema file after all attempts");
+                    AppLogger.LogDebug("Failed to parse KeyValue from schema file after all attempts");
                     return false;
                 }
 
-                DebugLogger.LogDebug("Successfully loaded KeyValue from schema file");
+                AppLogger.LogDebug("Successfully loaded KeyValue from schema file");
                 
                 // Debug: Print the structure of the loaded KeyValue
-                DebugLogger.LogDebug($"Root KeyValue name: '{kv.Name}', Valid: {kv.Valid}, HasChildren: {kv.Children != null}");
+                AppLogger.LogDebug($"Root KeyValue name: '{kv.Name}', Valid: {kv.Valid}, HasChildren: {kv.Children != null}");
                 if (kv.Children != null)
                 {
-                    DebugLogger.LogDebug($"Root has {kv.Children.Count} children:");
+                    AppLogger.LogDebug($"Root has {kv.Children.Count} children:");
                     foreach (var child in kv.Children.Take(10)) // Limit to first 10 children
                     {
-                        DebugLogger.LogDebug($"  - Child: '{child.Name}', Valid: {child.Valid}, HasChildren: {child.Children != null}");
+                        AppLogger.LogDebug($"  - Child: '{child.Name}', Valid: {child.Valid}, HasChildren: {child.Children != null}");
                     }
                 }
                 else
                 {
-                    DebugLogger.LogDebug("Root KeyValue has no children");
+                    AppLogger.LogDebug("Root KeyValue has no children");
                     // Try to get raw data info
-                    DebugLogger.LogDebug($"KeyValue AsString: '{kv.AsString("")}'");
-                    DebugLogger.LogDebug($"KeyValue AsInteger: {kv.AsInteger(-1)}");
+                    AppLogger.LogDebug($"KeyValue AsString: '{kv.AsString("")}'");
+                    AppLogger.LogDebug($"KeyValue AsInteger: {kv.AsInteger(-1)}");
                     
                     // Check if this is a different KeyValue structure
                     // Sometimes the root itself might be the game ID section
                     if (kv.Valid)
                     {
                         var directStats = kv["stats"];
-                        DebugLogger.LogDebug($"Direct stats check - Valid: {directStats.Valid}, HasChildren: {directStats.Children != null}");
+                        AppLogger.LogDebug($"Direct stats check - Valid: {directStats.Valid}, HasChildren: {directStats.Children != null}");
                         if (directStats.Valid && directStats.Children != null)
                         {
-                            DebugLogger.LogDebug($"Direct stats has {directStats.Children.Count} children");
+                            AppLogger.LogDebug($"Direct stats has {directStats.Children.Count} children");
                         }
                     }
                 }
@@ -159,22 +159,22 @@ namespace RunGame.Services
                 _statDefinitions.Clear();
 
                 var gameIdStr = _gameId.ToString(CultureInfo.InvariantCulture);
-                DebugLogger.LogDebug($"Looking for game ID section: {gameIdStr}");
+                AppLogger.LogDebug($"Looking for game ID section: {gameIdStr}");
                 
                 var gameSection = kv[gameIdStr];
                 if (!gameSection.Valid)
                 {
-                    DebugLogger.LogDebug($"Game section not found for ID: {gameIdStr}");
+                    AppLogger.LogDebug($"Game section not found for ID: {gameIdStr}");
                     
                     // Try different approaches to find the game data
                     // 1. Try the root directly
                     if (kv.Valid && kv.Children != null)
                     {
-                        DebugLogger.LogDebug("Trying root level stats...");
+                        AppLogger.LogDebug("Trying root level stats...");
                         var rootStats = kv["stats"];
                         if (rootStats.Valid)
                         {
-                            DebugLogger.LogDebug("Found stats at root level");
+                            AppLogger.LogDebug("Found stats at root level");
                             gameSection = kv;
                         }
                     }
@@ -182,20 +182,20 @@ namespace RunGame.Services
                     // 2. Try looking in first child
                     if (!gameSection.Valid && kv.Children != null && kv.Children.Count > 0)
                     {
-                        DebugLogger.LogDebug("Trying first child...");
+                        AppLogger.LogDebug("Trying first child...");
                         var firstChild = kv.Children[0];
-                        DebugLogger.LogDebug($"First child name: '{firstChild.Name}'");
+                        AppLogger.LogDebug($"First child name: '{firstChild.Name}'");
                         var firstChildStats = firstChild["stats"];
                         if (firstChildStats.Valid)
                         {
-                            DebugLogger.LogDebug("Found stats in first child");
+                            AppLogger.LogDebug("Found stats in first child");
                             gameSection = firstChild;
                         }
                     }
                     
                     if (!gameSection.Valid)
                     {
-                        DebugLogger.LogDebug("No valid game section found. This game may not have achievements/stats defined.");
+                        AppLogger.LogDebug("No valid game section found. This game may not have achievements/stats defined.");
                         // For games without achievements, we can still show the interface
                         // but with no data - this matches Legacy SAM behavior
                         return true; // Return true but with empty definitions
@@ -205,11 +205,11 @@ namespace RunGame.Services
                 var stats = gameSection["stats"];
                 if (!stats.Valid || stats.Children == null)
                 {
-                    DebugLogger.LogDebug("Stats section not found or invalid");
+                    AppLogger.LogDebug("Stats section not found or invalid");
                     return false;
                 }
 
-                DebugLogger.LogDebug($"Found stats section with {stats.Children.Count} children");
+                AppLogger.LogDebug($"Found stats section with {stats.Children.Count} children");
                 
                 foreach (var stat in stats.Children)
                 {
@@ -218,7 +218,7 @@ namespace RunGame.Services
                     var rawType = stat["type_int"].Valid ? stat["type_int"].AsInteger(0) : stat["type"].AsInteger(0);
                     var type = (UserStatType)rawType;
                     
-                    DebugLogger.LogDebug($"Processing stat: {stat.Name}, type: {type}");
+                    AppLogger.LogDebug($"Processing stat: {stat.Name}, type: {type}");
                     
                     switch (type)
                     {
@@ -236,12 +236,12 @@ namespace RunGame.Services
                     }
                 }
 
-                DebugLogger.LogDebug($"Schema loading completed. Found {_achievementDefinitions.Count} achievements and {_statDefinitions.Count} stats");
+                AppLogger.LogDebug($"Schema loading completed. Found {_achievementDefinitions.Count} achievements and {_statDefinitions.Count} stats");
                 return true;
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Exception in LoadUserGameStatsSchema: {ex.Message}");
+                AppLogger.LogDebug($"Exception in LoadUserGameStatsSchema: {ex.Message}");
                 return false;
             }
         }
@@ -252,7 +252,7 @@ namespace RunGame.Services
             string name = GetLocalizedString(stat["display"]["name"], currentLanguage, id);
             bool incrementOnly = stat["incrementonly"].AsBoolean(false);
 
-            DebugLogger.LogDebug($"Integer Stat parsed - ID: {id}, Name: '{name}', IncrementOnly: {incrementOnly}, Language: {currentLanguage}");
+            AppLogger.LogDebug($"Integer Stat parsed - ID: {id}, Name: '{name}', IncrementOnly: {incrementOnly}, Language: {currentLanguage}");
 
             _statDefinitions.Add(new IntegerStatDefinition
             {
@@ -301,12 +301,12 @@ namespace RunGame.Services
                     string name = GetLocalizedString(bit["display"]["name"], currentLanguage, id);
                     string desc = GetLocalizedString(bit["display"]["desc"], currentLanguage, "");
 
-                    DebugLogger.LogDebug($"Achievement parsed - ID: {id}, Name: '{name}', Desc: '{desc}', Language: {currentLanguage}");
+                    AppLogger.LogDebug($"Achievement parsed - ID: {id}, Name: '{name}', Desc: '{desc}', Language: {currentLanguage}");
 
                     string iconNormal = bit["display"]["icon"].AsString("");
                     string iconLocked = bit["display"]["icon_gray"].AsString("");
                     
-                    DebugLogger.LogDebug($"Achievement {id} icons - Normal: '{iconNormal}', Locked: '{iconLocked}'");
+                    AppLogger.LogDebug($"Achievement {id} icons - Normal: '{iconNormal}', Locked: '{iconLocked}'");
                     
                     _achievementDefinitions.Add(new AchievementDefinition
                     {
@@ -341,9 +341,9 @@ namespace RunGame.Services
 
         public async Task<bool> RequestUserStatsAsync()
         {
-            DebugLogger.LogDebug($"GameStatsService.RequestUserStatsAsync called for game {_gameId}");
+            AppLogger.LogDebug($"GameStatsService.RequestUserStatsAsync called for game {_gameId}");
             bool result = await Task.Run(() => _steamClient.RequestUserStats((uint)_gameId));
-            DebugLogger.LogDebug($"GameStatsService.RequestUserStatsAsync result: {result}");
+            AppLogger.LogDebug($"GameStatsService.RequestUserStatsAsync result: {result}");
             return result;
         }
         
@@ -354,7 +354,7 @@ namespace RunGame.Services
 
         public List<AchievementInfo> GetAchievements()
         {
-            DebugLogger.LogDebug($"GetAchievements called - {_achievementDefinitions.Count} definitions available");
+            AppLogger.LogDebug($"GetAchievements called - {_achievementDefinitions.Count} definitions available");
             var achievements = new List<AchievementInfo>();
 
             foreach (var def in _achievementDefinitions)
@@ -377,12 +377,12 @@ namespace RunGame.Services
                         Permission = def.Permission
                     };
                     
-                    DebugLogger.LogDebug($"Achievement created - ID: {achievement.Id}, Name: '{achievement.Name}', IsAchieved: {achievement.IsAchieved}");
+                    AppLogger.LogDebug($"Achievement created - ID: {achievement.Id}, Name: '{achievement.Name}', IsAchieved: {achievement.IsAchieved}");
                     achievements.Add(achievement);
                 }
                 else
                 {
-                    DebugLogger.LogDebug($"Failed to get achievement data for ID: {def.Id}");
+                    AppLogger.LogDebug($"Failed to get achievement data for ID: {def.Id}");
                 }
             }
 
@@ -391,7 +391,7 @@ namespace RunGame.Services
 
         public List<StatInfo> GetStatistics()
         {
-            DebugLogger.LogDebug($"GetStatistics called - {_statDefinitions.Count} definitions available");
+            AppLogger.LogDebug($"GetStatistics called - {_statDefinitions.Count} definitions available");
             var statistics = new List<StatInfo>();
 
             foreach (var stat in _statDefinitions)
@@ -415,12 +415,12 @@ namespace RunGame.Services
                             MaxChange = intStat.MaxChange
                         };
 
-                        DebugLogger.LogDebug($"Integer Stat created - ID: {statInfo.Id}, Name: '{statInfo.DisplayName}', Value: {statInfo.IntValue}, IncrementOnly: {statInfo.IsIncrementOnly}, Range: [{intStat.MinValue}, {intStat.MaxValue}]");
+                        AppLogger.LogDebug($"Integer Stat created - ID: {statInfo.Id}, Name: '{statInfo.DisplayName}', Value: {statInfo.IntValue}, IncrementOnly: {statInfo.IsIncrementOnly}, Range: [{intStat.MinValue}, {intStat.MaxValue}]");
                         statistics.Add(statInfo);
                     }
                     else
                     {
-                        DebugLogger.LogDebug($"Failed to get stat value for ID: {intStat.Id}");
+                        AppLogger.LogDebug($"Failed to get stat value for ID: {intStat.Id}");
                     }
                 }
                 else if (stat is FloatStatDefinition floatStat)
@@ -455,40 +455,40 @@ namespace RunGame.Services
                 bool isProtected = (achievementDef.Permission & 3) != 0;
                 if (isProtected)
                 {
-                    DebugLogger.LogDebug($"ERROR: Cannot modify protected achievement {id} (Permission: {achievementDef.Permission})");
+                    AppLogger.LogDebug($"ERROR: Cannot modify protected achievement {id} (Permission: {achievementDef.Permission})");
                     return false;
                 }
             }
 
-            if (DebugLogger.IsDebugMode)
+            if (AppLogger.IsDebugMode)
             {
-                DebugLogger.LogDebug($"[DEBUG FAKE WRITE] SetAchievement: {id} = {achieved} (not actually written to Steam)");
+                AppLogger.LogDebug($"[DEBUG FAKE WRITE] SetAchievement: {id} = {achieved} (not actually written to Steam)");
 
                 // Only adjust related statistics if cascading is enabled
                 if (achieved && EnableAchievementCascading)
                 {
-                    DebugLogger.LogDebug($"[CASCADING ENABLED] Adjusting related statistics for {id}");
+                    AppLogger.LogDebug($"[CASCADING ENABLED] Adjusting related statistics for {id}");
                     AdjustRelatedStatistics(id);
                 }
 
                 return true; // Always return success in debug mode
             }
 
-            DebugLogger.LogDebug($"GameStatsService.SetAchievement called: {id} = {achieved}");
+            AppLogger.LogDebug($"GameStatsService.SetAchievement called: {id} = {achieved}");
 
             // If setting achievement to true and cascading is enabled, adjust related statistics
             if (achieved && EnableAchievementCascading)
             {
-                DebugLogger.LogDebug($"[CASCADING ENABLED] Adjusting related statistics for {id}");
+                AppLogger.LogDebug($"[CASCADING ENABLED] Adjusting related statistics for {id}");
                 AdjustRelatedStatistics(id);
             }
             else if (achieved && !EnableAchievementCascading)
             {
-                DebugLogger.LogDebug($"[CASCADING DISABLED] Skipping automatic stat adjustment for {id}");
+                AppLogger.LogDebug($"[CASCADING DISABLED] Skipping automatic stat adjustment for {id}");
             }
 
             bool success = _steamClient.SetAchievement(id, achieved);
-            DebugLogger.LogDebug($"SetAchievement result: {success} for {id} = {achieved}");
+            AppLogger.LogDebug($"SetAchievement result: {success} for {id} = {achieved}");
             return success;
         }
         
@@ -527,21 +527,21 @@ namespace RunGame.Services
                 {
                     // Always set to the required value to ensure consistency
                     // This handles cases where multiple achievements use the same stat with different values
-                    DebugLogger.LogDebug($"Setting stat {statId} to {requiredValue} for achievement {achievementId} (current: {currentValue})");
+                    AppLogger.LogDebug($"Setting stat {statId} to {requiredValue} for achievement {achievementId} (current: {currentValue})");
                     
-                    if (DebugLogger.IsDebugMode)
+                    if (AppLogger.IsDebugMode)
                     {
-                        DebugLogger.LogDebug($"[DEBUG FAKE WRITE] SetStatValue: {statId} = {requiredValue} (not actually written to Steam)");
+                        AppLogger.LogDebug($"[DEBUG FAKE WRITE] SetStatValue: {statId} = {requiredValue} (not actually written to Steam)");
                     }
                     else
                     {
                         bool success = _steamClient.SetStatValue(statId, requiredValue);
-                        DebugLogger.LogDebug($"SetStatValue result: {success} for {statId} = {requiredValue}");
+                        AppLogger.LogDebug($"SetStatValue result: {success} for {statId} = {requiredValue}");
                     }
                 }
                 else
                 {
-                    DebugLogger.LogDebug($"Failed to get current value for stat {statId}");
+                    AppLogger.LogDebug($"Failed to get current value for stat {statId}");
                 }
                 
                 // Auto-trigger other achievements that use the same statistic with lower requirements
@@ -581,26 +581,26 @@ namespace RunGame.Services
                     {
                         if (!isAchieved)
                         {
-                            DebugLogger.LogDebug($"Auto-triggering achievement {achievementId} due to stat {statId} = {newValue} (requires {requiredValue})");
+                            AppLogger.LogDebug($"Auto-triggering achievement {achievementId} due to stat {statId} = {newValue} (requires {requiredValue})");
                             
-                            if (DebugLogger.IsDebugMode)
+                            if (AppLogger.IsDebugMode)
                             {
-                                DebugLogger.LogDebug($"[DEBUG FAKE WRITE] Auto SetAchievement: {achievementId} = True (not actually written to Steam)");
+                                AppLogger.LogDebug($"[DEBUG FAKE WRITE] Auto SetAchievement: {achievementId} = True (not actually written to Steam)");
                             }
                             else
                             {
                                 bool success = _steamClient.SetAchievement(achievementId, true);
-                                DebugLogger.LogDebug($"Auto SetAchievement result: {success} for {achievementId} = True");
+                                AppLogger.LogDebug($"Auto SetAchievement result: {success} for {achievementId} = True");
                             }
                         }
                         else
                         {
-                            DebugLogger.LogDebug($"Achievement {achievementId} is already achieved, skipping auto-trigger");
+                            AppLogger.LogDebug($"Achievement {achievementId} is already achieved, skipping auto-trigger");
                         }
                     }
                     else
                     {
-                        DebugLogger.LogDebug($"Failed to get achievement status for {achievementId}, skipping auto-trigger");
+                        AppLogger.LogDebug($"Failed to get achievement status for {achievementId}, skipping auto-trigger");
                     }
                 }
             }
@@ -611,7 +611,7 @@ namespace RunGame.Services
             // Check if stat is protected
             if (stat.IsProtected)
             {
-                DebugLogger.LogDebug($"ERROR: Cannot modify protected stat {stat.Id} (Permission: {stat.Permission})");
+                AppLogger.LogDebug($"ERROR: Cannot modify protected stat {stat.Id} (Permission: {stat.Permission})");
                 return false;
             }
 
@@ -620,14 +620,14 @@ namespace RunGame.Services
                 // Validate IncrementOnly constraint
                 if (intStat.IsIncrementOnly && intStat.IntValue < intStat.OriginalValue)
                 {
-                    DebugLogger.LogDebug($"ERROR: Cannot decrease IncrementOnly stat {intStat.Id} from {intStat.OriginalValue} to {intStat.IntValue}");
+                    AppLogger.LogDebug($"ERROR: Cannot decrease IncrementOnly stat {intStat.Id} from {intStat.OriginalValue} to {intStat.IntValue}");
                     return false;
                 }
 
                 // Validate Min/Max bounds
                 if (intStat.IntValue < intStat.MinValue || intStat.IntValue > intStat.MaxValue)
                 {
-                    DebugLogger.LogDebug($"ERROR: Stat {intStat.Id} value {intStat.IntValue} is out of range [{intStat.MinValue}, {intStat.MaxValue}]");
+                    AppLogger.LogDebug($"ERROR: Stat {intStat.Id} value {intStat.IntValue} is out of range [{intStat.MinValue}, {intStat.MaxValue}]");
                     return false;
                 }
 
@@ -637,20 +637,20 @@ namespace RunGame.Services
                     int change = Math.Abs(intStat.IntValue - intStat.OriginalValue);
                     if (change > intStat.MaxChange)
                     {
-                        DebugLogger.LogDebug($"ERROR: Stat {intStat.Id} change {change} exceeds MaxChange {intStat.MaxChange}");
+                        AppLogger.LogDebug($"ERROR: Stat {intStat.Id} change {change} exceeds MaxChange {intStat.MaxChange}");
                         return false;
                     }
                 }
 
-                if (DebugLogger.IsDebugMode)
+                if (AppLogger.IsDebugMode)
                 {
-                    DebugLogger.LogDebug($"[DEBUG FAKE WRITE] SetStatistic: {intStat.Id} = {intStat.IntValue} (not actually written to Steam)");
+                    AppLogger.LogDebug($"[DEBUG FAKE WRITE] SetStatistic: {intStat.Id} = {intStat.IntValue} (not actually written to Steam)");
                     return true; // Always return success in debug mode
                 }
 
-                DebugLogger.LogDebug($"GameStatsService.SetStatistic called: {intStat.Id} = {intStat.IntValue}");
+                AppLogger.LogDebug($"GameStatsService.SetStatistic called: {intStat.Id} = {intStat.IntValue}");
                 bool success = _steamClient.SetStatValue(intStat.Id, intStat.IntValue);
-                DebugLogger.LogDebug($"SetStatistic result: {success} for {intStat.Id} = {intStat.IntValue}");
+                AppLogger.LogDebug($"SetStatistic result: {success} for {intStat.Id} = {intStat.IntValue}");
                 return success;
             }
             else if (stat is FloatStatInfo floatStat)
@@ -658,14 +658,14 @@ namespace RunGame.Services
                 // Validate IncrementOnly constraint
                 if (floatStat.IsIncrementOnly && floatStat.FloatValue < floatStat.OriginalValue)
                 {
-                    DebugLogger.LogDebug($"ERROR: Cannot decrease IncrementOnly stat {floatStat.Id} from {floatStat.OriginalValue} to {floatStat.FloatValue}");
+                    AppLogger.LogDebug($"ERROR: Cannot decrease IncrementOnly stat {floatStat.Id} from {floatStat.OriginalValue} to {floatStat.FloatValue}");
                     return false;
                 }
 
                 // Validate Min/Max bounds
                 if (floatStat.FloatValue < floatStat.MinValue || floatStat.FloatValue > floatStat.MaxValue)
                 {
-                    DebugLogger.LogDebug($"ERROR: Stat {floatStat.Id} value {floatStat.FloatValue} is out of range [{floatStat.MinValue}, {floatStat.MaxValue}]");
+                    AppLogger.LogDebug($"ERROR: Stat {floatStat.Id} value {floatStat.FloatValue} is out of range [{floatStat.MinValue}, {floatStat.MaxValue}]");
                     return false;
                 }
 
@@ -675,20 +675,20 @@ namespace RunGame.Services
                     float change = Math.Abs(floatStat.FloatValue - floatStat.OriginalValue);
                     if (change > floatStat.MaxChange)
                     {
-                        DebugLogger.LogDebug($"ERROR: Stat {floatStat.Id} change {change:F2} exceeds MaxChange {floatStat.MaxChange:F2}");
+                        AppLogger.LogDebug($"ERROR: Stat {floatStat.Id} change {change:F2} exceeds MaxChange {floatStat.MaxChange:F2}");
                         return false;
                     }
                 }
 
-                if (DebugLogger.IsDebugMode)
+                if (AppLogger.IsDebugMode)
                 {
-                    DebugLogger.LogDebug($"[DEBUG FAKE WRITE] SetStatistic: {floatStat.Id} = {floatStat.FloatValue} (not actually written to Steam)");
+                    AppLogger.LogDebug($"[DEBUG FAKE WRITE] SetStatistic: {floatStat.Id} = {floatStat.FloatValue} (not actually written to Steam)");
                     return true; // Always return success in debug mode
                 }
 
-                DebugLogger.LogDebug($"GameStatsService.SetStatistic called: {floatStat.Id} = {floatStat.FloatValue}");
+                AppLogger.LogDebug($"GameStatsService.SetStatistic called: {floatStat.Id} = {floatStat.FloatValue}");
                 bool success = _steamClient.SetStatValue(floatStat.Id, floatStat.FloatValue);
-                DebugLogger.LogDebug($"SetStatistic result: {success} for {floatStat.Id} = {floatStat.FloatValue}");
+                AppLogger.LogDebug($"SetStatistic result: {success} for {floatStat.Id} = {floatStat.FloatValue}");
                 return success;
             }
             return false;
@@ -696,28 +696,28 @@ namespace RunGame.Services
 
         public bool StoreStats()
         {
-            if (DebugLogger.IsDebugMode)
+            if (AppLogger.IsDebugMode)
             {
-                DebugLogger.LogDebug("[DEBUG FAKE WRITE] StoreStats: All changes committed to fake cache (not actually written to Steam)");
+                AppLogger.LogDebug("[DEBUG FAKE WRITE] StoreStats: All changes committed to fake cache (not actually written to Steam)");
                 return true; // Always return success in debug mode
             }
             
-            DebugLogger.LogDebug("GameStatsService.StoreStats called");
+            AppLogger.LogDebug("GameStatsService.StoreStats called");
             bool success = _steamClient.StoreStats();
-            DebugLogger.LogDebug($"StoreStats result: {success}");
+            AppLogger.LogDebug($"StoreStats result: {success}");
             return success;
         }
 
         public bool ResetAllStats(bool achievementsToo)
         {
-            DebugLogger.LogDebug($"GameStatsService.ResetAllStats called: achievements={achievementsToo}");
+            AppLogger.LogDebug($"GameStatsService.ResetAllStats called: achievements={achievementsToo}");
             return _steamClient.ResetAllStats(achievementsToo);
         }
 
         private void OnUserStatsReceived(SteamGameClient.UserStatsReceived userStatsReceived)
         {
-            DebugLogger.LogDebug($"GameStatsService.OnUserStatsReceived - GameId: {userStatsReceived.GameId}, Result: {userStatsReceived.Result}, UserId: {userStatsReceived.UserId}");
-            DebugLogger.LogDebug($"UserStatsReceived event has {(UserStatsReceived == null ? 0 : UserStatsReceived.GetInvocationList().Length)} subscribers");
+            AppLogger.LogDebug($"GameStatsService.OnUserStatsReceived - GameId: {userStatsReceived.GameId}, Result: {userStatsReceived.Result}, UserId: {userStatsReceived.UserId}");
+            AppLogger.LogDebug($"UserStatsReceived event has {(UserStatsReceived == null ? 0 : UserStatsReceived.GetInvocationList().Length)} subscribers");
             
             UserStatsReceived?.Invoke(this, new UserStatsReceivedEventArgs
             {
@@ -731,7 +731,7 @@ namespace RunGame.Services
         {
             const string subKey = @"Software\Valve\Steam";
             
-            DebugLogger.LogDebug("Searching for Steam install path in registry...");
+            AppLogger.LogDebug("Searching for Steam install path in registry...");
             
             // Check HKLM 64-bit and 32-bit (WOW6432Node) views
             foreach (var view in new[] { Microsoft.Win32.RegistryView.Registry64, Microsoft.Win32.RegistryView.Registry32 })
@@ -744,14 +744,14 @@ namespace RunGame.Services
                         var path = key.GetValue("InstallPath") as string;
                         if (!string.IsNullOrEmpty(path))
                         {
-                            DebugLogger.LogDebug($"Found Steam install path in HKLM {view}: {path}");
+                            AppLogger.LogDebug($"Found Steam install path in HKLM {view}: {path}");
                             return path;
                         }
                     }
                 }
                 catch (Exception ex)
                 {
-                    DebugLogger.LogDebug($"Error reading HKLM {view}: {ex.Message}");
+                    AppLogger.LogDebug($"Error reading HKLM {view}: {ex.Message}");
                 }
             }
 
@@ -766,18 +766,18 @@ namespace RunGame.Services
                         var path = key.GetValue("InstallPath") as string;
                         if (!string.IsNullOrEmpty(path))
                         {
-                            DebugLogger.LogDebug($"Found Steam install path in HKCU {view}: {path}");
+                            AppLogger.LogDebug($"Found Steam install path in HKCU {view}: {path}");
                             return path;
                         }
                     }
                 }
                 catch (Exception ex)
                 {
-                    DebugLogger.LogDebug($"Error reading HKCU {view}: {ex.Message}");
+                    AppLogger.LogDebug($"Error reading HKCU {view}: {ex.Message}");
                 }
             }
             
-            DebugLogger.LogDebug("Steam install path not found in registry");
+            AppLogger.LogDebug("Steam install path not found in registry");
             return "";
         }
     }

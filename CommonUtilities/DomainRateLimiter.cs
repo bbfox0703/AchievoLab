@@ -65,7 +65,7 @@ namespace CommonUtilities
             {
                 // CRITICAL: Domain semaphore was disposed during language switch or app shutdown
                 // This happens when downloads are waiting to acquire semaphore and it gets disposed
-                DebugLogger.LogDebug($"Domain semaphore for {host} disposed while waiting, aborting request");
+                AppLogger.LogDebug($"Domain semaphore for {host} disposed while waiting, aborting request");
                 throw; // Re-throw to let caller handle it
             }
 
@@ -92,7 +92,7 @@ namespace CommonUtilities
                             _tokens = available - 1;
                             _lastRefill = now;
                             _totalRequestsProcessed++;
-                            DebugLogger.LogDebug($"Token consumed for {host}, tokens remaining: {_tokens:F2}, total processed: {_totalRequestsProcessed}");
+                            AppLogger.LogDebug($"Token consumed for {host}, tokens remaining: {_tokens:F2}, total processed: {_totalRequestsProcessed}");
                             tokenDelay = TimeSpan.Zero;
                         }
                         else
@@ -140,7 +140,7 @@ namespace CommonUtilities
             catch (Exception ex)
             {
                 // If we fail to get through rate limiting, log and release the semaphore
-                DebugLogger.LogDebug($"Failed to wait for rate limiter on '{domain}': {ex.GetType().Name} - {ex.Message}");
+                AppLogger.LogDebug($"Failed to wait for rate limiter on '{host}': {ex.GetType().Name} - {ex.Message}");
                 try
                 {
                     domainSemaphore.Release();
@@ -148,7 +148,7 @@ namespace CommonUtilities
                 catch (ObjectDisposedException)
                 {
                     // Semaphore was disposed during language switch or app shutdown
-                    DebugLogger.LogDebug($"Domain semaphore already disposed in catch block, skipping release");
+                    AppLogger.LogDebug($"Domain semaphore already disposed in catch block, skipping release");
                 }
                 throw;
             }
@@ -217,7 +217,7 @@ namespace CommonUtilities
                     {
                         // CRITICAL: Semaphore was disposed during language switch or app shutdown
                         // This is expected when downloads complete after language switch starts
-                        DebugLogger.LogDebug($"Domain semaphore for {host} already disposed, skipping release");
+                        AppLogger.LogDebug($"Domain semaphore for {host} already disposed, skipping release");
                     }
                 }
             }

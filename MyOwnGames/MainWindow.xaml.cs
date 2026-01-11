@@ -121,19 +121,19 @@ namespace MyOwnGames
             catch (Exception ex) when (_isShuttingDown)
             {
                 // Ignore all exceptions during shutdown
-                DebugLogger.LogDebug($"Ignored exception during shutdown in OnPropertyChanged: {ex.Message}");
+                AppLogger.LogDebug($"Ignored exception during shutdown in OnPropertyChanged: {ex.Message}");
             }
         }
 
         /// <summary>
         /// AppendLog now does nothing (UI log removed).
-        /// All logging already happens through DebugLogger.LogDebug() at source.
+        /// All logging already happens through AppLogger.LogDebug() at source.
         /// Kept as no-op method to avoid changing 52 call sites.
         /// </summary>
         public void AppendLog(string message)
         {
-            // NO-OP: UI log removed, and DebugLogger already handles all logging at source
-            // Removing this avoids infinite loop with DebugLogger.OnLog subscription
+            // NO-OP: UI log removed, and AppLogger already handles all logging at source
+            // Removing this avoids infinite loop with AppLogger.OnLog subscription
         }
 
         private static string GetDefaultLanguage()
@@ -190,7 +190,7 @@ namespace MyOwnGames
             }
 
             // REMOVED: Log handler subscription (UI log removed, would cause infinite loop)
-            // _logHandler previously fed DebugLogger output to UI ListView
+            // _logHandler previously fed AppLogger output to UI ListView
             _logHandler = msg => { }; // Keep field for disposal, but do nothing
             
             // Subscribe to image download completion events
@@ -207,7 +207,7 @@ namespace MyOwnGames
             _cdnStatsTimer.Tick += CdnStatsTimer_Tick;
             _cdnStatsTimer.Start();
 
-            // 取得 AppWindow
+            // ?? AppWindow
             var hwnd = WindowNative.GetWindowHandle(this);
             var winId = Win32Interop.GetWindowIdFromWindow(hwnd);
             _appWindow = AppWindow.GetFromWindowId(winId);
@@ -267,7 +267,7 @@ namespace MyOwnGames
                         // Only update if different
                         gameEntry.IconUri = fileUri;
                         
-                        DebugLogger.LogDebug($"Updated UI for downloaded image {appId}: {fileUri}");
+                        AppLogger.LogDebug($"Updated UI for downloaded image {appId}: {fileUri}");
                         AppendLog($"Image updated for {appId}");
                     }
                 }
@@ -278,7 +278,7 @@ namespace MyOwnGames
                 catch (System.Runtime.InteropServices.COMException comEx)
                 {
                     // COM exception during normal operation - try to handle gracefully
-                    DebugLogger.LogDebug($"COM exception updating UI for {appId}: {comEx.Message}");
+                    AppLogger.LogDebug($"COM exception updating UI for {appId}: {comEx.Message}");
                 }
                 catch (ObjectDisposedException) when (_isShuttingDown)
                 {
@@ -290,7 +290,7 @@ namespace MyOwnGames
                 }
                 catch (Exception ex)
                 {
-                    DebugLogger.LogDebug($"Error updating UI for downloaded image {appId}: {ex.Message}");
+                    AppLogger.LogDebug($"Error updating UI for downloaded image {appId}: {ex.Message}");
                 }
             });
         }
@@ -705,7 +705,7 @@ namespace MyOwnGames
                 catch (Exception ex) when (_isShuttingDown)
                 {
                     // Ignore exceptions during shutdown
-                    DebugLogger.LogDebug($"Ignored exception during shutdown: {ex.Message}");
+                    AppLogger.LogDebug($"Ignored exception during shutdown: {ex.Message}");
                 }
                 
                 IsLoading = false;
@@ -803,7 +803,7 @@ namespace MyOwnGames
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"CDN stats update error: {ex.Message}");
+                AppLogger.LogDebug($"CDN stats update error: {ex.Message}");
             }
         }
 
@@ -904,7 +904,7 @@ namespace MyOwnGames
             var currentLanguage = GetCurrentLanguage();
 
 #if DEBUG
-            DebugLogger.LogDebug($"StartSequentialImageLoading: TWO-PHASE loading for {AllGameItems.Count} games in {currentLanguage}");
+            AppLogger.LogDebug($"StartSequentialImageLoading: TWO-PHASE loading for {AllGameItems.Count} games in {currentLanguage}");
 #endif
 
             // PHASE 1: Instant load of cached images only (no downloads, no LoadCoverAsync)
@@ -972,13 +972,13 @@ namespace MyOwnGames
                 catch (Exception ex)
                 {
 #if DEBUG
-                    DebugLogger.LogDebug($"Phase 1 error at {i}: {ex.Message}");
+                    AppLogger.LogDebug($"Phase 1 error at {i}: {ex.Message}");
 #endif
                 }
             }
 
 #if DEBUG
-            DebugLogger.LogDebug($"Phase 1 complete. Need English: {gamesNeedingEnglish.Count}, Need target: {gamesNeedingTarget.Count}");
+            AppLogger.LogDebug($"Phase 1 complete. Need English: {gamesNeedingEnglish.Count}, Need target: {gamesNeedingTarget.Count}");
 #endif
 
             // PHASE 2: Fast download of English fallback (larger batch, English usually exists)
@@ -991,7 +991,7 @@ namespace MyOwnGames
                     if (ct.IsCancellationRequested)
                     {
 #if DEBUG
-                        DebugLogger.LogDebug($"Phase 2 cancelled at {i}/{gamesNeedingEnglish.Count}");
+                        AppLogger.LogDebug($"Phase 2 cancelled at {i}/{gamesNeedingEnglish.Count}");
 #endif
                         break;
                     }
@@ -1040,13 +1040,13 @@ namespace MyOwnGames
                 catch (Exception ex)
                 {
 #if DEBUG
-                    DebugLogger.LogDebug($"Phase 2 error at {i}: {ex.Message}");
+                    AppLogger.LogDebug($"Phase 2 error at {i}: {ex.Message}");
 #endif
                 }
             }
 
 #if DEBUG
-            DebugLogger.LogDebug($"Phase 2 complete. Now downloading target language for {gamesNeedingTarget.Count} games.");
+            AppLogger.LogDebug($"Phase 2 complete. Now downloading target language for {gamesNeedingTarget.Count} games.");
 #endif
 
             // PHASE 3: Slow download of target language (smallest batch, may not exist)
@@ -1061,7 +1061,7 @@ namespace MyOwnGames
                         if (ct.IsCancellationRequested)
                         {
 #if DEBUG
-                            DebugLogger.LogDebug($"Phase 3 cancelled at {i}/{gamesNeedingTarget.Count}");
+                            AppLogger.LogDebug($"Phase 3 cancelled at {i}/{gamesNeedingTarget.Count}");
 #endif
                             break;
                         }
@@ -1105,14 +1105,14 @@ namespace MyOwnGames
                     catch (Exception ex)
                     {
 #if DEBUG
-                        DebugLogger.LogDebug($"Phase 3 error at {i}: {ex.Message}");
+                        AppLogger.LogDebug($"Phase 3 error at {i}: {ex.Message}");
 #endif
                     }
                 }
             }
 
 #if DEBUG
-            DebugLogger.LogDebug("Sequential image loading completed");
+            AppLogger.LogDebug("Sequential image loading completed");
 #endif
         }
 
@@ -1203,7 +1203,7 @@ namespace MyOwnGames
             catch (Exception ex)
             {
                 AppendLog($"Error launching RunGame for game {appId}: {ex.Message}");
-                DebugLogger.LogDebug($"Error launching RunGame: {ex.Message}");
+                AppLogger.LogDebug($"Error launching RunGame: {ex.Message}");
             }
         }
 
@@ -1217,7 +1217,7 @@ namespace MyOwnGames
             if (_isShuttingDown)
                 return;
             _isShuttingDown = true;
-            DebugLogger.OnLog -= _logHandler;
+            AppLogger.OnLog -= _logHandler;
 
             // Cancel any ongoing operations
             _cancellationTokenSource?.Cancel();
@@ -1248,7 +1248,7 @@ namespace MyOwnGames
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Error disposing image service: {ex.Message}");
+                AppLogger.LogDebug($"Error disposing image service: {ex.Message}");
             }
             
             // Dispose cancellation token source
@@ -1259,7 +1259,7 @@ namespace MyOwnGames
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Error disposing cancellation token source: {ex.Message}");
+                AppLogger.LogDebug($"Error disposing cancellation token source: {ex.Message}");
             }
 
             // Stop CDN statistics timer
@@ -1274,10 +1274,10 @@ namespace MyOwnGames
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Error stopping CDN stats timer: {ex.Message}");
+                AppLogger.LogDebug($"Error stopping CDN stats timer: {ex.Message}");
             }
 
-            DebugLogger.LogDebug($"Shutdown completed ({reason})");
+            AppLogger.LogDebug($"Shutdown completed ({reason})");
         }
 
         private string GetCurrentLanguage()
@@ -1382,11 +1382,11 @@ namespace MyOwnGames
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Error during language switch: {ex.GetType().Name}: {ex.Message}");
-                DebugLogger.LogDebug($"Stack trace: {ex.StackTrace}");
+                AppLogger.LogDebug($"Error during language switch: {ex.GetType().Name}: {ex.Message}");
+                AppLogger.LogDebug($"Stack trace: {ex.StackTrace}");
                 if (ex.InnerException != null)
                 {
-                    DebugLogger.LogDebug($"Inner exception: {ex.InnerException.GetType().Name}: {ex.InnerException.Message}");
+                    AppLogger.LogDebug($"Inner exception: {ex.InnerException.GetType().Name}: {ex.InnerException.Message}");
                 }
                 AppendLog($"Error processing language switch: {ex.GetType().Name}: {ex.Message}");
             }
@@ -1513,7 +1513,7 @@ namespace MyOwnGames
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Error in GameEntry.OnPropertyChanged: {ex.Message}");
+                AppLogger.LogDebug($"Error in GameEntry.OnPropertyChanged: {ex.Message}");
             }
         }
         
@@ -1557,7 +1557,7 @@ namespace MyOwnGames
             if (_coverLoading)
             {
 #if DEBUG
-                DebugLogger.LogDebug($"Skipping LoadCoverAsync for {AppId}: already loading");
+                AppLogger.LogDebug($"Skipping LoadCoverAsync for {AppId}: already loading");
 #endif
                 return;
             }
@@ -1567,7 +1567,7 @@ namespace MyOwnGames
             if (!forceReload && !ImageLoadingHelper.IsNoIcon(IconUri))
             {
 #if DEBUG
-                DebugLogger.LogDebug($"Skipping LoadCoverAsync for {AppId}: already has valid image");
+                AppLogger.LogDebug($"Skipping LoadCoverAsync for {AppId}: already has valid image");
 #endif
                 return;
             }
@@ -1577,7 +1577,7 @@ namespace MyOwnGames
             string currentLanguage = languageOverride ?? CurrentLanguage ?? "english";
 
 #if DEBUG
-            DebugLogger.LogDebug($"LoadCoverAsync started for {AppId}, language={currentLanguage}");
+            AppLogger.LogDebug($"LoadCoverAsync started for {AppId}, language={currentLanguage}");
 #endif
 
             try
@@ -1600,7 +1600,7 @@ namespace MyOwnGames
                             {
                                 IconUri = englishUri;
 #if DEBUG
-                                DebugLogger.LogDebug($"UI updated: {AppId} showing English fallback immediately");
+                                AppLogger.LogDebug($"UI updated: {AppId} showing English fallback immediately");
 #endif
                             }
                         });
@@ -1625,7 +1625,7 @@ namespace MyOwnGames
                         {
                             IconUri = fileUri;
 #if DEBUG
-                            DebugLogger.LogDebug($"UI updated: {AppId} final image in {loadedLanguage}");
+                            AppLogger.LogDebug($"UI updated: {AppId} final image in {loadedLanguage}");
 #endif
                         }
                     });
@@ -1633,7 +1633,7 @@ namespace MyOwnGames
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Error loading cover for {AppId}: {ex.Message}");
+                AppLogger.LogDebug($"Error loading cover for {AppId}: {ex.Message}");
             }
             finally
             {

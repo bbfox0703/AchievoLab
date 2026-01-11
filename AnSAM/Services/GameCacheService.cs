@@ -20,7 +20,7 @@ namespace AnSAM.Services
     {
         /// <summary>
         /// Loads the global game list, resolves owned games and updates the user cache.
-        /// Uses union of: games.xml (global) ∪ usergames.xml (user cache) ∪ steam_games.xml (MyOwnGames).
+        /// Uses union of: games.xml (global) ??usergames.xml (user cache) ??steam_games.xml (MyOwnGames).
         /// </summary>
         /// <param name="baseDir">Application data directory.</param>
         /// <param name="steam">Steam client used for ownership queries.</param>
@@ -33,7 +33,7 @@ namespace AnSAM.Services
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Failed to create base directory '{baseDir}': {ex.GetType().Name} - {ex.Message}");
+                AppLogger.LogDebug($"Failed to create base directory '{baseDir}': {ex.GetType().Name} - {ex.Message}");
                 throw;
             }
 
@@ -44,14 +44,14 @@ namespace AnSAM.Services
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Failed to create cache directory '{cacheDir}': {ex.GetType().Name} - {ex.Message}");
+                AppLogger.LogDebug($"Failed to create cache directory '{cacheDir}': {ex.GetType().Name} - {ex.Message}");
                 throw;
             }
 
             var userGamesPath = Path.Combine(cacheDir, "usergames.xml");
             var steamGamesPath = Path.Combine(cacheDir, "steam_games.xml");
 
-            // Step 1: Load games.xml via three-tier fallback (download → cache → embedded)
+            // Step 1: Load games.xml via three-tier fallback (download ??cache ??embedded)
             // This may throw if all three sources fail
             bool hasGamesXml = false;
             try
@@ -88,13 +88,13 @@ namespace AnSAM.Services
                             ids.Add(id);
                     }
 #if DEBUG
-                    CommonUtilities.DebugLogger.LogDebug($"Loaded {ids.Count} app IDs from usergames.xml");
+                    CommonUtilities.AppLogger.LogDebug($"Loaded {ids.Count} app IDs from usergames.xml");
 #endif
                 }
                 catch (Exception ex)
                 {
 #if DEBUG
-                    CommonUtilities.DebugLogger.LogDebug($"Failed to read usergames.xml: {ex.Message}");
+                    CommonUtilities.AppLogger.LogDebug($"Failed to read usergames.xml: {ex.Message}");
 #endif
                 }
             }
@@ -120,14 +120,14 @@ namespace AnSAM.Services
                                 ids.Add(id);
                         }
 #if DEBUG
-                        CommonUtilities.DebugLogger.LogDebug($"Loaded {ids.Count} total app IDs after adding steam_games.xml");
+                        CommonUtilities.AppLogger.LogDebug($"Loaded {ids.Count} total app IDs after adding steam_games.xml");
 #endif
                     }
                 }
                 catch (Exception ex)
                 {
 #if DEBUG
-                    CommonUtilities.DebugLogger.LogDebug($"Failed to read steam_games.xml: {ex.Message}");
+                    CommonUtilities.AppLogger.LogDebug($"Failed to read steam_games.xml: {ex.Message}");
 #endif
                 }
             }
@@ -144,7 +144,7 @@ namespace AnSAM.Services
             }
 
 #if DEBUG
-            CommonUtilities.DebugLogger.LogDebug($"Using union of {ids.Count} app IDs from all sources");
+            CommonUtilities.AppLogger.LogDebug($"Using union of {ids.Count} app IDs from all sources");
 #endif
 
             // Step 5: Query Steam client for ownership
@@ -273,14 +273,14 @@ namespace AnSAM.Services
                     File.Move(tempPath, userGamesPath);
 
 #if DEBUG
-                CommonUtilities.DebugLogger.LogDebug($"Added App ID {appId} to usergames.xml");
+                CommonUtilities.AppLogger.LogDebug($"Added App ID {appId} to usergames.xml");
 #endif
                 return true;
             }
             catch (Exception ex)
             {
 #if DEBUG
-                CommonUtilities.DebugLogger.LogDebug($"Failed to add App ID {appId} to usergames.xml: {ex.Message}");
+                CommonUtilities.AppLogger.LogDebug($"Failed to add App ID {appId} to usergames.xml: {ex.Message}");
 #endif
                 return false;
             }

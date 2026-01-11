@@ -48,7 +48,7 @@ namespace MyOwnGames.Services
                     else
                     {
                         // For read operations, log warning but return default
-                        DebugLogger.LogDebug("Failed to acquire cross-process file lock for steam_games.xml (read operation), returning default");
+                        AppLogger.LogDebug("Failed to acquire cross-process file lock for steam_games.xml (read operation), returning default");
                     }
                 }
                 return await action();
@@ -81,7 +81,7 @@ namespace MyOwnGames.Services
                 );
 
                 await Task.Run(() => root.Save(_xmlFilePath));
-                DebugLogger.LogDebug($"Saved {games.Count} games to {_xmlFilePath}");
+                AppLogger.LogDebug($"Saved {games.Count} games to {_xmlFilePath}");
                 return Task.CompletedTask;
             }, isWrite: true);
         }
@@ -180,7 +180,7 @@ namespace MyOwnGames.Services
                 root.SetAttributeValue("TotalGames", root.Elements("Game").Count());
 
                 await Task.Run(() => doc.Save(_xmlFilePath));
-                DebugLogger.LogDebug($"Batch appended {gamesList.Count} games to {_xmlFilePath}");
+                AppLogger.LogDebug($"Batch appended {gamesList.Count} games to {_xmlFilePath}");
                 return Task.CompletedTask;
             }, isWrite: true);
         }
@@ -208,12 +208,12 @@ namespace MyOwnGames.Services
                         })
                         .ToList() ?? new List<SteamGame>();
 
-                    DebugLogger.LogDebug($"Loaded {games.Count} games from {_xmlFilePath}");
+                    AppLogger.LogDebug($"Loaded {games.Count} games from {_xmlFilePath}");
                     return games;
                 }
                 catch (Exception ex)
                 {
-                    DebugLogger.LogDebug($"Error loading games from XML: {ex.Message}");
+                    AppLogger.LogDebug($"Error loading games from XML: {ex.Message}");
                     return new List<SteamGame>();
                 }
             });
@@ -262,12 +262,12 @@ namespace MyOwnGames.Services
                         })
                         .ToList() ?? new List<MultiLanguageGameData>();
 
-                    DebugLogger.LogDebug($"Loaded {games.Count} games with multi-language support from {_xmlFilePath}");
+                    AppLogger.LogDebug($"Loaded {games.Count} games with multi-language support from {_xmlFilePath}");
                     return games;
                 }
                 catch (Exception ex)
                 {
-                    DebugLogger.LogDebug($"Error loading multi-language games from XML: {ex.Message}");
+                    AppLogger.LogDebug($"Error loading multi-language games from XML: {ex.Message}");
                     return new List<MultiLanguageGameData>();
                 }
             });
@@ -304,7 +304,7 @@ namespace MyOwnGames.Services
                 }
                 catch (Exception ex)
                 {
-                    DebugLogger.LogDebug($"Error loading retrieved app IDs: {ex.Message}");
+                    AppLogger.LogDebug($"Error loading retrieved app IDs: {ex.Message}");
                 }
 
                 return (appIds, expectedTotal);
@@ -342,7 +342,7 @@ namespace MyOwnGames.Services
                 }
                 catch (Exception ex)
                 {
-                    DebugLogger.LogDebug($"Error updating remaining count: {ex.Message}");
+                    AppLogger.LogDebug($"Error updating remaining count: {ex.Message}");
                 }
                 return Task.CompletedTask;
             }, isWrite: true);
@@ -373,7 +373,7 @@ namespace MyOwnGames.Services
                 }
                 catch (Exception ex)
                 {
-                    DebugLogger.LogDebug($"Error getting export info: {ex.Message}");
+                    AppLogger.LogDebug($"Error getting export info: {ex.Message}");
                     return (GameExportInfo?)null;
                 }
             });
@@ -392,7 +392,7 @@ namespace MyOwnGames.Services
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Error clearing game data: {ex.Message}");
+                AppLogger.LogDebug($"Error clearing game data: {ex.Message}");
             }
         }
 

@@ -32,21 +32,21 @@ namespace CommonUtilities
         {
             try
             {
-                DebugLogger.LogDebug($"Starting CLEAN SLATE language switch to {newLanguage}");
+                AppLogger.LogDebug($"Starting CLEAN SLATE language switch to {newLanguage}");
 
                 // Validate parameters
                 if (gridView == null)
                 {
-                    DebugLogger.LogDebug("ERROR: gridView is null");
+                    AppLogger.LogDebug("ERROR: gridView is null");
                     throw new ArgumentNullException(nameof(gridView));
                 }
                 if (dispatcher == null)
                 {
-                    DebugLogger.LogDebug("ERROR: dispatcher is null");
+                    AppLogger.LogDebug("ERROR: dispatcher is null");
                     throw new ArgumentNullException(nameof(dispatcher));
                 }
 
-                DebugLogger.LogDebug("Parameters validated, finding ScrollViewer...");
+                AppLogger.LogDebug("Parameters validated, finding ScrollViewer...");
 
                 // STEP 1: Scroll to top (prevents crash when unbinding at bottom of list)
                 // Must find ScrollViewer on UI thread
@@ -57,7 +57,7 @@ namespace CommonUtilities
                     try
                     {
                         scrollViewer = FindScrollViewer(gridView);
-                        DebugLogger.LogDebug($"ScrollViewer found: {scrollViewer != null}");
+                        AppLogger.LogDebug($"ScrollViewer found: {scrollViewer != null}");
                         tcsFindScroll.SetResult(true);
                     }
                     catch (Exception ex)
@@ -75,7 +75,7 @@ namespace CommonUtilities
                         try
                         {
                             scrollViewer.ChangeView(null, 0, null, true); // Instant scroll to top
-                            DebugLogger.LogDebug("Scrolled to top");
+                            AppLogger.LogDebug("Scrolled to top");
                             tcsScroll.SetResult(true);
                         }
                         catch (Exception ex)
@@ -94,7 +94,7 @@ namespace CommonUtilities
                     try
                     {
                         gridView.ItemsSource = null;
-                        DebugLogger.LogDebug("Unbound GridView ItemsSource");
+                        AppLogger.LogDebug("Unbound GridView ItemsSource");
                         tcsUnbind.SetResult(true);
                     }
                     catch (Exception ex)
@@ -107,7 +107,7 @@ namespace CommonUtilities
 
                 // STEP 3: Reset all items to clean state
                 // CRITICAL: This must run on UI thread since items may be bound to UI
-                DebugLogger.LogDebug($"Resetting items for {newLanguage}");
+                AppLogger.LogDebug($"Resetting items for {newLanguage}");
                 var tcsReset = new TaskCompletionSource<bool>();
                 dispatcher.TryEnqueue(() =>
                 {
@@ -118,12 +118,12 @@ namespace CommonUtilities
                             item.IconUri = ImageLoadingHelper.GetNoIconPath();
                             item.ClearLoadingState();
                         }
-                        DebugLogger.LogDebug($"Reset {items.Count()} items to no_icon");
+                        AppLogger.LogDebug($"Reset {items.Count()} items to no_icon");
                         tcsReset.SetResult(true);
                     }
                     catch (Exception ex)
                     {
-                        DebugLogger.LogDebug($"Error during item reset: {ex.Message}");
+                        AppLogger.LogDebug($"Error during item reset: {ex.Message}");
                         tcsReset.SetException(ex);
                     }
                 });
@@ -138,7 +138,7 @@ namespace CommonUtilities
                     try
                     {
                         gridView.ItemsSource = items;
-                        DebugLogger.LogDebug("Rebound GridView ItemsSource - containers will recreate");
+                        AppLogger.LogDebug("Rebound GridView ItemsSource - containers will recreate");
                         tcsRebind.SetResult(true);
                     }
                     catch (Exception ex)
@@ -148,15 +148,15 @@ namespace CommonUtilities
                 });
                 await tcsRebind.Task;
 
-                DebugLogger.LogDebug($"CLEAN SLATE language switch complete. ContainerContentChanging will load images on-demand.");
+                AppLogger.LogDebug($"CLEAN SLATE language switch complete. ContainerContentChanging will load images on-demand.");
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Error during CLEAN SLATE language switch: {ex.GetType().Name}: {ex.Message}");
-                DebugLogger.LogDebug($"Stack trace: {ex.StackTrace}");
+                AppLogger.LogDebug($"Error during CLEAN SLATE language switch: {ex.GetType().Name}: {ex.Message}");
+                AppLogger.LogDebug($"Stack trace: {ex.StackTrace}");
                 if (ex.InnerException != null)
                 {
-                    DebugLogger.LogDebug($"Inner exception: {ex.InnerException.GetType().Name}: {ex.InnerException.Message}");
+                    AppLogger.LogDebug($"Inner exception: {ex.InnerException.GetType().Name}: {ex.InnerException.Message}");
                 }
                 throw;
             }

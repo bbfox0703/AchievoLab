@@ -56,7 +56,7 @@ namespace CommonUtilities
                     // Only log if this was a significant wait
                     if (timeout.TotalMilliseconds > 500)
                     {
-                        DebugLogger.LogDebug($"Failed to acquire mutex for {_lockFilePath} within {timeout.TotalSeconds}s timeout");
+                        AppLogger.LogDebug($"Failed to acquire mutex for {_lockFilePath} within {timeout.TotalSeconds}s timeout");
                     }
                     return false;
                 }
@@ -80,7 +80,7 @@ namespace CommonUtilities
                         1,
                         FileOptions.DeleteOnClose); // Auto-delete when closed
 
-                    DebugLogger.LogDebug($"Acquired cross-process lock for {_lockFilePath}");
+                    AppLogger.LogDebug($"Acquired cross-process lock for {_lockFilePath}");
                     return true;
                 }
                 catch (IOException ex)
@@ -95,7 +95,7 @@ namespace CommonUtilities
                     {
                         // Mutex was not owned by current thread, ignore
                     }
-                    DebugLogger.LogDebug($"Failed to acquire file lock for {_lockFilePath}: {ex.Message}");
+                    AppLogger.LogDebug($"Failed to acquire file lock for {_lockFilePath}: {ex.Message}");
                     return false;
                 }
             }
@@ -103,7 +103,7 @@ namespace CommonUtilities
             {
                 // Previous process holding the mutex terminated without releasing it
                 // We now own the mutex, try to acquire the file lock
-                DebugLogger.LogDebug($"Acquired abandoned mutex for {_lockFilePath}");
+                AppLogger.LogDebug($"Acquired abandoned mutex for {_lockFilePath}");
                 _mutexOwned = true; // Mark that we own the mutex
 
                 try
@@ -135,7 +135,7 @@ namespace CommonUtilities
                     {
                         // Mutex was not owned by current thread, ignore
                     }
-                    DebugLogger.LogDebug($"Failed to acquire file lock after abandoned mutex for {_lockFilePath}: {ex.Message}");
+                    AppLogger.LogDebug($"Failed to acquire file lock after abandoned mutex for {_lockFilePath}: {ex.Message}");
                     return false;
                 }
             }
@@ -169,7 +169,7 @@ namespace CommonUtilities
                     // Log warning only once after 5 seconds of waiting
                     if (!loggedWarning && (DateTime.Now - startTime).TotalSeconds > 5)
                     {
-                        DebugLogger.LogDebug($"Still waiting for lock on {_lockFilePath} (elapsed: {(DateTime.Now - startTime).TotalSeconds:F1}s)");
+                        AppLogger.LogDebug($"Still waiting for lock on {_lockFilePath} (elapsed: {(DateTime.Now - startTime).TotalSeconds:F1}s)");
                         loggedWarning = true;
                     }
 
@@ -180,7 +180,7 @@ namespace CommonUtilities
                 // Only log final timeout message
                 if (loggedWarning)
                 {
-                    DebugLogger.LogDebug($"Failed to acquire lock on {_lockFilePath} after {timeout.TotalSeconds}s timeout");
+                    AppLogger.LogDebug($"Failed to acquire lock on {_lockFilePath} after {timeout.TotalSeconds}s timeout");
                 }
 
                 return false;
@@ -206,7 +206,7 @@ namespace CommonUtilities
                 {
                     _lockFileStream.Dispose();
                     _lockFileStream = null;
-                    DebugLogger.LogDebug($"Released file lock for {_lockFilePath}");
+                    AppLogger.LogDebug($"Released file lock for {_lockFilePath}");
                 }
 
                 // Then release the mutex only if we own it
@@ -216,19 +216,19 @@ namespace CommonUtilities
                     {
                         _mutex.ReleaseMutex();
                         _mutexOwned = false;
-                        DebugLogger.LogDebug($"Released mutex for {_lockFilePath}");
+                        AppLogger.LogDebug($"Released mutex for {_lockFilePath}");
                     }
                     catch (ApplicationException ex)
                     {
                         // Mutex was not owned by current thread
-                        DebugLogger.LogDebug($"Could not release mutex for {_lockFilePath}: {ex.Message}");
+                        AppLogger.LogDebug($"Could not release mutex for {_lockFilePath}: {ex.Message}");
                         _mutexOwned = false;
                     }
                 }
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Error releasing lock for {_lockFilePath}: {ex.Message}");
+                AppLogger.LogDebug($"Error releasing lock for {_lockFilePath}: {ex.Message}");
             }
         }
 

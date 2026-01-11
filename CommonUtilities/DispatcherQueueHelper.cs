@@ -23,7 +23,7 @@ namespace CommonUtilities
         {
             if (dispatcher == null)
             {
-                DebugLogger.LogDebug("DispatcherQueueHelper.TryEnqueueSafe: dispatcher is null");
+                AppLogger.LogDebug("DispatcherQueueHelper.TryEnqueueSafe: dispatcher is null");
                 return false;
             }
 
@@ -33,7 +33,7 @@ namespace CommonUtilities
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"DispatcherQueueHelper.TryEnqueueSafe: Error enqueuing callback: {ex.Message}");
+                AppLogger.LogDebug($"DispatcherQueueHelper.TryEnqueueSafe: Error enqueuing callback: {ex.Message}");
                 return false;
             }
         }
@@ -53,7 +53,7 @@ namespace CommonUtilities
         {
             if (!TryEnqueueSafe(dispatcher, callback, priority))
             {
-                DebugLogger.LogDebug($"DispatcherQueueHelper.EnqueueOrWarn: {warningMessage}");
+                AppLogger.LogDebug($"DispatcherQueueHelper.EnqueueOrWarn: {warningMessage}");
             }
         }
 
@@ -71,7 +71,7 @@ namespace CommonUtilities
         {
             if (dispatcher == null)
             {
-                DebugLogger.LogDebug("DispatcherQueueHelper.ExecuteOnUIThread: dispatcher is null, executing synchronously");
+                AppLogger.LogDebug("DispatcherQueueHelper.ExecuteOnUIThread: dispatcher is null, executing synchronously");
                 action();
                 return;
             }

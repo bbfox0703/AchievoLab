@@ -208,12 +208,12 @@ namespace CommonUtilities
                     if (IsRecentNotFoundError(uri))
                     {
                         notFoundCount++;
-                        DebugLogger.LogDebug($"404 count for {cacheKey} in {language}: {notFoundCount}/{totalUrls}");
+                        AppLogger.LogDebug($"404 count for {cacheKey} in {language}: {notFoundCount}/{totalUrls}");
 
                         // After 2 CDN failures, try English fallback if we're not already on English
                         if (tryEnglishFallback && notFoundCount >= 2 && !string.Equals(language, "english", StringComparison.OrdinalIgnoreCase))
                         {
-                            DebugLogger.LogDebug($"Switching to English fallback for {cacheKey} after {notFoundCount} 404s");
+                            AppLogger.LogDebug($"Switching to English fallback for {cacheKey} after {notFoundCount} 404s");
                             var fallback = await TryEnglishFallbackAsync(cacheKey, language, failureId, cancellationToken).ConfigureAwait(false);
                             if (fallback != null)
                             {
@@ -231,7 +231,7 @@ namespace CommonUtilities
             // If we got enough 404s, try English fallback
             if (tryEnglishFallback && notFoundCount >= 2 && failureId.HasValue && !string.Equals(language, "english", StringComparison.OrdinalIgnoreCase))
             {
-                DebugLogger.LogDebug($"Trying English fallback for {cacheKey} after {notFoundCount} 404s");
+                AppLogger.LogDebug($"Trying English fallback for {cacheKey} after {notFoundCount} 404s");
                 var fallback = await TryEnglishFallbackAsync(cacheKey, language, failureId, cancellationToken).ConfigureAwait(false);
                 if (fallback != null)
                 {
@@ -246,7 +246,7 @@ namespace CommonUtilities
                 try
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    DebugLogger.LogDebug($"All {totalUrls} URLs failed for {cacheKey} in {language} with no 404s, trying English fallback as last resort");
+                    AppLogger.LogDebug($"All {totalUrls} URLs failed for {cacheKey} in {language} with no 404s, trying English fallback as last resort");
                     var fallback = await TryEnglishFallbackAsync(cacheKey, language, failureId, cancellationToken).ConfigureAwait(false);
                     if (fallback != null)
                     {
@@ -288,7 +288,7 @@ namespace CommonUtilities
 
         private async Task<ImageResult?> TryEnglishFallbackAsync(string cacheKey, string originalLanguage, int? failureId, CancellationToken cancellationToken)
         {
-            DebugLogger.LogDebug($"Attempting English fallback for {cacheKey} (original: {originalLanguage})");
+            AppLogger.LogDebug($"Attempting English fallback for {cacheKey} (original: {originalLanguage})");
 
             if (!failureId.HasValue)
             {
@@ -299,7 +299,7 @@ namespace CommonUtilities
             var existingEnglishPath = TryGetCachedPath(cacheKey, "english", checkEnglishFallback: false);
             if (!string.IsNullOrEmpty(existingEnglishPath) && IsCacheValid(existingEnglishPath))
             {
-                DebugLogger.LogDebug($"Found existing English cached image for {cacheKey}, using directly as fallback");
+                AppLogger.LogDebug($"Found existing English cached image for {cacheKey}, using directly as fallback");
 
                 _failureTracker?.RemoveFailedRecord(failureId.Value, originalLanguage);
 
@@ -377,14 +377,14 @@ namespace CommonUtilities
             {
                 // CRITICAL: Semaphore was disposed during language switch or app shutdown
                 // This happens when downloads are in-flight and semaphore gets disposed
-                DebugLogger.LogDebug($"Concurrency semaphore disposed while waiting for {uri}, aborting download");
+                AppLogger.LogDebug($"Concurrency semaphore disposed while waiting for {uri}, aborting download");
                 return new ImageResult(string.Empty, false);
             }
             catch (OperationCanceledException ex)
             {
                 if (!cancellationToken.IsCancellationRequested)
                 {
-                    DebugLogger.LogDebug($"Unexpected cancellation for {uri}: {ex.Message}");
+                    AppLogger.LogDebug($"Unexpected cancellation for {uri}: {ex.Message}");
                     if (failureId.HasValue)
                     {
                         _failureTracker?.RecordFailedDownload(failureId.Value, language);
@@ -402,7 +402,7 @@ namespace CommonUtilities
                 {
                     await _rateLimiter.WaitAsync(uri, cancellationToken).ConfigureAwait(false);
                     rateLimiterAcquired = true;
-                    DebugLogger.LogDebug($"Starting image download for {uri}");
+                    AppLogger.LogDebug($"Starting image download for {uri}");
                     using var request = new HttpRequestMessage(HttpMethod.Get, uri);
                     request.Headers.Add("Accept", "image/webp,image/avif,image/apng,image/svg+xml,image/*,*/*;q=0.8");
                     using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
@@ -450,14 +450,14 @@ namespace CommonUtilities
 
                     if (isNotFound)
                     {
-                        DebugLogger.LogDebug($"Image not found at {uri} (404) - will try fallback");
+                        AppLogger.LogDebug($"Image not found at {uri} (404) - will try fallback");
                         // Don't record 404 as a failure for tracking purposes
                         success = true;
                         return new ImageResult(string.Empty, false);
                     }
                     else
                     {
-                        DebugLogger.LogDebug($"HTTP request failed for {uri}: {ex.Message}");
+                        AppLogger.LogDebug($"HTTP request failed for {uri}: {ex.Message}");
                         if (failureId.HasValue)
                         {
                             _failureTracker?.RecordFailedDownload(failureId.Value, language);
@@ -469,7 +469,7 @@ namespace CommonUtilities
                 {
                     if (!cancellationToken.IsCancellationRequested)
                     {
-                        DebugLogger.LogDebug($"Request timeout for {uri}: {ex.Message}");
+                        AppLogger.LogDebug($"Request timeout for {uri}: {ex.Message}");
                         if (failureId.HasValue)
                         {
                             _failureTracker?.RecordFailedDownload(failureId.Value, language);
@@ -481,7 +481,7 @@ namespace CommonUtilities
                 {
                     if (!cancellationToken.IsCancellationRequested)
                     {
-                        DebugLogger.LogDebug($"Unexpected cancellation for {uri}: {ex.Message}");
+                        AppLogger.LogDebug($"Unexpected cancellation for {uri}: {ex.Message}");
                         if (failureId.HasValue)
                         {
                             _failureTracker?.RecordFailedDownload(failureId.Value, language);
@@ -493,12 +493,12 @@ namespace CommonUtilities
                 {
                     // CRITICAL: Semaphore (concurrency or rate limiter) was disposed during download
                     // This happens during language switch or app shutdown
-                    DebugLogger.LogDebug($"Semaphore disposed during download for {uri}: {ex.Message}");
+                    AppLogger.LogDebug($"Semaphore disposed during download for {uri}: {ex.Message}");
                     return new ImageResult(string.Empty, false);
                 }
                 catch (Exception ex)
                 {
-                    DebugLogger.LogDebug($"Unexpected error downloading {uri}: {ex.GetType().Name} - {ex.Message}");
+                    AppLogger.LogDebug($"Unexpected error downloading {uri}: {ex.GetType().Name} - {ex.Message}");
                     if (failureId.HasValue)
                     {
                         _failureTracker?.RecordFailedDownload(failureId.Value, language);
@@ -517,7 +517,7 @@ namespace CommonUtilities
                         {
                             // CRITICAL: Catch exceptions from RecordCall (especially ObjectDisposedException during language switch)
                             // If semaphore.Release() throws in RecordCall, this prevents crash
-                            DebugLogger.LogDebug($"Error in RecordCall for {uri}: {ex.GetType().Name}: {ex.Message}");
+                            AppLogger.LogDebug($"Error in RecordCall for {uri}: {ex.GetType().Name}: {ex.Message}");
                         }
                     }
                 }
@@ -531,7 +531,7 @@ namespace CommonUtilities
                 catch (ObjectDisposedException)
                 {
                     // Semaphore was disposed (app shutting down or language switch), ignore
-                    DebugLogger.LogDebug($"Semaphore already disposed for {uri}, skipping release");
+                    AppLogger.LogDebug($"Semaphore already disposed for {uri}, skipping release");
                 }
                 _inFlight.TryRemove(basePath, out _);
                 Interlocked.Increment(ref _completed);
@@ -562,7 +562,7 @@ namespace CommonUtilities
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Failed to clear cache for language '{language ?? "all"}': {ex.GetType().Name} - {ex.Message}");
+                AppLogger.LogDebug($"Failed to clear cache for language '{language ?? "all"}': {ex.GetType().Name} - {ex.Message}");
             }
         }
 
@@ -582,7 +582,7 @@ namespace CommonUtilities
 
             if (!Directory.Exists(englishDir))
             {
-                DebugLogger.LogDebug("English cache directory does not exist, nothing to cleanup");
+                AppLogger.LogDebug("English cache directory does not exist, nothing to cleanup");
                 return 0;
             }
 
@@ -593,7 +593,7 @@ namespace CommonUtilities
                     continue;
 
                 var languageFiles = Directory.GetFiles(languageDir);
-                DebugLogger.LogDebug($"Checking {languageFiles.Length} files in {language} folder for duplicates");
+                AppLogger.LogDebug($"Checking {languageFiles.Length} files in {language} folder for duplicates");
 
                 foreach (var languageFile in languageFiles)
                 {
@@ -622,12 +622,12 @@ namespace CommonUtilities
 
                                     if (dryRun)
                                     {
-                                        DebugLogger.LogDebug($"[DRY RUN] Would delete duplicated English image: {languageFile} ({languageInfo.Length} bytes)");
+                                        AppLogger.LogDebug($"[DRY RUN] Would delete duplicated English image: {languageFile} ({languageInfo.Length} bytes)");
                                     }
                                     else
                                     {
                                         File.Delete(languageFile);
-                                        DebugLogger.LogDebug($"Deleted duplicated English image: {languageFile} ({languageInfo.Length} bytes)");
+                                        AppLogger.LogDebug($"Deleted duplicated English image: {languageFile} ({languageInfo.Length} bytes)");
                                     }
                                 }
                             }
@@ -635,7 +635,7 @@ namespace CommonUtilities
                     }
                     catch (Exception ex)
                     {
-                        DebugLogger.LogDebug($"Error processing {languageFile}: {ex.Message}");
+                        AppLogger.LogDebug($"Error processing {languageFile}: {ex.Message}");
                     }
                 }
             }
@@ -645,16 +645,16 @@ namespace CommonUtilities
                 var spaceMB = spaceReclaimed / (1024.0 * 1024.0);
                 if (dryRun)
                 {
-                    DebugLogger.LogDebug($"[DRY RUN] Found {duplicatesFound} duplicated files ({spaceMB:F2} MB that could be reclaimed)");
+                    AppLogger.LogDebug($"[DRY RUN] Found {duplicatesFound} duplicated files ({spaceMB:F2} MB that could be reclaimed)");
                 }
                 else
                 {
-                    DebugLogger.LogDebug($"Cleaned up {duplicatesFound} duplicated files, reclaimed {spaceMB:F2} MB of disk space");
+                    AppLogger.LogDebug($"Cleaned up {duplicatesFound} duplicated files, reclaimed {spaceMB:F2} MB of disk space");
                 }
             }
             else
             {
-                DebugLogger.LogDebug("No duplicated English images found");
+                AppLogger.LogDebug("No duplicated English images found");
             }
 
             return duplicatesFound;
@@ -678,7 +678,7 @@ namespace CommonUtilities
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Failed to validate cache for '{path}': {ex.GetType().Name} - {ex.Message}");
+                AppLogger.LogDebug($"Failed to validate cache for '{path}': {ex.GetType().Name} - {ex.Message}");
             }
             return false;
         }

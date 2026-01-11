@@ -3,6 +3,8 @@ using System;
 using System.IO;
 using Windows.Storage;
 using CommonUtilities;
+using Serilog;
+using Microsoft.Extensions.Configuration;
 
 namespace RunGame
 {
@@ -37,7 +39,34 @@ namespace RunGame
         public App()
         {
             this.InitializeComponent();
+            InitializeLogging();
             EnsureConfigurationFile();
+        }
+
+        /// <summary>
+        /// Initializes Serilog logging from appsettings.json
+        /// </summary>
+        private static void InitializeLogging()
+        {
+            try
+            {
+                var configuration = new ConfigurationBuilder()
+                    .SetBasePath(AppContext.BaseDirectory)
+                    .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
+                    .Build();
+
+                Log.Logger = new LoggerConfiguration()
+                    .ReadFrom.Configuration(configuration)
+                    .CreateLogger();
+
+                AppLogger.Initialize(Log.Logger);
+                AppLogger.LogInfo("RunGame application logging initialized");
+            }
+            catch (Exception ex)
+            {
+                // Fallback to console if logging initialization fails
+                Console.WriteLine($"Failed to initialize logging: {ex.Message}");
+            }
         }
 
         /// <summary>
@@ -53,12 +82,12 @@ namespace RunGame
 
                 if (configManager.EnsureConfigurationExists())
                 {
-                    DebugLogger.LogDebug("RunGame: Configuration file was created or updated");
+                    AppLogger.LogDebug("RunGame: Configuration file was created or updated");
                 }
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"RunGame: Failed to ensure configuration file: {ex.Message}");
+                AppLogger.LogDebug($"RunGame: Failed to ensure configuration file: {ex.Message}");
                 // Don't throw - allow app to continue with defaults
             }
         }

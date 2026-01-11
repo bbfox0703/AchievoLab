@@ -41,7 +41,7 @@ namespace RunGame.Services
             _timer = new System.Threading.Timer(MoveMouse, null,
                 Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
 
-            DebugLogger.LogDebug("MouseMoverService initialized");
+            AppLogger.LogDebug("MouseMoverService initialized");
         }
 
         public bool IsEnabled
@@ -62,13 +62,13 @@ namespace RunGame.Services
                         _timer.Change(TimeSpan.FromSeconds(30),
                                      TimeSpan.FromSeconds(30));
                         
-                        DebugLogger.LogDebug("Mouse auto-movement enabled");
+                        AppLogger.LogDebug("Mouse auto-movement enabled");
                     }
                     else
                     {
                         // Stop the timer
                         _timer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
-                        DebugLogger.LogDebug("Mouse auto-movement disabled");
+                        AppLogger.LogDebug("Mouse auto-movement disabled");
                     }
                 }
             }
@@ -84,7 +84,7 @@ namespace RunGame.Services
                 var foregroundWindow = GetForegroundWindow();
                 if (foregroundWindow != _windowHandle)
                 {
-                    DebugLogger.LogDebug("Window not in foreground, skipping mouse movement");
+                    AppLogger.LogDebug("Window not in foreground, skipping mouse movement");
                     return;
                 }
 
@@ -114,11 +114,11 @@ namespace RunGame.Services
                 // Update last known position
                 _lastMousePos = new POINT { X = currentPos.X + direction * moveDistance, Y = currentPos.Y };
 
-                DebugLogger.LogDebug($"Auto-moved mouse: {currentPos.X},{currentPos.Y} -> {_lastMousePos.X},{_lastMousePos.Y}");
+                AppLogger.LogDebug($"Auto-moved mouse: {currentPos.X},{currentPos.Y} -> {_lastMousePos.X},{_lastMousePos.Y}");
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Error in MoveMouse: {ex.Message}");
+                AppLogger.LogDebug($"Error in MoveMouse: {ex.Message}");
             }
         }
 
@@ -129,7 +129,7 @@ namespace RunGame.Services
                 IsEnabled = false;
                 _timer?.Dispose();
                 _disposed = true;
-                DebugLogger.LogDebug("MouseMoverService disposed");
+                AppLogger.LogDebug("MouseMoverService disposed");
             }
         }
     }
