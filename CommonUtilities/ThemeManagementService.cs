@@ -75,11 +75,11 @@ namespace CommonUtilities
         {
             if (_root is null)
             {
-                DebugLogger.LogDebug("ThemeManagementService.ApplyTheme() called before Initialize()");
+                AppLogger.LogDebug("ThemeManagementService.ApplyTheme() called before Initialize()");
                 return;
             }
 
-            DebugLogger.LogDebug($"ThemeManagementService.ApplyTheme() - Setting theme to {theme}");
+            AppLogger.LogDebug($"ThemeManagementService.ApplyTheme() - Setting theme to {theme}");
 
             _root.RequestedTheme = theme;
 
@@ -89,7 +89,7 @@ namespace CommonUtilities
             // Simple layout update for OS theme changes
             _root.UpdateLayout();
 
-            DebugLogger.LogDebug($"ThemeManagementService.ApplyTheme() Complete - Theme set to {theme}, ActualTheme is {_root.ActualTheme}");
+            AppLogger.LogDebug($"ThemeManagementService.ApplyTheme() Complete - Theme set to {theme}, ActualTheme is {_root.ActualTheme}");
         }
 
         /// <summary>
@@ -99,11 +99,11 @@ namespace CommonUtilities
         {
             if (_root is null)
             {
-                DebugLogger.LogDebug("ThemeManagementService.ApplyAccentBrush() called before Initialize()");
+                AppLogger.LogDebug("ThemeManagementService.ApplyAccentBrush() called before Initialize()");
                 return;
             }
 
-            DebugLogger.LogDebug("ThemeManagementService.ApplyAccentBrush() Start");
+            AppLogger.LogDebug("ThemeManagementService.ApplyAccentBrush() Start");
 
             try
             {
@@ -113,7 +113,7 @@ namespace CommonUtilities
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"ThemeManagementService.ApplyAccentBrush() error: {ex.Message}");
+                AppLogger.LogDebug($"ThemeManagementService.ApplyAccentBrush() error: {ex.Message}");
                 // Use fallback color if UISettings fails
                 var fallbackBrush = new SolidColorBrush(Colors.Blue);
                 _root.Resources["AppAccentBrush"] = fallbackBrush;
@@ -131,7 +131,7 @@ namespace CommonUtilities
                 return;
             }
 
-            DebugLogger.LogDebug("ThemeManagementService.UpdateTitleBar() Start");
+            AppLogger.LogDebug("ThemeManagementService.UpdateTitleBar() Start");
 
             try
             {
@@ -156,7 +156,7 @@ namespace CommonUtilities
 
                 if (actualTheme == ElementTheme.Dark)
                 {
-                    DebugLogger.LogDebug("ThemeManagementService.UpdateTitleBar() - Setting dark theme");
+                    AppLogger.LogDebug("ThemeManagementService.UpdateTitleBar() - Setting dark theme");
                     titleBar.BackgroundColor = accentDark2;
                     titleBar.ForegroundColor = foreground;
 
@@ -174,7 +174,7 @@ namespace CommonUtilities
                 }
                 else
                 {
-                    DebugLogger.LogDebug("ThemeManagementService.UpdateTitleBar() - Setting light theme");
+                    AppLogger.LogDebug("ThemeManagementService.UpdateTitleBar() - Setting light theme");
                     titleBar.BackgroundColor = accentLight1;
                     titleBar.ForegroundColor = foreground;
 
@@ -193,7 +193,7 @@ namespace CommonUtilities
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"ThemeManagementService.UpdateTitleBar() error: {ex.Message}");
+                AppLogger.LogDebug($"ThemeManagementService.UpdateTitleBar() error: {ex.Message}");
                 // Skip title bar customization if UISettings fails
             }
         }

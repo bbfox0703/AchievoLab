@@ -110,7 +110,7 @@ public class ImageFailureTrackingServiceTests
             // First failure - should skip for 10 minutes (failure count = 1)
             var firstFailTime = DateTime.Now.AddMinutes(-8);
             tracker.RecordFailedDownload(appId, "japanese", "TestGame2", firstFailTime);
-            Assert.True(tracker.ShouldSkipDownload(appId, "japanese")); // 8 åˆ†é˜å‰å¤±æ•—ï¼Œé‚„åœ¨ 10 åˆ†é˜é€€é¿æœŸå…§
+            Assert.True(tracker.ShouldSkipDownload(appId, "japanese")); // 8 ?†é??å¤±?—ï??„åœ¨ 10 ?†é??€?¿æ???
 
             // Simulate 11 minutes passed - should allow retry (still failure count = 1, backoff = 10 min)
             var elevenMinutesAgo = DateTime.Now.AddMinutes(-11);
@@ -123,11 +123,11 @@ public class ImageFailureTrackingServiceTests
             languageElement?.SetAttributeValue("LastFailed", elevenMinutesAgo.ToString("yyyy-MM-dd HH:mm:ss"));
             doc.Save(tracker.GetXmlFilePath());
 
-            Assert.False(tracker.ShouldSkipDownload(appId, "japanese")); // 11 åˆ†é˜å‰å¤±æ•—ï¼Œå·²è¶…é 10 åˆ†é˜
+            Assert.False(tracker.ShouldSkipDownload(appId, "japanese")); // 11 ?†é??å¤±?—ï?å·²è???10 ?†é?
 
             // Second failure - should skip for 20 minutes (failure count = 2)
             tracker.RecordFailedDownload(appId, "japanese", "TestGame2");
-            Assert.True(tracker.ShouldSkipDownload(appId, "japanese")); // å‰›å¤±æ•—ï¼Œåœ¨ 20 åˆ†é˜é€€é¿æœŸå…§
+            Assert.True(tracker.ShouldSkipDownload(appId, "japanese")); // ?›å¤±?—ï???20 ?†é??€?¿æ???
 
             // Simulate 25 minutes passed - should allow retry (failure count = 2, backoff = 20 min)
             var twentyFiveMinutesAgo = DateTime.Now.AddMinutes(-25);
@@ -139,11 +139,11 @@ public class ImageFailureTrackingServiceTests
             languageElement?.SetAttributeValue("LastFailed", twentyFiveMinutesAgo.ToString("yyyy-MM-dd HH:mm:ss"));
             doc.Save(tracker.GetXmlFilePath());
 
-            Assert.False(tracker.ShouldSkipDownload(appId, "japanese")); // 25 åˆ†é˜å‰å¤±æ•—ï¼Œå·²è¶…é 20 åˆ†é˜
+            Assert.False(tracker.ShouldSkipDownload(appId, "japanese")); // 25 ?†é??å¤±?—ï?å·²è???20 ?†é?
 
             // Third failure - should skip for 40 minutes (failure count = 3)
             tracker.RecordFailedDownload(appId, "japanese", "TestGame2");
-            Assert.True(tracker.ShouldSkipDownload(appId, "japanese")); // å‰›å¤±æ•—ï¼Œåœ¨ 40 åˆ†é˜é€€é¿æœŸå…§
+            Assert.True(tracker.ShouldSkipDownload(appId, "japanese")); // ?›å¤±?—ï???40 ?†é??€?¿æ???
         }
         finally
         {

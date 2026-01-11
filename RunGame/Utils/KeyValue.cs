@@ -99,7 +99,7 @@ namespace RunGame.Utils
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Failed to load KeyValue from '{path}': {ex.GetType().Name} - {ex.Message}");
+                AppLogger.LogDebug($"Failed to load KeyValue from '{path}': {ex.GetType().Name} - {ex.Message}");
                 return null;
             }
         }
@@ -172,7 +172,7 @@ namespace RunGame.Utils
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Failed to read KeyValue binary stream: {ex.GetType().Name} - {ex.Message}");
+                AppLogger.LogDebug($"Failed to read KeyValue binary stream: {ex.GetType().Name} - {ex.Message}");
                 return false;
             }
         }
@@ -239,7 +239,7 @@ namespace RunGame.Utils
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Failed to read binary KeyValue: {ex.GetType().Name} - {ex.Message}");
+                AppLogger.LogDebug($"Failed to read binary KeyValue: {ex.GetType().Name} - {ex.Message}");
                 return null;
             }
         }

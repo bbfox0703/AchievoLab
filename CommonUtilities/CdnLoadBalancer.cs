@@ -48,7 +48,7 @@ namespace CommonUtilities
                         if (now < blockedTime)
                         {
                             isBlocked = true;
-                            DebugLogger.LogDebug($"CDN {domain} is blocked until {blockedTime:HH:mm:ss}");
+                            AppLogger.LogDebug($"CDN {domain} is blocked until {blockedTime:HH:mm:ss}");
                         }
                         else
                         {
@@ -86,7 +86,7 @@ namespace CommonUtilities
 
             if (best != null)
             {
-                DebugLogger.LogDebug($"Selected CDN: {best.Domain} (Active: {best.ActiveCount}/{_maxConcurrentPerDomain}, Priority: {best.Priority}, Success: {best.SuccessRate:P})");
+                AppLogger.LogDebug($"Selected CDN: {best.Domain} (Active: {best.ActiveCount}/{_maxConcurrentPerDomain}, Priority: {best.Priority}, Success: {best.SuccessRate:P})");
                 return best.Url;
             }
 
@@ -98,12 +98,12 @@ namespace CommonUtilities
 
             if (leastBusy != null)
             {
-                DebugLogger.LogDebug($"All CDN slots full, selecting least busy: {leastBusy.Domain} (Active: {leastBusy.ActiveCount})");
+                AppLogger.LogDebug($"All CDN slots full, selecting least busy: {leastBusy.Domain} (Active: {leastBusy.ActiveCount})");
                 return leastBusy.Url;
             }
 
             // Fallback: return first URL
-            DebugLogger.LogDebug("All CDNs blocked or unavailable, using first URL as fallback");
+            AppLogger.LogDebug("All CDNs blocked or unavailable, using first URL as fallback");
             return cdnUrls[0];
         }
 
@@ -133,7 +133,7 @@ namespace CommonUtilities
         public void IncrementActiveRequests(string domain)
         {
             var count = _activeRequests.AddOrUpdate(domain, 1, (_, c) => c + 1);
-            DebugLogger.LogDebug($"CDN {domain} active requests: {count}");
+            AppLogger.LogDebug($"CDN {domain} active requests: {count}");
         }
 
         /// <summary>
@@ -142,7 +142,7 @@ namespace CommonUtilities
         public void DecrementActiveRequests(string domain)
         {
             var count = _activeRequests.AddOrUpdate(domain, 0, (_, c) => Math.Max(0, c - 1));
-            DebugLogger.LogDebug($"CDN {domain} active requests: {count}");
+            AppLogger.LogDebug($"CDN {domain} active requests: {count}");
         }
 
         /// <summary>
@@ -152,7 +152,7 @@ namespace CommonUtilities
         {
             var blockDuration = duration ?? TimeSpan.FromMinutes(5);
             _blockedUntil[domain] = DateTime.UtcNow.Add(blockDuration);
-            DebugLogger.LogDebug($"CDN {domain} blocked for {blockDuration.TotalMinutes} minutes");
+            AppLogger.LogDebug($"CDN {domain} blocked for {blockDuration.TotalMinutes} minutes");
 
             // Update statistics
             var stats = _stats.GetOrAdd(domain, _ => new CdnStats());

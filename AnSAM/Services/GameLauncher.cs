@@ -25,12 +25,12 @@ namespace AnSAM.Services
             if (File.Exists(fullPath))
             {
                 _runGameFullPath = fullPath;
-                DebugLogger.LogDebug($"GameLauncher initialized: RunGame.exe found at {fullPath}");
+                AppLogger.LogDebug($"GameLauncher initialized: RunGame.exe found at {fullPath}");
             }
             else
             {
                 _runGameFullPath = null;
-                DebugLogger.LogDebug($"GameLauncher initialized: RunGame.exe NOT found at {fullPath}");
+                AppLogger.LogDebug($"GameLauncher initialized: RunGame.exe NOT found at {fullPath}");
             }
         }
 
@@ -50,19 +50,19 @@ namespace AnSAM.Services
         {
             if (item == null)
             {
-                DebugLogger.LogDebug("Launch: item is null");
+                AppLogger.LogDebug("Launch: item is null");
                 return;
             }
 
-            DebugLogger.LogDebug($"Launch: Attempting to launch game {item.ID} ({item.Title})");
+            AppLogger.LogDebug($"Launch: Attempting to launch game {item.ID} ({item.Title})");
 
             // Try custom URI scheme first
             if (!string.IsNullOrWhiteSpace(item.UriScheme))
             {
-                DebugLogger.LogDebug($"Launch: Trying URI scheme: {item.UriScheme}");
+                AppLogger.LogDebug($"Launch: Trying URI scheme: {item.UriScheme}");
                 if (TryStart(item.UriScheme))
                 {
-                    DebugLogger.LogDebug($"Launch: Successfully launched via URI scheme");
+                    AppLogger.LogDebug($"Launch: Successfully launched via URI scheme");
                     return;
                 }
             }
@@ -70,17 +70,17 @@ namespace AnSAM.Services
             // Then try executable path with arguments
             if (!string.IsNullOrWhiteSpace(item.ExePath))
             {
-                DebugLogger.LogDebug($"Launch: Trying executable: {item.ExePath}");
+                AppLogger.LogDebug($"Launch: Trying executable: {item.ExePath}");
                 if (TryStart(item.ExePath, item.Arguments))
                 {
-                    DebugLogger.LogDebug($"Launch: Successfully launched via executable");
+                    AppLogger.LogDebug($"Launch: Successfully launched via executable");
                     return;
                 }
             }
 
             // Fallback to Steam run URL
             var steamUri = $"steam://run/{item.ID.ToString(CultureInfo.InvariantCulture)}";
-            DebugLogger.LogDebug($"Launch: Falling back to Steam URI: {steamUri}");
+            AppLogger.LogDebug($"Launch: Falling back to Steam URI: {steamUri}");
             TryStart(steamUri);
         }
 
@@ -92,23 +92,23 @@ namespace AnSAM.Services
         {
             if (item == null)
             {
-                DebugLogger.LogDebug("LaunchAchievementManager: item is null");
+                AppLogger.LogDebug("LaunchAchievementManager: item is null");
                 return;
             }
 
-            DebugLogger.LogDebug($"LaunchAchievementManager: Attempting to launch for game {item.ID} ({item.Title})");
+            AppLogger.LogDebug($"LaunchAchievementManager: Attempting to launch for game {item.ID} ({item.Title})");
 
             if (_runGameFullPath == null)
             {
-                DebugLogger.LogDebug("LaunchAchievementManager: RunGame.exe not available");
+                AppLogger.LogDebug("LaunchAchievementManager: RunGame.exe not available");
                 return;
             }
 
             var appId = item.ID.ToString(CultureInfo.InvariantCulture);
-            DebugLogger.LogDebug($"LaunchAchievementManager: Launching {_runGameFullPath} with argument {appId}");
+            AppLogger.LogDebug($"LaunchAchievementManager: Launching {_runGameFullPath} with argument {appId}");
 
             var success = TryStart(_runGameFullPath, appId);
-            DebugLogger.LogDebug($"LaunchAchievementManager: Launch success={success}");
+            AppLogger.LogDebug($"LaunchAchievementManager: Launch success={success}");
         }
 
         private static bool TryStart(string fileName, string? arguments = null)
@@ -125,14 +125,14 @@ namespace AnSAM.Services
                     startInfo.Arguments = arguments;
                 }
 
-                DebugLogger.LogDebug($"TryStart: FileName={fileName}, Arguments={arguments ?? "(none)"}");
+                AppLogger.LogDebug($"TryStart: FileName={fileName}, Arguments={arguments ?? "(none)"}");
                 Process.Start(startInfo);
-                DebugLogger.LogDebug($"TryStart: Process started successfully");
+                AppLogger.LogDebug($"TryStart: Process started successfully");
                 return true;
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"TryStart: Failed to start process - {ex.Message}");
+                AppLogger.LogDebug($"TryStart: Failed to start process - {ex.Message}");
                 // Ignore launch failures and allow fallback.
             }
 

@@ -45,7 +45,7 @@ namespace CommonUtilities
                         if (!string.Equals(targetLanguage, globalLanguage, StringComparison.OrdinalIgnoreCase))
                         {
 #if DEBUG
-                            DebugLogger.LogDebug($"Skipping English fallback for {appId} - language changed to {globalLanguage}");
+                            AppLogger.LogDebug($"Skipping English fallback for {appId} - language changed to {globalLanguage}");
 #endif
                             // Language changed during load, abort
                             return (null, "");
@@ -60,14 +60,14 @@ namespace CommonUtilities
                     catch (Exception ex)
                     {
 #if DEBUG
-                        DebugLogger.LogDebug($"Error in English fallback callback for {appId}: {ex.GetType().Name}: {ex.Message}");
-                        DebugLogger.LogDebug($"Stack trace: {ex.StackTrace}");
+                        AppLogger.LogDebug($"Error in English fallback callback for {appId}: {ex.GetType().Name}: {ex.Message}");
+                        AppLogger.LogDebug($"Stack trace: {ex.StackTrace}");
 #endif
                         // Don't rethrow - callback errors shouldn't stop image loading
                     }
 
 #if DEBUG
-                    DebugLogger.LogDebug($"Loaded English fallback for {appId}, will attempt {targetLanguage} next");
+                    AppLogger.LogDebug($"Loaded English fallback for {appId}, will attempt {targetLanguage} next");
 #endif
                 }
             }

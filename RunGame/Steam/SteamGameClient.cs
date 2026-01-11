@@ -85,7 +85,7 @@ namespace RunGame.Steam
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Error getting Steam UI language: {ex.Message}");
+                AppLogger.LogDebug($"Error getting Steam UI language: {ex.Message}");
             }
 
             return "english";
@@ -97,23 +97,23 @@ namespace RunGame.Steam
             
             try
             {
-                DebugLogger.LogDebug($"Initializing SteamGameClient for game {gameId}");
+                AppLogger.LogDebug($"Initializing SteamGameClient for game {gameId}");
                 
                 // Check if Steam is running
                 if (!IsSteamRunning())
                 {
-                    DebugLogger.LogDebug("Steam is not running - cannot initialize Steam client");
+                    AppLogger.LogDebug("Steam is not running - cannot initialize Steam client");
                     return;
                 }
                 
                 _client = Steam_CreateInterface("SteamClient018", IntPtr.Zero);
-                DebugLogger.LogDebug($"Steam_CreateInterface result: {_client}");
+                AppLogger.LogDebug($"Steam_CreateInterface result: {_client}");
                 
                 if (_client != IntPtr.Zero)
                 {
                     // Get ISteamClient018 vtable
                     IntPtr vtable = Marshal.ReadIntPtr(_client);
-                    DebugLogger.LogDebug($"ISteamClient018 vtable: {vtable}");
+                    AppLogger.LogDebug($"ISteamClient018 vtable: {vtable}");
                     
                     _createSteamPipe = Marshal.GetDelegateForFunctionPointer<CreateSteamPipeDelegate>(Marshal.ReadIntPtr(vtable + IntPtr.Size * 0));
                     _releaseSteamPipe = Marshal.GetDelegateForFunctionPointer<ReleaseSteamPipeDelegate>(Marshal.ReadIntPtr(vtable + IntPtr.Size * 1));
@@ -127,12 +127,12 @@ namespace RunGame.Steam
                     if (_createSteamPipe != null && _connectToGlobalUser != null)
                     {
                         _pipe = _createSteamPipe(_client);
-                        DebugLogger.LogDebug($"Steam pipe created: {_pipe}");
+                        AppLogger.LogDebug($"Steam pipe created: {_pipe}");
                         
                         if (_pipe != 0)
                         {
                             _user = _connectToGlobalUser(_client, _pipe);
-                            DebugLogger.LogDebug($"Connected to global user: {_user}");
+                            AppLogger.LogDebug($"Connected to global user: {_user}");
                             
                             if (_user != 0)
                             {
@@ -147,12 +147,12 @@ namespace RunGame.Steam
                                     _userStats = _getISteamUserStats?.Invoke(_client, _user, _pipe, version) ?? IntPtr.Zero;
                                     if (_userStats != IntPtr.Zero)
                                     {
-                                        DebugLogger.LogDebug($"Successfully obtained {version} interface: {_userStats}");
+                                        AppLogger.LogDebug($"Successfully obtained {version} interface: {_userStats}");
                                         break;
                                     }
                                     else
                                     {
-                                        DebugLogger.LogDebug($"Failed to get {version} interface");
+                                        AppLogger.LogDebug($"Failed to get {version} interface");
                                     }
                                 }
                                 
@@ -163,23 +163,23 @@ namespace RunGame.Steam
                                     _user006 = _getISteamUser?.Invoke(_client, _user, _pipe, version) ?? IntPtr.Zero;
                                     if (_user006 != IntPtr.Zero)
                                     {
-                                        DebugLogger.LogDebug($"Successfully obtained {version} interface: {_user006}");
+                                        AppLogger.LogDebug($"Successfully obtained {version} interface: {_user006}");
                                         break;
                                     }
                                     else
                                     {
-                                        DebugLogger.LogDebug($"Failed to get {version} interface");
+                                        AppLogger.LogDebug($"Failed to get {version} interface");
                                     }
                                 }
 
-                                DebugLogger.LogDebug($"Steam interfaces - Apps008: {_apps008}, Apps001: {_apps001}, UserStats: {_userStats}, User006: {_user006}, Utils: {_utils}");
+                                AppLogger.LogDebug($"Steam interfaces - Apps008: {_apps008}, Apps001: {_apps001}, UserStats: {_userStats}, User006: {_user006}, Utils: {_utils}");
 
                                 // Initialize ISteamApps delegates using correct offsets from ISteamApps008
                                 if (_apps008 != IntPtr.Zero)
                                 {
                                     IntPtr appsVTable = Marshal.ReadIntPtr(_apps008);
                                     _isSubscribedApp = Marshal.GetDelegateForFunctionPointer<IsSubscribedAppDelegate>(Marshal.ReadIntPtr(appsVTable + IntPtr.Size * 6));
-                                    DebugLogger.LogDebug($"ISteamApps008 IsSubscribedApp delegate initialized");
+                                    AppLogger.LogDebug($"ISteamApps008 IsSubscribedApp delegate initialized");
                                 }
                                 
                                 if (_apps001 != IntPtr.Zero)
@@ -217,8 +217,8 @@ namespace RunGame.Steam
                                     IntPtr utilsVTable = Marshal.ReadIntPtr(_utils);
                                     _getAppId = Marshal.GetDelegateForFunctionPointer<GetAppIdDelegate>(Marshal.ReadIntPtr(utilsVTable + IntPtr.Size * 9));
                                     _getSteamUILanguage = Marshal.GetDelegateForFunctionPointer<GetSteamUILanguageDelegate>(Marshal.ReadIntPtr(utilsVTable + IntPtr.Size * 22));
-                                    DebugLogger.LogDebug($"ISteamUtils005 GetAppId delegate initialized");
-                                    DebugLogger.LogDebug($"ISteamUtils005 GetSteamUILanguage delegate initialized");
+                                    AppLogger.LogDebug($"ISteamUtils005 GetAppId delegate initialized");
+                                    AppLogger.LogDebug($"ISteamUtils005 GetSteamUILanguage delegate initialized");
                                 }
 
                                 // Check if we can get Steam ID to verify user is logged in
@@ -228,11 +228,11 @@ namespace RunGame.Steam
                                     try
                                     {
                                         _getSteamId(_user006, out steamId);
-                                        DebugLogger.LogDebug($"Current Steam ID: {steamId}");
+                                        AppLogger.LogDebug($"Current Steam ID: {steamId}");
                                     }
                                     catch (Exception ex)
                                     {
-                                        DebugLogger.LogDebug($"Error getting Steam ID: {ex.Message}");
+                                        AppLogger.LogDebug($"Error getting Steam ID: {ex.Message}");
                                         steamId = 0;
                                     }
                                 }
@@ -245,76 +245,76 @@ namespace RunGame.Steam
                                     try
                                     {
                                         currentAppId = _getAppId(_utils);
-                                        DebugLogger.LogDebug($"Steam Utils GetAppId returned: {currentAppId}");
+                                        AppLogger.LogDebug($"Steam Utils GetAppId returned: {currentAppId}");
                                         appIdMatches = currentAppId == (uint)_gameId;
                                     }
                                     catch (Exception ex)
                                     {
-                                        DebugLogger.LogDebug($"Error getting AppId from Steam Utils: {ex.Message}");
+                                        AppLogger.LogDebug($"Error getting AppId from Steam Utils: {ex.Message}");
                                         // For now, continue without AppID verification
                                         appIdMatches = true;
                                     }
                                 }
                                 else
                                 {
-                                    DebugLogger.LogDebug("SteamUtils not available, skipping AppID verification");
+                                    AppLogger.LogDebug("SteamUtils not available, skipping AppID verification");
                                     appIdMatches = true; // Continue without verification for now
                                 }
 
-                                DebugLogger.LogDebug($"AppID verification - Expected: {_gameId}, Current: {currentAppId}, Matches: {appIdMatches}");
+                                AppLogger.LogDebug($"AppID verification - Expected: {_gameId}, Current: {currentAppId}, Matches: {appIdMatches}");
 
                                 // Now we can safely require Steam ID since the function signature is correct
                                 Initialized = _userStats != IntPtr.Zero && _requestUserStats != null && _getSteamId != null && steamId != 0 && appIdMatches;
-                                DebugLogger.LogDebug($"Steam client initialization result: {Initialized}");
+                                AppLogger.LogDebug($"Steam client initialization result: {Initialized}");
                                 
                                 if (!Initialized)
                                 {
-                                    DebugLogger.LogDebug($"Init failed - UserStats: {_userStats != IntPtr.Zero}, RequestUserStats: {_requestUserStats != null}, GetSteamId: {_getSteamId != null}, SteamId: {steamId}, AppIdMatches: {appIdMatches}");
+                                    AppLogger.LogDebug($"Init failed - UserStats: {_userStats != IntPtr.Zero}, RequestUserStats: {_requestUserStats != null}, GetSteamId: {_getSteamId != null}, SteamId: {steamId}, AppIdMatches: {appIdMatches}");
                                     if (steamId == 0)
                                     {
-                                        DebugLogger.LogDebug("User may not be logged in to Steam");
+                                        AppLogger.LogDebug("User may not be logged in to Steam");
                                     }
                                     if (!appIdMatches)
                                     {
-                                        DebugLogger.LogDebug($"AppID mismatch! Steam thinks current app is {currentAppId}, but we need {_gameId}");
-                                        DebugLogger.LogDebug("This suggests the SteamAppId environment variable is not working correctly");
+                                        AppLogger.LogDebug($"AppID mismatch! Steam thinks current app is {currentAppId}, but we need {_gameId}");
+                                        AppLogger.LogDebug("This suggests the SteamAppId environment variable is not working correctly");
                                     }
                                 }
                                 else
                                 {
-                                    DebugLogger.LogDebug($"Steam client successfully initialized - UserStats: {_userStats}, SteamId: {steamId}");
+                                    AppLogger.LogDebug($"Steam client successfully initialized - UserStats: {_userStats}, SteamId: {steamId}");
                                 }
                             }
                             else
                             {
-                                DebugLogger.LogDebug("Failed to connect to global user");
+                                AppLogger.LogDebug("Failed to connect to global user");
                             }
                         }
                         else
                         {
-                            DebugLogger.LogDebug("Failed to create Steam pipe");
+                            AppLogger.LogDebug("Failed to create Steam pipe");
                         }
                     }
                     else
                     {
-                        DebugLogger.LogDebug($"Required delegates not found - CreateSteamPipe: {_createSteamPipe != null}, ConnectToGlobalUser: {_connectToGlobalUser != null}");
+                        AppLogger.LogDebug($"Required delegates not found - CreateSteamPipe: {_createSteamPipe != null}, ConnectToGlobalUser: {_connectToGlobalUser != null}");
                     }
                 }
                 else
                 {
-                    DebugLogger.LogDebug("Failed to create Steam client interface");
+                    AppLogger.LogDebug("Failed to create Steam client interface");
                 }
 
                 if (Initialized)
                 {
                     _callbackTimer = new Timer(_ => RunCallbacks(), null, 0, 100);
-                    DebugLogger.LogDebug("Steam client successfully initialized and callback timer started");
+                    AppLogger.LogDebug("Steam client successfully initialized and callback timer started");
                 }
             }
             catch (Exception ex)
             {
                 Initialized = false;
-                DebugLogger.LogDebug($"Steam API init threw: {ex}");
+                AppLogger.LogDebug($"Steam API init threw: {ex}");
             }
         }
 
@@ -322,19 +322,19 @@ namespace RunGame.Steam
         {
             if (!Initialized || _isSubscribedApp == null || _apps008 == IntPtr.Zero)
             {
-                DebugLogger.LogDebug($"IsSubscribedApp failed: not initialized or missing delegates");
+                AppLogger.LogDebug($"IsSubscribedApp failed: not initialized or missing delegates");
                 return false;
             }
 
             try
             {
                 bool result = _isSubscribedApp(_apps008, gameId);
-                DebugLogger.LogDebug($"IsSubscribedApp for game {gameId}: {result}");
+                AppLogger.LogDebug($"IsSubscribedApp for game {gameId}: {result}");
                 return result;
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Exception in IsSubscribedApp: {ex.Message}");
+                AppLogger.LogDebug($"Exception in IsSubscribedApp: {ex.Message}");
                 return false;
             }
         }
@@ -343,24 +343,24 @@ namespace RunGame.Steam
         {
             if (!Initialized)
             {
-                DebugLogger.LogDebug($"SteamGameClient.RequestUserStats failed: client not initialized (gameId={gameId})");
+                AppLogger.LogDebug($"SteamGameClient.RequestUserStats failed: client not initialized (gameId={gameId})");
                 return false;
             }
             if (_requestUserStats == null)
             {
-                DebugLogger.LogDebug("SteamGameClient.RequestUserStats failed: _requestUserStats delegate is null");
+                AppLogger.LogDebug("SteamGameClient.RequestUserStats failed: _requestUserStats delegate is null");
                 return false;
             }
             if (_userStats == IntPtr.Zero)
             {
-                DebugLogger.LogDebug("SteamGameClient.RequestUserStats failed: _userStats interface is null");
+                AppLogger.LogDebug("SteamGameClient.RequestUserStats failed: _userStats interface is null");
                 return false;
             }
 
             // First check if user owns the game
             if (!IsSubscribedApp(gameId))
             {
-                DebugLogger.LogDebug($"User does not own game {gameId} - RequestUserStats will likely fail");
+                AppLogger.LogDebug($"User does not own game {gameId} - RequestUserStats will likely fail");
                 // Continue anyway, as some games might still work
             }
 
@@ -376,20 +376,20 @@ namespace RunGame.Steam
                     }
                     catch (Exception ex)
                     {
-                        DebugLogger.LogDebug($"Warning: Could not get Steam ID: {ex.Message}");
+                        AppLogger.LogDebug($"Warning: Could not get Steam ID: {ex.Message}");
                         // Try using a default Steam ID or the current user
                         steamId = 0x0110000100000000UL; // Generic Steam ID format
                     }
                 }
 
-                DebugLogger.LogDebug($"SteamGameClient.RequestUserStats calling for game {gameId} (steamId={steamId})");
+                AppLogger.LogDebug($"SteamGameClient.RequestUserStats calling for game {gameId} (steamId={steamId})");
                 bool result = _requestUserStats(_userStats, steamId) != 0;
-                DebugLogger.LogDebug($"SteamGameClient.RequestUserStats result for game {gameId}: {result}");
+                AppLogger.LogDebug($"SteamGameClient.RequestUserStats result for game {gameId}: {result}");
                 return result;
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Exception in RequestUserStats: {ex.Message}");
+                AppLogger.LogDebug($"Exception in RequestUserStats: {ex.Message}");
                 return false;
             }
         }
@@ -406,15 +406,15 @@ namespace RunGame.Steam
 
         public bool SetAchievement(string id, bool achieved)
         {
-            DebugLogger.LogAchievementSet(id, achieved, DebugLogger.IsDebugMode);
+            AppLogger.LogAchievementSet(id, achieved, AppLogger.IsDebugMode);
             
             if (!Initialized) return false;
             
 #if DEBUG
-            // Debug 模式下不實際寫入，只記錄
+            // Debug 模�?下�?實�?寫入，只記�?
             return true;
 #else
-            // Release 模式下實際寫入
+            // Release 模�?下實?�寫??
             if (achieved)
             {
                 if (_setAchievement == null) return false;
@@ -446,60 +446,60 @@ namespace RunGame.Steam
 
         public bool SetStatValue(string name, int value)
         {
-            DebugLogger.LogStatSet(name, value, DebugLogger.IsDebugMode);
+            AppLogger.LogStatSet(name, value, AppLogger.IsDebugMode);
             
             if (!Initialized || _setStatInt == null) return false;
             
 #if DEBUG
-            // Debug 模式下不實際寫入，只記錄
+            // Debug 模�?下�?實�?寫入，只記�?
             return true;
 #else
-            // Release 模式下實際寫入
+            // Release 模�?下實?�寫??
             return _setStatInt(_userStats, name, value);
 #endif
         }
 
         public bool SetStatValue(string name, float value)
         {
-            DebugLogger.LogStatSet(name, value, DebugLogger.IsDebugMode);
+            AppLogger.LogStatSet(name, value, AppLogger.IsDebugMode);
             
             if (!Initialized || _setStatFloat == null) return false;
             
 #if DEBUG
-            // Debug 模式下不實際寫入，只記錄
+            // Debug 模�?下�?實�?寫入，只記�?
             return true;
 #else
-            // Release 模式下實際寫入
+            // Release 模�?下實?�寫??
             return _setStatFloat(_userStats, name, value);
 #endif
         }
 
         public bool StoreStats()
         {
-            DebugLogger.LogStoreStats(DebugLogger.IsDebugMode);
+            AppLogger.LogStoreStats(AppLogger.IsDebugMode);
             
             if (!Initialized || _storeStats == null) return false;
             
 #if DEBUG
-            // Debug 模式下不實際寫入，只記錄
+            // Debug 模�?下�?實�?寫入，只記�?
             return true;
 #else
-            // Release 模式下實際寫入
+            // Release 模�?下實?�寫??
             return _storeStats(_userStats);
 #endif
         }
 
         public bool ResetAllStats(bool achievementsToo)
         {
-            DebugLogger.LogResetAllStats(achievementsToo, DebugLogger.IsDebugMode);
+            AppLogger.LogResetAllStats(achievementsToo, AppLogger.IsDebugMode);
             
             if (!Initialized || _resetAllStats == null) return false;
             
 #if DEBUG
-            // Debug 模式下不實際寫入，只記錄
+            // Debug 模�?下�?實�?寫入，只記�?
             return true;
 #else
-            // Release 模式下實際寫入
+            // Release 模�?下實?�寫??
             return _resetAllStats(_userStats, achievementsToo);
 #endif
         }
@@ -513,7 +513,7 @@ namespace RunGame.Steam
                     // Only log important callbacks to reduce noise
                     if (msg.Id == 1101 || msg.Id == 1040015 || msg.Id == 1040044)
                     {
-                        DebugLogger.LogDebug($"Steam callback received - ID: {msg.Id}, GameId: {_gameId}");
+                        AppLogger.LogDebug($"Steam callback received - ID: {msg.Id}, GameId: {_gameId}");
                     }
                     
                     if (msg.Id == 1101) // UserStatsReceived callback
@@ -521,7 +521,7 @@ namespace RunGame.Steam
                         try
                         {
                             var userStatsReceived = Marshal.PtrToStructure<UserStatsReceived>(msg.ParamPointer);
-                            DebugLogger.LogDebug($"UserStatsReceived - GameId: {userStatsReceived.GameId}, Result: {userStatsReceived.Result}, UserId: {userStatsReceived.UserId}");
+                            AppLogger.LogDebug($"UserStatsReceived - GameId: {userStatsReceived.GameId}, Result: {userStatsReceived.Result}, UserId: {userStatsReceived.UserId}");
                             
                             foreach (var callback in _userStatsCallbacks)
                             {
@@ -531,13 +531,13 @@ namespace RunGame.Steam
                                 }
                                 catch (Exception ex)
                                 {
-                                    DebugLogger.LogDebug($"Error in UserStatsReceived callback: {ex.Message}");
+                                    AppLogger.LogDebug($"Error in UserStatsReceived callback: {ex.Message}");
                                 }
                             }
                         }
                         catch (Exception ex)
                         {
-                            DebugLogger.LogDebug($"Error processing UserStatsReceived: {ex.Message}");
+                            AppLogger.LogDebug($"Error processing UserStatsReceived: {ex.Message}");
                         }
                     }
                     
@@ -546,7 +546,7 @@ namespace RunGame.Steam
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Error in RunCallbacks: {ex.Message}");
+                AppLogger.LogDebug($"Error in RunCallbacks: {ex.Message}");
             }
         }
 
@@ -605,11 +605,11 @@ namespace RunGame.Steam
                 {
                     _releaseUser?.Invoke(_client, _pipe, _user);
                     _releaseSteamPipe?.Invoke(_client, _pipe);
-                    DebugLogger.LogDebug("Steam client resources released successfully");
+                    AppLogger.LogDebug("Steam client resources released successfully");
                 }
                 catch (Exception ex)
                 {
-                    DebugLogger.LogDebug($"Error releasing Steam resources: {ex.Message}");
+                    AppLogger.LogDebug($"Error releasing Steam resources: {ex.Message}");
                 }
             }
         }
@@ -621,7 +621,7 @@ namespace RunGame.Steam
                 if (!libraryName.Equals("steamclient64", StringComparison.OrdinalIgnoreCase))
                     return IntPtr.Zero;
 
-                DebugLogger.LogDebug("Attempting to determine Steam install path");
+                AppLogger.LogDebug("Attempting to determine Steam install path");
                 string? installPath = GetSteamPath();
                 if (string.IsNullOrEmpty(installPath)) return IntPtr.Zero;
 
@@ -633,7 +633,7 @@ namespace RunGame.Steam
                 
                 if (!File.Exists(libraryPath)) 
                 {
-                    DebugLogger.LogDebug($"steamclient64.dll not found at expected paths in {installPath}");
+                    AppLogger.LogDebug($"steamclient64.dll not found at expected paths in {installPath}");
                     return IntPtr.Zero;
                 }
 
@@ -644,7 +644,7 @@ namespace RunGame.Steam
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Error in ResolveSteamClient: {ex.Message}");
+                AppLogger.LogDebug($"Error in ResolveSteamClient: {ex.Message}");
                 return IntPtr.Zero;
             }
         }
@@ -655,12 +655,12 @@ namespace RunGame.Steam
             {
                 var steamProcesses = Process.GetProcessesByName("steam");
                 bool isRunning = steamProcesses.Length > 0;
-                DebugLogger.LogDebug($"Steam process check: {isRunning} (found {steamProcesses.Length} processes)");
+                AppLogger.LogDebug($"Steam process check: {isRunning} (found {steamProcesses.Length} processes)");
                 return isRunning;
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Error checking Steam process: {ex.Message}");
+                AppLogger.LogDebug($"Error checking Steam process: {ex.Message}");
                 return false;
             }
         }
@@ -669,7 +669,7 @@ namespace RunGame.Steam
         {
             try
             {
-                DebugLogger.LogDebug("Searching registry for Steam install path");
+                AppLogger.LogDebug("Searching registry for Steam install path");
                 const string subKey = @"Software\\Valve\\Steam";
 
                 // Check HKLM 64-bit and 32-bit (WOW6432Node) views
@@ -681,13 +681,13 @@ namespace RunGame.Steam
                         var path = key?.GetValue("InstallPath") as string;
                         if (!string.IsNullOrEmpty(path))
                         {
-                            DebugLogger.LogDebug($"Steam install path found: {path}");
+                            AppLogger.LogDebug($"Steam install path found: {path}");
                             return path;
                         }
                     }
                     catch (Exception ex)
                     {
-                        DebugLogger.LogDebug($"Error accessing HKLM registry (view: {view}): {ex.Message}");
+                        AppLogger.LogDebug($"Error accessing HKLM registry (view: {view}): {ex.Message}");
                     }
                 }
 
@@ -700,22 +700,22 @@ namespace RunGame.Steam
                         var path = key?.GetValue("InstallPath") as string;
                         if (!string.IsNullOrEmpty(path))
                         {
-                            DebugLogger.LogDebug($"Steam install path found: {path}");
+                            AppLogger.LogDebug($"Steam install path found: {path}");
                             return path;
                         }
                     }
                     catch (Exception ex)
                     {
-                        DebugLogger.LogDebug($"Error accessing HKCU registry (view: {view}): {ex.Message}");
+                        AppLogger.LogDebug($"Error accessing HKCU registry (view: {view}): {ex.Message}");
                     }
                 }
 
-                DebugLogger.LogDebug("Steam install path not found in registry");
+                AppLogger.LogDebug("Steam install path not found in registry");
                 return null;
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Error in GetSteamPath: {ex.Message}");
+                AppLogger.LogDebug($"Error in GetSteamPath: {ex.Message}");
                 return null;
             }
         }

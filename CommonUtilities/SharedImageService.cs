@@ -59,7 +59,7 @@ namespace CommonUtilities
         {
             if (_currentLanguage != language)
             {
-                DebugLogger.LogDebug($"Switching language from {_currentLanguage} to {language}. Pending requests: {_pendingRequests.Count}");
+                AppLogger.LogDebug($"Switching language from {_currentLanguage} to {language}. Pending requests: {_pendingRequests.Count}");
 
                 // Cancel ongoing operations
                 _cts.Cancel();
@@ -69,16 +69,16 @@ namespace CommonUtilities
                 var pending = _pendingRequests.Values.ToArray();
                 if (pending.Length > 0)
                 {
-                    DebugLogger.LogDebug($"Waiting for {pending.Length} pending downloads to complete or cancel...");
+                    AppLogger.LogDebug($"Waiting for {pending.Length} pending downloads to complete or cancel...");
                     try
                     {
                         // Wait up to 5 seconds for pending requests to complete/cancel
                         await Task.WhenAny(Task.WhenAll(pending), Task.Delay(5000));
-                        DebugLogger.LogDebug($"Pending downloads completed or timed out");
+                        AppLogger.LogDebug($"Pending downloads completed or timed out");
                     }
                     catch (Exception ex)
                     {
-                        DebugLogger.LogDebug($"Exception while waiting for pending downloads: {ex.Message}");
+                        AppLogger.LogDebug($"Exception while waiting for pending downloads: {ex.Message}");
                     }
                 }
 
@@ -96,7 +96,7 @@ namespace CommonUtilities
                 _cts = new CancellationTokenSource();
                 _currentLanguage = language;
 
-                DebugLogger.LogDebug($"Language switch completed. Reset state for {language}");
+                AppLogger.LogDebug($"Language switch completed. Reset state for {language}");
             }
         }
 
@@ -125,7 +125,7 @@ namespace CommonUtilities
 
             if (staleKeys.Count > 0)
             {
-                DebugLogger.LogDebug($"Cleaned up {staleKeys.Count} stale pending requests. Remaining: {_pendingRequests.Count}");
+                AppLogger.LogDebug($"Cleaned up {staleKeys.Count} stale pending requests. Remaining: {_pendingRequests.Count}");
             }
         }
 
@@ -139,7 +139,7 @@ namespace CommonUtilities
             if (pendingCount == 0)
                 return;
 
-            DebugLogger.LogDebug($"Cancelling {pendingCount} pending downloads due to rapid viewport change");
+            AppLogger.LogDebug($"Cancelling {pendingCount} pending downloads due to rapid viewport change");
 
             // Cancel all in-flight downloads
             _cts.Cancel();
@@ -150,7 +150,7 @@ namespace CommonUtilities
             // Clean up cancelled tasks from pending dictionary
             CleanupStaleRequests();
 
-            DebugLogger.LogDebug($"Pending downloads cancelled. Remaining: {_pendingRequests.Count}");
+            AppLogger.LogDebug($"Pending downloads cancelled. Remaining: {_pendingRequests.Count}");
         }
 
         public bool HasImage(int appId, string language, bool checkEnglishFallback = false)
@@ -187,7 +187,7 @@ namespace CommonUtilities
             // Prevent queue overflow - if too many pending requests, try English fallback first
             if (_pendingRequests.Count >= MAX_PENDING_QUEUE_SIZE)
             {
-                DebugLogger.LogDebug($"Skipping image request for {appId} - queue full ({_pendingRequests.Count} pending)");
+                AppLogger.LogDebug($"Skipping image request for {appId} - queue full ({_pendingRequests.Count} pending)");
 
                 // Try to use English fallback if requesting non-English language
                 if (language != "english")
@@ -195,7 +195,7 @@ namespace CommonUtilities
                     var englishPath = _cache.TryGetCachedPath(appId.ToString(), "english", checkEnglishFallback: false);
                     if (!string.IsNullOrEmpty(englishPath) && File.Exists(englishPath))
                     {
-                        DebugLogger.LogDebug($"Queue full - using English fallback for {appId}");
+                        AppLogger.LogDebug($"Queue full - using English fallback for {appId}");
                         return englishPath;
                     }
                 }
@@ -212,7 +212,7 @@ namespace CommonUtilities
                 }
                 catch (OperationCanceledException) when (_cts.IsCancellationRequested)
                 {
-                    DebugLogger.LogDebug($"Image request for {appId} cancelled");
+                    AppLogger.LogDebug($"Image request for {appId} cancelled");
                     return GetFallbackImagePath();
                 }
             }
@@ -228,7 +228,7 @@ namespace CommonUtilities
             }
             catch (OperationCanceledException) when (_cts.IsCancellationRequested)
             {
-                DebugLogger.LogDebug($"Image request for {appId} cancelled");
+                AppLogger.LogDebug($"Image request for {appId} cancelled");
                 return GetFallbackImagePath();
             }
             finally
@@ -274,19 +274,19 @@ namespace CommonUtilities
                 if (!string.IsNullOrEmpty(englishFallbackPath) && IsFreshImage(englishFallbackPath))
                 {
                     // Fresh English image found, we can use it immediately if target language download fails
-                    DebugLogger.LogDebug($"Fresh English fallback available for {appId}");
+                    AppLogger.LogDebug($"Fresh English fallback available for {appId}");
                 }
             }
 
             // Step 3: Check failure tracking - if failed within 7 days for this language, skip download but use cache
             if (_cache.ShouldSkipDownload(appId, language))
             {
-                DebugLogger.LogDebug($"Skipping {language} download for {appId} due to recent failure (within 7 days)");
+                AppLogger.LogDebug($"Skipping {language} download for {appId} due to recent failure (within 7 days)");
 
                 // Use expired language-specific cache if available
                 if (!string.IsNullOrEmpty(diskCachedPath) && File.Exists(diskCachedPath) && ImageValidation.IsValidImage(diskCachedPath))
                 {
-                    DebugLogger.LogDebug($"Using expired {language} cache for {appId}");
+                    AppLogger.LogDebug($"Using expired {language} cache for {appId}");
                     _imageCache[cacheKey] = diskCachedPath;
                     TriggerImageDownloadCompletedEvent(appId, diskCachedPath);
                     return diskCachedPath;
@@ -309,17 +309,17 @@ namespace CommonUtilities
             if (!_cts.IsCancellationRequested)
             {
                 _cache.RecordFailedDownload(appId, language);
-                DebugLogger.LogDebug($"Failed to download {language} image for {appId}");
+                AppLogger.LogDebug($"Failed to download {language} image for {appId}");
             }
             else
             {
-                DebugLogger.LogDebug($"Download for {appId} ({language}) was cancelled, not recording failure");
+                AppLogger.LogDebug($"Download for {appId} ({language}) was cancelled, not recording failure");
             }
 
             // Step 7: Use expired language-specific cache as fallback if available
             if (!string.IsNullOrEmpty(diskCachedPath) && File.Exists(diskCachedPath) && ImageValidation.IsValidImage(diskCachedPath))
             {
-                DebugLogger.LogDebug($"Using expired {language} cache as fallback for {appId}");
+                AppLogger.LogDebug($"Using expired {language} cache as fallback for {appId}");
                 _imageCache[cacheKey] = diskCachedPath;
                 TriggerImageDownloadCompletedEvent(appId, diskCachedPath);
                 return diskCachedPath;
@@ -342,7 +342,7 @@ namespace CommonUtilities
             await _downloadSemaphore.WaitAsync(_cts.Token);
             var pending = _pendingRequests.Count;
             var available = _downloadSemaphore.CurrentCount;
-            DebugLogger.LogDebug($"Starting download for {appId} ({language}) - Pending: {pending}, Available slots: {available}");
+            AppLogger.LogDebug($"Starting download for {appId} ({language}) - Pending: {pending}, Available slots: {available}");
             try
             {
                 var languageSpecificUrlMap = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
@@ -450,12 +450,12 @@ namespace CommonUtilities
                 catch (ObjectDisposedException)
                 {
                     // Semaphore was disposed during language switch or shutdown, ignore
-                    DebugLogger.LogDebug($"SharedImageService semaphore already disposed, skipping release");
+                    AppLogger.LogDebug($"SharedImageService semaphore already disposed, skipping release");
                 }
                 catch (SemaphoreFullException)
                 {
                     // Semaphore was already released, ignore
-                    DebugLogger.LogDebug($"SharedImageService semaphore already at full count, skipping release");
+                    AppLogger.LogDebug($"SharedImageService semaphore already at full count, skipping release");
                 }
             }
         }
@@ -468,7 +468,7 @@ namespace CommonUtilities
             // If fresh English cache exists, use it immediately
             if (!string.IsNullOrEmpty(englishCachedPath) && IsFreshImage(englishCachedPath))
             {
-                DebugLogger.LogDebug($"Found fresh English cached image for {appId}, using as fallback");
+                AppLogger.LogDebug($"Found fresh English cached image for {appId}, using as fallback");
                 _imageCache[cacheKey] = englishCachedPath;
                 TriggerImageDownloadCompletedEvent(appId, englishCachedPath);
                 return englishCachedPath;
@@ -478,21 +478,21 @@ namespace CommonUtilities
             var englishDownloadResult = await TryDownloadEnglishImageAsync(appId, cacheKey);
             if (englishDownloadResult != null)
             {
-                DebugLogger.LogDebug($"Downloaded fresh English image for {appId}");
+                AppLogger.LogDebug($"Downloaded fresh English image for {appId}");
                 return englishDownloadResult;
             }
 
             // Download failed - use expired English cache if available and valid
             if (!string.IsNullOrEmpty(englishCachedPath) && File.Exists(englishCachedPath) && ImageValidation.IsValidImage(englishCachedPath))
             {
-                DebugLogger.LogDebug($"Using expired English cached image for {appId} as fallback (download failed)");
+                AppLogger.LogDebug($"Using expired English cached image for {appId} as fallback (download failed)");
                 _imageCache[cacheKey] = englishCachedPath;
                 TriggerImageDownloadCompletedEvent(appId, englishCachedPath);
                 return englishCachedPath;
             }
 
             // No English image available - show fallback icon
-            DebugLogger.LogDebug($"No English image available for {appId}, showing fallback icon");
+            AppLogger.LogDebug($"No English image available for {appId}, showing fallback icon");
             return GetFallbackImagePath();
         }
 
@@ -502,7 +502,7 @@ namespace CommonUtilities
             await _downloadSemaphore.WaitAsync(_cts.Token);
             var pending = _pendingRequests.Count;
             var available = _downloadSemaphore.CurrentCount;
-            DebugLogger.LogDebug($"Starting English download for {appId} - Pending: {pending}, Available slots: {available}");
+            AppLogger.LogDebug($"Starting English download for {appId} - Pending: {pending}, Available slots: {available}");
             try
             {
                 var languageSpecificUrlMap = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
@@ -596,12 +596,12 @@ namespace CommonUtilities
                 catch (ObjectDisposedException)
                 {
                     // Semaphore was disposed during language switch or shutdown, ignore
-                    DebugLogger.LogDebug($"SharedImageService semaphore already disposed, skipping release");
+                    AppLogger.LogDebug($"SharedImageService semaphore already disposed, skipping release");
                 }
                 catch (SemaphoreFullException)
                 {
                     // Semaphore was already released, ignore
-                    DebugLogger.LogDebug($"SharedImageService semaphore already at full count, skipping release");
+                    AppLogger.LogDebug($"SharedImageService semaphore already at full count, skipping release");
                 }
             }
         }
@@ -619,7 +619,7 @@ namespace CommonUtilities
             {
                 if (_completedEvents.Contains(eventKey))
                 {
-                    DebugLogger.LogDebug($"Skipping duplicate ImageDownloadCompleted event for {appId}");
+                    AppLogger.LogDebug($"Skipping duplicate ImageDownloadCompleted event for {appId}");
                     return;
                 }
                 _completedEvents.Add(eventKey);
@@ -631,8 +631,8 @@ namespace CommonUtilities
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Error in ImageDownloadCompleted event handler for {appId}: {ex.GetType().Name}: {ex.Message}");
-                DebugLogger.LogDebug($"Stack trace: {ex.StackTrace}");
+                AppLogger.LogDebug($"Error in ImageDownloadCompleted event handler for {appId}: {ex.GetType().Name}: {ex.Message}");
+                AppLogger.LogDebug($"Stack trace: {ex.StackTrace}");
                 // Don't rethrow - event handler errors shouldn't crash the image service
             }
         }
@@ -665,24 +665,24 @@ namespace CommonUtilities
             }
             catch (HttpRequestException ex)
             {
-                DebugLogger.LogDebug($"Error fetching store API data for {appId}: {ex.Message}");
+                AppLogger.LogDebug($"Error fetching store API data for {appId}: {ex.Message}");
             }
             catch (JsonException ex)
             {
-                DebugLogger.LogDebug($"Malformed store API response for {appId}: {ex.Message}");
+                AppLogger.LogDebug($"Malformed store API response for {appId}: {ex.Message}");
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                DebugLogger.LogDebug($"Store API request for {appId} cancelled");
+                AppLogger.LogDebug($"Store API request for {appId} cancelled");
                 throw;
             }
             catch (TaskCanceledException ex)
             {
-                DebugLogger.LogDebug($"Store API request for {appId} timed out: {ex.Message}");
+                AppLogger.LogDebug($"Store API request for {appId} timed out: {ex.Message}");
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Unexpected error parsing store API response for {appId}: {ex.Message}");
+                AppLogger.LogDebug($"Unexpected error parsing store API response for {appId}: {ex.Message}");
             }
             return null;
         }
@@ -714,7 +714,7 @@ namespace CommonUtilities
 
                 if (!Uri.TryCreate(selectedUrl, UriKind.Absolute, out var uri))
                 {
-                    DebugLogger.LogDebug($"Invalid URL: {selectedUrl}");
+                    AppLogger.LogDebug($"Invalid URL: {selectedUrl}");
                     continue;
                 }
 
@@ -723,7 +723,7 @@ namespace CommonUtilities
 
                 try
                 {
-                    DebugLogger.LogDebug($"Attempting download from {domain} (attempt {attempt + 1}/{Math.Min(3, cdnUrls.Count)})");
+                    AppLogger.LogDebug($"Attempting download from {domain} (attempt {attempt + 1}/{Math.Min(3, cdnUrls.Count)})");
 
                     var result = await _cache.GetImagePathAsync(
                         cacheKey,
@@ -736,13 +736,13 @@ namespace CommonUtilities
                     if (!string.IsNullOrEmpty(result.Path))
                     {
                         _cdnLoadBalancer.RecordSuccess(domain);
-                        DebugLogger.LogDebug($"Successfully downloaded from {domain}");
+                        AppLogger.LogDebug($"Successfully downloaded from {domain}");
                         return result;
                     }
                     else
                     {
                         _cdnLoadBalancer.RecordFailure(domain);
-                        DebugLogger.LogDebug($"Download failed from {domain} (empty result)");
+                        AppLogger.LogDebug($"Download failed from {domain} (empty result)");
                     }
                 }
                 catch (HttpRequestException ex) when (
@@ -753,12 +753,12 @@ namespace CommonUtilities
                 {
                     // CDN returned rate limit error, mark as blocked
                     _cdnLoadBalancer.RecordBlockedDomain(domain, TimeSpan.FromMinutes(5));
-                    DebugLogger.LogDebug($"CDN {domain} returned rate limit error ({ex.Message}), marking as blocked");
+                    AppLogger.LogDebug($"CDN {domain} returned rate limit error ({ex.Message}), marking as blocked");
                 }
                 catch (Exception ex)
                 {
                     _cdnLoadBalancer.RecordFailure(domain);
-                    DebugLogger.LogDebug($"Download error from {domain}: {ex.Message}");
+                    AppLogger.LogDebug($"Download error from {domain}: {ex.Message}");
                 }
                 finally
                 {

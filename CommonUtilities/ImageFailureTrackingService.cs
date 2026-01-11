@@ -8,7 +8,7 @@ namespace CommonUtilities
 {
     /// <summary>
     /// Unified image failure tracking service that manages both general and language-specific image download failures.
-    /// Uses exponential backoff strategy: 5min → 10min → 20min → 40min → 80min → 160min → 320min → 640min → 1280min → 2560min → 5120min → 10240min → 20480min (max)
+    /// Uses exponential backoff strategy: 5min ??10min ??20min ??40min ??80min ??160min ??320min ??640min ??1280min ??2560min ??5120min ??10240min ??20480min (max)
     /// Replaces both steam_games_failed.xml and manages games_image_failed_log.xml
     /// </summary>
     public class ImageFailureTrackingService
@@ -18,7 +18,7 @@ namespace CommonUtilities
 
         // Exponential backoff configuration
         private const int BaseBackoffMinutes = 5;
-        private const int MaxBackoffMinutes = 20480; // 失敗 12 次後的上限 (約 14.22 天)
+        private const int MaxBackoffMinutes = 20480; // 失�? 12 次�??��???(�?14.22 �?
 
         public ImageFailureTrackingService()
         {
@@ -43,11 +43,11 @@ namespace CommonUtilities
         /// <returns>Backoff time in minutes (capped at MaxBackoffMinutes)</returns>
         private int CalculateBackoffMinutes(int failureCount)
         {
-            // 失敗 0 次: 5 分鐘
-            // 失敗 1 次: 10 分鐘
-            // 失敗 2 次: 20 分鐘
+            // 失�? 0 �? 5 ?��?
+            // 失�? 1 �? 10 ?��?
+            // 失�? 2 �? 20 ?��?
             // ...
-            // 失敗 12 次+: 20480 分鐘 (上限)
+            // 失�? 12 �?: 20480 ?��? (上�?)
             if (failureCount < 0) failureCount = 0;
 
             int backoffMinutes = BaseBackoffMinutes * (int)Math.Pow(2, failureCount);
@@ -94,19 +94,19 @@ namespace CommonUtilities
                         if (minutesSinceFailure <= backoffMinutes)
                         {
                             var hoursRemaining = (backoffMinutes - minutesSinceFailure) / 60.0;
-                            DebugLogger.LogDebug($"Skipping download for {appId} ({language}) - failed {failureCount} times, retry in {hoursRemaining:F1} hours (backoff: {backoffMinutes} min)");
+                            AppLogger.LogDebug($"Skipping download for {appId} ({language}) - failed {failureCount} times, retry in {hoursRemaining:F1} hours (backoff: {backoffMinutes} min)");
                             return true;
                         }
                         else
                         {
-                            DebugLogger.LogDebug($"Retrying download for {appId} ({language}) - last failure was {minutesSinceFailure:F0} minutes ago (failed {failureCount} times)");
+                            AppLogger.LogDebug($"Retrying download for {appId} ({language}) - last failure was {minutesSinceFailure:F0} minutes ago (failed {failureCount} times)");
                             return false;
                         }
                     }
                 }
                 catch (Exception ex)
                 {
-                    DebugLogger.LogDebug($"Error checking failed download for {appId} ({language}): {ex.Message}");
+                    AppLogger.LogDebug($"Error checking failed download for {appId} ({language}): {ex.Message}");
                 }
 
                 return false;
@@ -191,11 +191,11 @@ namespace CommonUtilities
 
                     var finalCount = (int?)languageElement.Attribute("FailureCount") ?? 1;
                     var backoffMinutes = CalculateBackoffMinutes(finalCount);
-                    DebugLogger.LogDebug($"Recorded failed download for {appId} ({language}) - {gameName ?? "unknown"} (failure count: {finalCount}, next retry in {backoffMinutes} min)");
+                    AppLogger.LogDebug($"Recorded failed download for {appId} ({language}) - {gameName ?? "unknown"} (failure count: {finalCount}, next retry in {backoffMinutes} min)");
                 }
                 catch (Exception ex)
                 {
-                    DebugLogger.LogDebug($"Error recording failed download for {appId} ({language}): {ex.Message}");
+                    AppLogger.LogDebug($"Error recording failed download for {appId} ({language}): {ex.Message}");
                 }
             }
         }
@@ -236,12 +236,12 @@ namespace CommonUtilities
                         doc.Save(tempPath);
                         File.Move(tempPath, _xmlFilePath, true);
 
-                        DebugLogger.LogDebug($"Removed failed download record for {appId} ({language}) - download now successful");
+                        AppLogger.LogDebug($"Removed failed download record for {appId} ({language}) - download now successful");
                     }
                 }
                 catch (Exception ex)
                 {
-                    DebugLogger.LogDebug($"Error removing failed download record for {appId} ({language}): {ex.Message}");
+                    AppLogger.LogDebug($"Error removing failed download record for {appId} ({language}): {ex.Message}");
                 }
             }
         }
@@ -284,7 +284,7 @@ namespace CommonUtilities
                 }
                 catch (Exception ex)
                 {
-                    DebugLogger.LogDebug($"Error getting failed download records: {ex.Message}");
+                    AppLogger.LogDebug($"Error getting failed download records: {ex.Message}");
                 }
 
                 return records.OrderByDescending(r => r.LastFailed).ToList();
@@ -344,12 +344,12 @@ namespace CommonUtilities
                         doc.Save(tempPath);
                         File.Move(tempPath, _xmlFilePath, true);
 
-                        DebugLogger.LogDebug($"Cleaned up {removedCount} old image failure records (older than 30 days)");
+                        AppLogger.LogDebug($"Cleaned up {removedCount} old image failure records (older than 30 days)");
                     }
                 }
                 catch (Exception ex)
                 {
-                    DebugLogger.LogDebug($"Error cleaning up old image failure records: {ex.Message}");
+                    AppLogger.LogDebug($"Error cleaning up old image failure records: {ex.Message}");
                 }
             }
         }
@@ -387,12 +387,12 @@ namespace CommonUtilities
                 {
                     // Backup the old file before deleting
                     File.Move(oldFilePath, oldFilePath + ".migrated", true);
-                    DebugLogger.LogDebug($"Migrated {migratedCount} records from old steam_games_failed.xml");
+                    AppLogger.LogDebug($"Migrated {migratedCount} records from old steam_games_failed.xml");
                 }
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Error migrating old failed records: {ex.Message}");
+                AppLogger.LogDebug($"Error migrating old failed records: {ex.Message}");
             }
         }
 

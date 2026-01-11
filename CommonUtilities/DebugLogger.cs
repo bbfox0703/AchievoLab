@@ -4,6 +4,10 @@ using System.IO;
 
 namespace CommonUtilities
 {
+    /// <summary>
+    /// OBSOLETE: This class is deprecated. Use AppLogger with Serilog instead.
+    /// </summary>
+    [Obsolete("DebugLogger is deprecated. Use AppLogger with Serilog instead.", false)]
     public static class DebugLogger
     {
         public static event Action<string>? OnLog;

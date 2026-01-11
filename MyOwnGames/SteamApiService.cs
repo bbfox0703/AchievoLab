@@ -129,7 +129,7 @@ namespace MyOwnGames
                     };
 
                     // Log retrieval progress
-                    DebugLogger.LogDebug($"Retrieving game {i + 1}/{total}: {steamGame.NameEn}");
+                    AppLogger.LogDebug($"Retrieving game {i + 1}/{total}: {steamGame.NameEn}");
 
                     if (onGameRetrieved != null)
                     {
@@ -164,7 +164,7 @@ namespace MyOwnGames
                 cancellationToken.ThrowIfCancellationRequested();
                 
                 var url = $"https://store.steampowered.com/api/appdetails?appids={appId}&l={targetLanguage}";
-                DebugLogger.LogDebug($"Fetching localized name for {appId} ({englishName}) in {targetLanguage}");
+                AppLogger.LogDebug($"Fetching localized name for {appId} ({englishName}) in {targetLanguage}");
 
                 var response = await GetStringWithRateLimitCheckAsync(url, cancellationToken);
                 var data = DeserializeAppDetailsResponse(response);
@@ -173,23 +173,23 @@ namespace MyOwnGames
                     appDetails.success && !string.IsNullOrEmpty(appDetails.data?.name))
                 {
                     var localizedName = appDetails.data.name;
-                    DebugLogger.LogDebug($"Got localized name for {appId}: '{localizedName}' (was: '{englishName}')");
+                    AppLogger.LogDebug($"Got localized name for {appId}: '{localizedName}' (was: '{englishName}')");
                     return localizedName;
                 }
                 else
                 {
-                    DebugLogger.LogDebug($"No localized name available for {appId} in {targetLanguage}, using English fallback");
+                    AppLogger.LogDebug($"No localized name available for {appId} in {targetLanguage}, using English fallback");
                 }
             }
             catch (HttpRequestException ex) when (ex.Message.Contains("429") || ex.Message.Contains("Too Many Requests") || ex.Message.Contains("rate limit", StringComparison.OrdinalIgnoreCase))
             {
                 // 429 already recorded by GetStringWithRateLimitCheckAsync, Steam API blocked for 30 minutes
-                DebugLogger.LogDebug($"Rate limited when getting localized name for {appId}, using English fallback. Steam API blocked for 30 minutes.");
+                AppLogger.LogDebug($"Rate limited when getting localized name for {appId}, using English fallback. Steam API blocked for 30 minutes.");
             }
             catch (Exception ex)
             {
                 // Log error and fall back to English name
-                DebugLogger.LogDebug($"Error getting localized name for {appId}: {ex.Message}");
+                AppLogger.LogDebug($"Error getting localized name for {appId}: {ex.Message}");
             }
 
             return englishName; // Return English name as fallback
@@ -218,14 +218,14 @@ namespace MyOwnGames
                     if (DateTime.UtcNow < _steamApiBlockedUntil.Value)
                     {
                         var timeRemaining = _steamApiBlockedUntil.Value - DateTime.UtcNow;
-                        DebugLogger.LogDebug($"Steam API is blocked for {timeRemaining.TotalMinutes:F1} more minutes");
+                        AppLogger.LogDebug($"Steam API is blocked for {timeRemaining.TotalMinutes:F1} more minutes");
                         return true;
                     }
                     else
                     {
                         // Block has expired
                         _steamApiBlockedUntil = null;
-                        DebugLogger.LogDebug("Steam API block has expired");
+                        AppLogger.LogDebug("Steam API block has expired");
                     }
                 }
                 return false;
@@ -240,7 +240,7 @@ namespace MyOwnGames
             lock (_blockLock)
             {
                 _steamApiBlockedUntil = DateTime.UtcNow.AddMinutes(30);
-                DebugLogger.LogDebug($"Steam API blocked until {_steamApiBlockedUntil.Value:HH:mm:ss} (30 minutes)");
+                AppLogger.LogDebug($"Steam API blocked until {_steamApiBlockedUntil.Value:HH:mm:ss} (30 minutes)");
             }
         }
 

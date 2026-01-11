@@ -78,11 +78,11 @@ namespace AnSAM
 
             InitializeLanguageComboBox();
 
-            // 取得 AppWindow
+            // ?��? AppWindow
             var hwnd = WindowNative.GetWindowHandle(this);
             var winId = Win32Interop.GetWindowIdFromWindow(hwnd);
             _appWindow = AppWindow.GetFromWindowId(winId);
-            // 設定 Icon：指向打包後的實體檔案路徑
+            // 設�? Icon：�??��??��??�實體�?案路�?
             var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "AnSAM.ico");
             if (File.Exists(iconPath))
                 _appWindow.SetIcon(iconPath);
@@ -286,11 +286,11 @@ namespace AnSAM
                 // Check if language actually changed
                 if (lang == _currentLanguage)
                 {
-                    DebugLogger.LogDebug($"Language not changed, staying with: {lang}");
+                    AppLogger.LogDebug($"Language not changed, staying with: {lang}");
                     return; // No action needed if language hasn't changed
                 }
 
-                DebugLogger.LogDebug($"Language changed from {_currentLanguage} to {lang}");
+                AppLogger.LogDebug($"Language changed from {_currentLanguage} to {lang}");
 
                 // CRITICAL: Wait for any previous language switch to complete before starting new one
                 // This prevents hang/crash when switching while downloads are in progress
@@ -358,7 +358,7 @@ namespace AnSAM
                         ClearProgress(ProgressContext.LanguageSwitch);
                         StatusText.Text = "Language switch failed";
 
-                        DebugLogger.LogDebug($"Language switch error: {ex}");
+                        AppLogger.LogDebug($"Language switch error: {ex}");
 
                         if (Content?.XamlRoot != null)
                         {
@@ -383,7 +383,7 @@ namespace AnSAM
                 {
                     // CRITICAL: Always release the mutex lock, even if cancelled or error occurred
                     _languageSwitchLock.Release();
-                    DebugLogger.LogDebug($"Language switch lock released for {lang}");
+                    AppLogger.LogDebug($"Language switch lock released for {lang}");
                 }
             }
         }
@@ -451,12 +451,12 @@ namespace AnSAM
                 //         var duplicates = _imageService.CleanupDuplicatedEnglishImages(dryRun: false);
                 //         if (duplicates > 0)
                 //         {
-                //             DebugLogger.LogDebug($"Startup cleanup: removed {duplicates} duplicated images");
+                //             AppLogger.LogDebug($"Startup cleanup: removed {duplicates} duplicated images");
                 //         }
                 //     }
                 //     catch (Exception ex)
                 //     {
-                //         DebugLogger.LogDebug($"Cleanup error: {ex.Message}");
+                //         AppLogger.LogDebug($"Cleanup error: {ex.Message}");
                 //     }
                 // });
 
@@ -527,7 +527,7 @@ namespace AnSAM
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"CDN stats update error: {ex.Message}");
+                AppLogger.LogDebug($"CDN stats update error: {ex.Message}");
             }
         }
 
@@ -586,26 +586,26 @@ namespace AnSAM
         /// </summary>
         private void GameCard_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
         {
-            DebugLogger.LogDebug($"GameCard_DoubleTapped: Event triggered");
-            DebugLogger.LogDebug($"GameCard_DoubleTapped: sender type = {sender?.GetType().Name ?? "null"}");
+            AppLogger.LogDebug($"GameCard_DoubleTapped: Event triggered");
+            AppLogger.LogDebug($"GameCard_DoubleTapped: sender type = {sender?.GetType().Name ?? "null"}");
 
             if (sender is FrameworkElement element)
             {
-                DebugLogger.LogDebug($"GameCard_DoubleTapped: sender is FrameworkElement");
-                DebugLogger.LogDebug($"GameCard_DoubleTapped: DataContext type = {element.DataContext?.GetType().Name ?? "null"}");
+                AppLogger.LogDebug($"GameCard_DoubleTapped: sender is FrameworkElement");
+                AppLogger.LogDebug($"GameCard_DoubleTapped: DataContext type = {element.DataContext?.GetType().Name ?? "null"}");
 
                 // Try direct DataContext cast
                 if (element.DataContext is GameItem game)
                 {
-                    DebugLogger.LogDebug($"GameCard_DoubleTapped: Game item found via DataContext - {game.ID} ({game.Title})");
+                    AppLogger.LogDebug($"GameCard_DoubleTapped: Game item found via DataContext - {game.ID} ({game.Title})");
                     if (game.IsManagerAvailable)
                     {
-                        DebugLogger.LogDebug($"GameCard_DoubleTapped: Manager available, launching");
+                        AppLogger.LogDebug($"GameCard_DoubleTapped: Manager available, launching");
                         StartAchievementManager(game);
                     }
                     else
                     {
-                        DebugLogger.LogDebug($"GameCard_DoubleTapped: Manager NOT available");
+                        AppLogger.LogDebug($"GameCard_DoubleTapped: Manager NOT available");
                         StatusText.Text = "Achievement manager not found";
                     }
                     return;
@@ -615,12 +615,12 @@ namespace AnSAM
                 var gridViewItem = FindParent<GridViewItem>(element);
                 if (gridViewItem != null)
                 {
-                    DebugLogger.LogDebug($"GameCard_DoubleTapped: Found GridViewItem parent");
+                    AppLogger.LogDebug($"GameCard_DoubleTapped: Found GridViewItem parent");
 
                     // Try Content first
                     if (gridViewItem.Content is GameItem gameFromContent)
                     {
-                        DebugLogger.LogDebug($"GameCard_DoubleTapped: Game item found via GridViewItem.Content - {gameFromContent.ID} ({gameFromContent.Title})");
+                        AppLogger.LogDebug($"GameCard_DoubleTapped: Game item found via GridViewItem.Content - {gameFromContent.ID} ({gameFromContent.Title})");
                         if (gameFromContent.IsManagerAvailable)
                         {
                             StartAchievementManager(gameFromContent);
@@ -634,11 +634,11 @@ namespace AnSAM
 
                     // Try ItemFromContainer (WinUI 3 compiled binding approach)
                     var dataItem = GamesView.ItemFromContainer(gridViewItem);
-                    DebugLogger.LogDebug($"GameCard_DoubleTapped: ItemFromContainer returned: {dataItem?.GetType().Name ?? "null"}");
+                    AppLogger.LogDebug($"GameCard_DoubleTapped: ItemFromContainer returned: {dataItem?.GetType().Name ?? "null"}");
 
                     if (dataItem is GameItem gameFromContainer)
                     {
-                        DebugLogger.LogDebug($"GameCard_DoubleTapped: Game item found via ItemFromContainer - {gameFromContainer.ID} ({gameFromContainer.Title})");
+                        AppLogger.LogDebug($"GameCard_DoubleTapped: Game item found via ItemFromContainer - {gameFromContainer.ID} ({gameFromContainer.Title})");
                         if (gameFromContainer.IsManagerAvailable)
                         {
                             StartAchievementManager(gameFromContainer);
@@ -651,17 +651,17 @@ namespace AnSAM
                     }
                     else
                     {
-                        DebugLogger.LogDebug($"GameCard_DoubleTapped: GridViewItem.Content is null and ItemFromContainer failed");
+                        AppLogger.LogDebug($"GameCard_DoubleTapped: GridViewItem.Content is null and ItemFromContainer failed");
                     }
                 }
                 else
                 {
-                    DebugLogger.LogDebug($"GameCard_DoubleTapped: Could not find GridViewItem parent");
+                    AppLogger.LogDebug($"GameCard_DoubleTapped: Could not find GridViewItem parent");
                 }
             }
             else
             {
-                DebugLogger.LogDebug($"GameCard_DoubleTapped: sender is not FrameworkElement");
+                AppLogger.LogDebug($"GameCard_DoubleTapped: sender is not FrameworkElement");
             }
         }
 
@@ -683,17 +683,17 @@ namespace AnSAM
         /// </summary>
         private void OnLaunchManagerClicked(object sender, RoutedEventArgs e)
         {
-            DebugLogger.LogDebug($"OnLaunchManagerClicked: Event triggered");
+            AppLogger.LogDebug($"OnLaunchManagerClicked: Event triggered");
 
             if (sender is MenuFlyoutItem menuItem)
             {
-                DebugLogger.LogDebug($"OnLaunchManagerClicked: sender is MenuFlyoutItem");
-                DebugLogger.LogDebug($"OnLaunchManagerClicked: CommandParameter type = {menuItem.CommandParameter?.GetType().Name ?? "null"}");
+                AppLogger.LogDebug($"OnLaunchManagerClicked: sender is MenuFlyoutItem");
+                AppLogger.LogDebug($"OnLaunchManagerClicked: CommandParameter type = {menuItem.CommandParameter?.GetType().Name ?? "null"}");
 
                 // Try CommandParameter (set via x:Bind in XAML)
                 if (menuItem.CommandParameter is GameItem game)
                 {
-                    DebugLogger.LogDebug($"OnLaunchManagerClicked: Game item found via CommandParameter - {game.ID} ({game.Title})");
+                    AppLogger.LogDebug($"OnLaunchManagerClicked: Game item found via CommandParameter - {game.ID} ({game.Title})");
                     if (game.IsManagerAvailable)
                     {
                         StartAchievementManager(game);
@@ -707,10 +707,10 @@ namespace AnSAM
             }
             else
             {
-                DebugLogger.LogDebug($"OnLaunchManagerClicked: sender is not MenuFlyoutItem: {sender?.GetType().Name ?? "null"}");
+                AppLogger.LogDebug($"OnLaunchManagerClicked: sender is not MenuFlyoutItem: {sender?.GetType().Name ?? "null"}");
             }
 
-            DebugLogger.LogDebug($"OnLaunchManagerClicked: Could not get GameItem");
+            AppLogger.LogDebug($"OnLaunchManagerClicked: Could not get GameItem");
         }
 
         /// <summary>
@@ -718,27 +718,27 @@ namespace AnSAM
         /// </summary>
         private void OnLaunchGameClicked(object sender, RoutedEventArgs e)
         {
-            DebugLogger.LogDebug($"OnLaunchGameClicked: Event triggered");
+            AppLogger.LogDebug($"OnLaunchGameClicked: Event triggered");
 
             if (sender is MenuFlyoutItem menuItem)
             {
-                DebugLogger.LogDebug($"OnLaunchGameClicked: sender is MenuFlyoutItem");
-                DebugLogger.LogDebug($"OnLaunchGameClicked: CommandParameter type = {menuItem.CommandParameter?.GetType().Name ?? "null"}");
+                AppLogger.LogDebug($"OnLaunchGameClicked: sender is MenuFlyoutItem");
+                AppLogger.LogDebug($"OnLaunchGameClicked: CommandParameter type = {menuItem.CommandParameter?.GetType().Name ?? "null"}");
 
                 // Try CommandParameter (set via x:Bind in XAML)
                 if (menuItem.CommandParameter is GameItem game)
                 {
-                    DebugLogger.LogDebug($"OnLaunchGameClicked: Game item found via CommandParameter - {game.ID} ({game.Title})");
+                    AppLogger.LogDebug($"OnLaunchGameClicked: Game item found via CommandParameter - {game.ID} ({game.Title})");
                     StartGame(game);
                     return;
                 }
             }
             else
             {
-                DebugLogger.LogDebug($"OnLaunchGameClicked: sender is not MenuFlyoutItem: {sender?.GetType().Name ?? "null"}");
+                AppLogger.LogDebug($"OnLaunchGameClicked: sender is not MenuFlyoutItem: {sender?.GetType().Name ?? "null"}");
             }
 
-            DebugLogger.LogDebug($"OnLaunchGameClicked: Could not get GameItem");
+            AppLogger.LogDebug($"OnLaunchGameClicked: Could not get GameItem");
         }
 
         /// <summary>
@@ -861,8 +861,8 @@ namespace AnSAM
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Error in RefreshAsync: {ex.GetType().Name}: {ex.Message}");
-                DebugLogger.LogDebug($"Stack trace: {ex.StackTrace}");
+                AppLogger.LogDebug($"Error in RefreshAsync: {ex.GetType().Name}: {ex.Message}");
+                AppLogger.LogDebug($"Stack trace: {ex.StackTrace}");
 
                 _ = DispatcherQueue.TryEnqueue(() =>
                 {
@@ -1045,7 +1045,7 @@ namespace AnSAM
                 }
             }
 #if DEBUG
-            DebugLogger.LogDebug($"FilterGames('{kw}') -> {Games.Count} items");
+            AppLogger.LogDebug($"FilterGames('{kw}') -> {Games.Count} items");
 #endif
         }
 
@@ -1178,7 +1178,7 @@ namespace AnSAM
             bool isEnglish = string.Equals(currentLanguage, "english", StringComparison.OrdinalIgnoreCase);
 
 #if DEBUG
-            DebugLogger.LogDebug($"StartSequentialImageLoading: THREE-PHASE loading for {_allGames.Count} games in {currentLanguage}");
+            AppLogger.LogDebug($"StartSequentialImageLoading: THREE-PHASE loading for {_allGames.Count} games in {currentLanguage}");
 #endif
 
             // Set status text for Phase 1
@@ -1197,7 +1197,7 @@ namespace AnSAM
                     if (ct.IsCancellationRequested || _currentLanguage != currentLanguage)
                         break;
 
-                    // Update progress: Phase 1 占 33% (0-33)
+                    // Update progress: Phase 1 ??33% (0-33)
                     double phase1Progress = (i * 33.0) / Math.Max(1, totalGames);
                     UpdateProgress(progressContext, phase1Progress, $"{i}/{totalGames}");
 
@@ -1253,7 +1253,7 @@ namespace AnSAM
                 catch (Exception ex)
                 {
 #if DEBUG
-                    DebugLogger.LogDebug($"Phase 1 error at {i}: {ex.Message}");
+                    AppLogger.LogDebug($"Phase 1 error at {i}: {ex.Message}");
 #endif
                 }
             }
@@ -1262,7 +1262,7 @@ namespace AnSAM
             UpdateProgress(progressContext, 33.0, $"{totalGames}/{totalGames}");
 
 #if DEBUG
-            DebugLogger.LogDebug($"Phase 1 complete. Need English: {gamesNeedingEnglish.Count}, Need target: {gamesNeedingTarget.Count}");
+            AppLogger.LogDebug($"Phase 1 complete. Need English: {gamesNeedingEnglish.Count}, Need target: {gamesNeedingTarget.Count}");
 #endif
 
             // Set status text for Phase 2
@@ -1278,12 +1278,12 @@ namespace AnSAM
                     if (ct.IsCancellationRequested || _currentLanguage != currentLanguage)
                     {
 #if DEBUG
-                        DebugLogger.LogDebug($"Phase 2 cancelled at {i}/{gamesNeedingEnglish.Count}");
+                        AppLogger.LogDebug($"Phase 2 cancelled at {i}/{gamesNeedingEnglish.Count}");
 #endif
                         break;
                     }
 
-                    // Update progress: Phase 2 占 33% (33-66)
+                    // Update progress: Phase 2 ??33% (33-66)
                     double phase2Progress = 33.0 + (i * 33.0) / Math.Max(1, gamesNeedingEnglish.Count);
                     UpdateProgress(progressContext, phase2Progress, $"{i}/{gamesNeedingEnglish.Count}");
 
@@ -1328,7 +1328,7 @@ namespace AnSAM
                 catch (Exception ex)
                 {
 #if DEBUG
-                    DebugLogger.LogDebug($"Phase 2 error at {i}: {ex.Message}");
+                    AppLogger.LogDebug($"Phase 2 error at {i}: {ex.Message}");
 #endif
                 }
             }
@@ -1337,7 +1337,7 @@ namespace AnSAM
             UpdateProgress(progressContext, 66.0, $"{gamesNeedingEnglish.Count}/{gamesNeedingEnglish.Count}");
 
 #if DEBUG
-            DebugLogger.LogDebug($"Phase 2 complete. Now downloading target language for {gamesNeedingTarget.Count} games.");
+            AppLogger.LogDebug($"Phase 2 complete. Now downloading target language for {gamesNeedingTarget.Count} games.");
 #endif
 
             // Set status text for Phase 3
@@ -1358,12 +1358,12 @@ namespace AnSAM
                         if (ct.IsCancellationRequested || _currentLanguage != currentLanguage)
                         {
 #if DEBUG
-                            DebugLogger.LogDebug($"Phase 3 cancelled at {i}/{gamesNeedingTarget.Count}");
+                            AppLogger.LogDebug($"Phase 3 cancelled at {i}/{gamesNeedingTarget.Count}");
 #endif
                             break;
                         }
 
-                        // Update progress: Phase 3 占 34% (66-100)
+                        // Update progress: Phase 3 ??34% (66-100)
                         double phase3Progress = 66.0 + (i * 34.0) / Math.Max(1, gamesNeedingTarget.Count);
                         UpdateProgress(progressContext, phase3Progress, $"{i}/{gamesNeedingTarget.Count}");
 
@@ -1403,7 +1403,7 @@ namespace AnSAM
                     catch (Exception ex)
                     {
 #if DEBUG
-                        DebugLogger.LogDebug($"Phase 3 error at {i}: {ex.Message}");
+                        AppLogger.LogDebug($"Phase 3 error at {i}: {ex.Message}");
 #endif
                     }
                 }
@@ -1414,7 +1414,7 @@ namespace AnSAM
             DispatcherQueue.TryEnqueue(() => StatusText.Text = "Ready");
 
 #if DEBUG
-            DebugLogger.LogDebug("Sequential image loading completed");
+            AppLogger.LogDebug("Sequential image loading completed");
 #endif
         }
 
@@ -1511,7 +1511,7 @@ namespace AnSAM
 
                 if (!File.Exists(steamGamesXmlPath))
                 {
-                    DebugLogger.LogDebug("steam_games.xml not found, using English titles only");
+                    AppLogger.LogDebug("steam_games.xml not found, using English titles only");
                     return;
                 }
 
@@ -1552,15 +1552,15 @@ namespace AnSAM
                     if (localizedData.TryGetValue(game.ID, out var titles))
                     {
                         game.LocalizedTitles = titles;
-                        DebugLogger.LogDebug($"Loaded {titles.Count} localized titles for game {game.ID} ({game.EnglishTitle})");
+                        AppLogger.LogDebug($"Loaded {titles.Count} localized titles for game {game.ID} ({game.EnglishTitle})");
                     }
                 }
                 
-                DebugLogger.LogDebug($"Loaded localized titles from {steamGamesXmlPath} for {localizedData.Count} games");
+                AppLogger.LogDebug($"Loaded localized titles from {steamGamesXmlPath} for {localizedData.Count} games");
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Error loading localized titles: {ex.Message}");
+                AppLogger.LogDebug($"Error loading localized titles: {ex.Message}");
             }
         }
 
@@ -1597,7 +1597,7 @@ namespace AnSAM
             }
 
             _currentLanguage = language;
-            DebugLogger.LogDebug($"Updated and re-sorted all game titles to language: {language}");
+            AppLogger.LogDebug($"Updated and re-sorted all game titles to language: {language}");
         }
 
         /// <summary>
@@ -1606,16 +1606,16 @@ namespace AnSAM
         /// </summary>
         private async Task RefreshGameImages(string language)
         {
-            DebugLogger.LogDebug($"Refreshing game images for {language}");
+            AppLogger.LogDebug($"Refreshing game images for {language}");
 
             // Give UI time to stabilize after title updates before determining visible games
             // Title changes trigger PropertyChanged which causes WinUI to re-render items
             // We need to wait for the UI virtualization to settle before calculating visible range
             await Task.Delay(200);
-            DebugLogger.LogDebug($"UI stabilization delay completed, calculating visible games");
+            AppLogger.LogDebug($"UI stabilization delay completed, calculating visible games");
 
             var (visibleGames, hiddenGames) = GetVisibleAndHiddenGames();
-            DebugLogger.LogDebug($"Found {visibleGames.Count} visible games, {hiddenGames.Count} hidden games");
+            AppLogger.LogDebug($"Found {visibleGames.Count} visible games, {hiddenGames.Count} hidden games");
 
             // Reset visible game covers to prevent showing images from wrong language
             foreach (var game in visibleGames)
@@ -1672,7 +1672,7 @@ namespace AnSAM
                 {
                     backgroundLoadTasks.Add(game.LoadCoverAsync(_imageService));
                 }
-                DebugLogger.LogDebug($"Started loading {cachedInEnglishOnly.Count} items with English fallback (non-blocking)");
+                AppLogger.LogDebug($"Started loading {cachedInEnglishOnly.Count} items with English fallback (non-blocking)");
             }
 
             // Start loading non-cached images without blocking
@@ -1682,7 +1682,7 @@ namespace AnSAM
                 {
                     backgroundLoadTasks.Add(game.LoadCoverAsync(_imageService));
                 }
-                DebugLogger.LogDebug($"Started loading {notCached.Count} non-cached items (non-blocking)");
+                AppLogger.LogDebug($"Started loading {notCached.Count} non-cached items (non-blocking)");
             }
 
             // Let background loads continue without blocking UI
@@ -1691,14 +1691,14 @@ namespace AnSAM
             {
                 if (t.IsFaulted)
                 {
-                    DebugLogger.LogDebug($"Some background image loads failed: {t.Exception?.GetBaseException().Message}");
+                    AppLogger.LogDebug($"Some background image loads failed: {t.Exception?.GetBaseException().Message}");
                 }
             });
 
             // Don't preload hidden images - let lazy loading (ContainerContentChanging) handle them
             // This prevents race conditions where _coverLoading is set by background task
             // but the actual load fails or is delayed, leaving images as "not found"
-            DebugLogger.LogDebug($"Language switch completed: {cachedInTargetLanguage.Count} cached in {language}, " +
+            AppLogger.LogDebug($"Language switch completed: {cachedInTargetLanguage.Count} cached in {language}, " +
                                 $"{cachedInEnglishOnly.Count} English fallback, {notCached.Count} not cached (downloading in background), " +
                                 $"{hiddenGames.Count} hidden images will load on scroll");
         }
@@ -1774,8 +1774,8 @@ namespace AnSAM
                     }
                     catch (Exception ex)
                     {
-                        DebugLogger.LogDebug($"Error in PropertyChanged for Title (ID: {ID}): {ex.GetType().Name}: {ex.Message}");
-                        DebugLogger.LogDebug($"Stack trace: {ex.StackTrace}");
+                        AppLogger.LogDebug($"Error in PropertyChanged for Title (ID: {ID}): {ex.GetType().Name}: {ex.Message}");
+                        AppLogger.LogDebug($"Stack trace: {ex.StackTrace}");
                     }
                 }
             }
@@ -1814,8 +1814,8 @@ namespace AnSAM
                         }
                         catch (Exception ex)
                         {
-                            DebugLogger.LogDebug($"Error in PropertyChanged for IconUri (ID: {ID}): {ex.GetType().Name}: {ex.Message}");
-                            DebugLogger.LogDebug($"Stack trace: {ex.StackTrace}");
+                            AppLogger.LogDebug($"Error in PropertyChanged for IconUri (ID: {ID}): {ex.GetType().Name}: {ex.Message}");
+                            AppLogger.LogDebug($"Stack trace: {ex.StackTrace}");
                         }
                     }
                 }
@@ -1931,7 +1931,7 @@ namespace AnSAM
             if (_coverLoading)
             {
 #if DEBUG
-                DebugLogger.LogDebug($"Skipping LoadCoverAsync for {ID} ({Title}): already loading");
+                AppLogger.LogDebug($"Skipping LoadCoverAsync for {ID} ({Title}): already loading");
 #endif
                 return;
             }
@@ -1942,7 +1942,7 @@ namespace AnSAM
             if (!forceReload && !string.IsNullOrEmpty(IconUri) && IconUri != "ms-appx:///Assets/no_icon.png")
             {
 #if DEBUG
-                DebugLogger.LogDebug($"Skipping LoadCoverAsync for {ID} ({Title}): already has valid image");
+                AppLogger.LogDebug($"Skipping LoadCoverAsync for {ID} ({Title}): already has valid image");
 #endif
                 return;
             }
@@ -1950,7 +1950,7 @@ namespace AnSAM
             _coverLoading = true;
 
 #if DEBUG
-            DebugLogger.LogDebug($"LoadCoverAsync started for {ID} ({Title}), language={currentLanguage}");
+            AppLogger.LogDebug($"LoadCoverAsync started for {ID} ({Title}), language={currentLanguage}");
 #endif
 
             try
@@ -1973,7 +1973,7 @@ namespace AnSAM
                             {
                                 IconUri = englishUri;
 #if DEBUG
-                                DebugLogger.LogDebug($"UI updated: {ID} ({Title}) showing English fallback immediately");
+                                AppLogger.LogDebug($"UI updated: {ID} ({Title}) showing English fallback immediately");
 #endif
                             }
                         });
@@ -1996,13 +1996,13 @@ namespace AnSAM
                         {
                             IconUri = fileUri;
 #if DEBUG
-                            DebugLogger.LogDebug($"UI updated: {ID} ({Title}) IconUri set to {_loadedLanguage}");
+                            AppLogger.LogDebug($"UI updated: {ID} ({Title}) IconUri set to {_loadedLanguage}");
 #endif
                         }
                         else
                         {
 #if DEBUG
-                            DebugLogger.LogDebug($"Skipping IconUri update for {ID} ({Title}) - language mismatch");
+                            AppLogger.LogDebug($"Skipping IconUri update for {ID} ({Title}) - language mismatch");
 #endif
                         }
                     });
@@ -2015,7 +2015,7 @@ namespace AnSAM
                         IconUri = "ms-appx:///Assets/no_icon.png";
                     });
 #if DEBUG
-                    DebugLogger.LogDebug($"Image not found for {ID}, using fallback icon");
+                    AppLogger.LogDebug($"Image not found for {ID}, using fallback icon");
 #endif
                 }
             }
@@ -2024,13 +2024,13 @@ namespace AnSAM
                 // Download was cancelled (e.g., due to rapid scrolling/viewport change)
                 // CRITICAL: Don't reset IconUri - keep existing image (English fallback or previous load)
 #if DEBUG
-                DebugLogger.LogDebug($"LoadCoverAsync cancelled for {ID} ({Title}) - keeping existing IconUri");
+                AppLogger.LogDebug($"LoadCoverAsync cancelled for {ID} ({Title}) - keeping existing IconUri");
 #endif
             }
             catch (Exception ex)
             {
 #if DEBUG
-                DebugLogger.LogDebug($"Error loading image for {ID}: {ex.Message}");
+                AppLogger.LogDebug($"Error loading image for {ID}: {ex.Message}");
 #endif
                 // Fallback to no_icon.png only on real error (not cancellation)
                 _dispatcher.TryEnqueue(() =>
@@ -2047,7 +2047,7 @@ namespace AnSAM
         public static GameItem FromSteamApp(SteamAppData app, DispatcherQueue dispatcher)
         {
 #if DEBUG
-            DebugLogger.LogDebug($"Creating GameItem for {app.AppId} - {app.Title}");
+            AppLogger.LogDebug($"Creating GameItem for {app.AppId} - {app.Title}");
 #endif
             return new GameItem(app.Title,
                                 app.AppId,

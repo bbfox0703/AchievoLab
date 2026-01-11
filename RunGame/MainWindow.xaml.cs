@@ -62,18 +62,18 @@ namespace RunGame
             
             _gameId = gameId;
 
-            // 取得 AppWindow
+            // ?��? AppWindow
             var hwnd = WindowNative.GetWindowHandle(this);
             var winId = Win32Interop.GetWindowIdFromWindow(hwnd);
             _appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(winId);
-            // 設定 Icon：指向打包後的實體檔案路徑
+            // 設�? Icon：�??��??��??�實體�?案路�?
             var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "RunGame.ico");
             if (File.Exists(iconPath))
                 _appWindow.SetIcon(iconPath);
 
             // Set Steam AppID environment variable - some games require this
             Environment.SetEnvironmentVariable("SteamAppId", gameId.ToString());
-            DebugLogger.LogDebug($"Set SteamAppId environment variable to {gameId}");
+            AppLogger.LogDebug($"Set SteamAppId environment variable to {gameId}");
             
             // Try modern Steam client first, fallback to legacy if needed
             _steamClient = CreateSteamClient(gameId);
@@ -109,8 +109,8 @@ namespace RunGame
                 }
                 catch (Exception ex)
                 {
-                    DebugLogger.LogDebug($"Error in search debounce timer: {ex.GetType().Name}: {ex.Message}");
-                    DebugLogger.LogDebug($"Stack trace: {ex.StackTrace}");
+                    AppLogger.LogDebug($"Error in search debounce timer: {ex.GetType().Name}: {ex.Message}");
+                    AppLogger.LogDebug($"Stack trace: {ex.StackTrace}");
                     StatusLabel.Text = $"Search error: {ex.Message}";
                 }
             };
@@ -129,7 +129,7 @@ namespace RunGame
                     try
                     {
                         settings.Values.Remove("AppTheme");
-                        DebugLogger.LogDebug("Cleared old AppTheme setting");
+                        AppLogger.LogDebug("Cleared old AppTheme setting");
                     }
                     catch (InvalidOperationException)
                     {
@@ -151,7 +151,7 @@ namespace RunGame
             
             // Set window title
             string gameName = _steamClient.GetAppData((uint)gameId, "name") ?? gameId.ToString();
-            string debugMode = DebugLogger.IsDebugMode ? " [DEBUG MODE]" : "";
+            string debugMode = AppLogger.IsDebugMode ? " [DEBUG MODE]" : "";
             this.Title = $"AchievoLab:RunGame | {gameName}{debugMode}";
             
             // Initialize language options
@@ -164,8 +164,8 @@ namespace RunGame
             AchievementListView.ItemsSource = _achievements;
             StatisticsListView.ItemsSource = _statistics;
             
-            // 設置 Debug 模式標籤
-            if (DebugLogger.IsDebugMode)
+            // 設置 Debug 模�?標籤
+            if (AppLogger.IsDebugMode)
             {
                 DebugModeLabel.Text = "DEBUG MODE";
                 ClearLogButton.Visibility = Visibility.Visible;
@@ -175,8 +175,8 @@ namespace RunGame
                 ClearLogButton.Visibility = Visibility.Collapsed;
             }
             
-            // 初始化日誌
-            DebugLogger.LogDebug($"RunGame started for game {gameId} in {(DebugLogger.IsDebugMode ? "DEBUG" : "RELEASE")} mode");
+            // ?��??�日�?
+            AppLogger.LogDebug($"RunGame started for game {gameId} in {(AppLogger.IsDebugMode ? "DEBUG" : "RELEASE")} mode");
             
             // Initialize new services
             _achievementTimerService = new AchievementTimerService(_gameStatsService);
@@ -217,15 +217,15 @@ namespace RunGame
                 // Dispose Steam client to release Steam pipe and user handles
                 if (_steamClient is IDisposable disposableSteamClient)
                 {
-                    DebugLogger.LogDebug("Disposing Steam client");
+                    AppLogger.LogDebug("Disposing Steam client");
                     disposableSteamClient.Dispose();
                 }
 
-                DebugLogger.LogDebug("MainWindow closed and resources cleaned up");
+                AppLogger.LogDebug("MainWindow closed and resources cleaned up");
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Error during cleanup: {ex.Message}");
+                AppLogger.LogDebug($"Error during cleanup: {ex.Message}");
             }
         }
 
@@ -243,14 +243,14 @@ namespace RunGame
 
         private void SetTheme(ElementTheme theme)
         {
-            DebugLogger.LogDebug($"SetTheme() called with {theme}");
+            AppLogger.LogDebug($"SetTheme() called with {theme}");
             _themeService.ApplyTheme(theme);
             // Note: No longer saving theme settings - always follow system theme
         }
 
         private static ApplicationDataContainer? TryGetLocalSettings()
         {
-            DebugLogger.LogDebug("TryGetLocalSettings() Start");
+            AppLogger.LogDebug("TryGetLocalSettings() Start");
             return App.LocalSettings;
         }
 
@@ -303,13 +303,13 @@ namespace RunGame
 
             try
             {
-                DebugLogger.LogDebug("LoadStatsAsync: Requesting user stats...");
+                AppLogger.LogDebug("LoadStatsAsync: Requesting user stats...");
                 bool success = await _gameStatsService.RequestUserStatsAsync();
-                DebugLogger.LogDebug($"LoadStatsAsync: RequestUserStatsAsync returned {success}");
+                AppLogger.LogDebug($"LoadStatsAsync: RequestUserStatsAsync returned {success}");
                 if (!success)
                 {
                     StatusLabel.Text = "Failed to request user stats from Steam";
-                    DebugLogger.LogDebug("LoadStatsAsync: Failed to request user stats from Steam");
+                    AppLogger.LogDebug("LoadStatsAsync: Failed to request user stats from Steam");
                     LoadingRing.IsActive = false;
                 }
             }
@@ -326,23 +326,23 @@ namespace RunGame
 
         private void OnUserStatsReceived(object? sender, UserStatsReceivedEventArgs e)
         {
-            DebugLogger.LogDebug($"MainWindow.OnUserStatsReceived - GameId: {e.GameId}, Result: {e.Result}, UserId: {e.UserId}");
+            AppLogger.LogDebug($"MainWindow.OnUserStatsReceived - GameId: {e.GameId}, Result: {e.Result}, UserId: {e.UserId}");
 
             this.DispatcherQueue.TryEnqueue(async () =>
             {
                 try
                 {
-                    DebugLogger.LogDebug($"MainWindow.OnUserStatsReceived dispatched to UI thread");
+                    AppLogger.LogDebug($"MainWindow.OnUserStatsReceived dispatched to UI thread");
 
                     if (e.Result != 1)
                     {
-                        DebugLogger.LogDebug($"UserStatsReceived failed with result: {e.Result}");
+                        AppLogger.LogDebug($"UserStatsReceived failed with result: {e.Result}");
                         StatusLabel.Text = $"Error retrieving stats: {GetErrorDescription(e.Result)}";
                         return;
                     }
 
                     string currentLanguage = LanguageComboBox.SelectedItem as string ?? "english";
-                    DebugLogger.LogDebug($"Loading schema for language: {currentLanguage}");
+                    AppLogger.LogDebug($"Loading schema for language: {currentLanguage}");
 
                     if (!_gameStatsService.LoadUserGameStatsSchema(currentLanguage))
                     {
@@ -350,7 +350,7 @@ namespace RunGame
                         return;
                     }
 
-                    DebugLogger.LogDebug("Loading achievements and statistics...");
+                    AppLogger.LogDebug("Loading achievements and statistics...");
                     LoadingRing.IsActive = true;
 
                     foreach (var achievement in _allAchievements)
@@ -376,7 +376,7 @@ namespace RunGame
                     // Restore timer display after loading achievements
                     UpdateScheduledTimesDisplay();
 
-                    DebugLogger.LogDebug($"UI updated - {_achievements.Count} achievements, {_statistics.Count} statistics");
+                    AppLogger.LogDebug($"UI updated - {_achievements.Count} achievements, {_statistics.Count} statistics");
                     StatusLabel.Text = $"Retrieved {_achievements.Count} achievements and {_statistics.Count} statistics";
 
                     // Start loading achievement icons
@@ -389,8 +389,8 @@ namespace RunGame
                 }
                 catch (Exception ex)
                 {
-                    DebugLogger.LogDebug($"Error in OnUserStatsReceived: {ex.GetType().Name}: {ex.Message}");
-                    DebugLogger.LogDebug($"Stack trace: {ex.StackTrace}");
+                    AppLogger.LogDebug($"Error in OnUserStatsReceived: {ex.GetType().Name}: {ex.Message}");
+                    AppLogger.LogDebug($"Stack trace: {ex.StackTrace}");
                     StatusLabel.Text = $"Error loading stats: {ex.Message}";
                     LoadingRing.IsActive = false;
                 }
@@ -477,8 +477,8 @@ namespace RunGame
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Error in OnRefresh: {ex.GetType().Name}: {ex.Message}");
-                DebugLogger.LogDebug($"Stack trace: {ex.StackTrace}");
+                AppLogger.LogDebug($"Error in OnRefresh: {ex.GetType().Name}: {ex.Message}");
+                AppLogger.LogDebug($"Stack trace: {ex.StackTrace}");
                 StatusLabel.Text = $"Refresh failed: {ex.Message}";
                 LoadingRing.IsActive = false;
             }
@@ -518,8 +518,8 @@ namespace RunGame
             if (achievedCount > 0 && unachievedCount > 0)
             {
                 confirmMessage = $"You are about to toggle {selectedAchievements.Count} achievement(s):\n\n" +
-                               $"• {unachievedCount} locked achievement(s) will be UNLOCKED\n" +
-                               $"• {achievedCount} unlocked achievement(s) will be LOCKED\n\n" +
+                               $"??{unachievedCount} locked achievement(s) will be UNLOCKED\n" +
+                               $"??{achievedCount} unlocked achievement(s) will be LOCKED\n\n" +
                                $"Are you sure you want to continue?";
             }
             else if (achievedCount > 0)
@@ -551,8 +551,8 @@ namespace RunGame
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Error in OnStore: {ex.GetType().Name}: {ex.Message}");
-                DebugLogger.LogDebug($"Stack trace: {ex.StackTrace}");
+                AppLogger.LogDebug($"Error in OnStore: {ex.GetType().Name}: {ex.Message}");
+                AppLogger.LogDebug($"Stack trace: {ex.StackTrace}");
                 StatusLabel.Text = $"Store failed: {ex.Message}";
             }
             finally
@@ -566,8 +566,8 @@ namespace RunGame
         {
             try
             {
-                DebugLogger.LogDebug($"PerformStoreToggle called for {selectedAchievements.Count} achievements");
-                DebugLogger.LogDebug($"Debug mode: {DebugLogger.IsDebugMode}");
+                AppLogger.LogDebug($"PerformStoreToggle called for {selectedAchievements.Count} achievements");
+                AppLogger.LogDebug($"Debug mode: {AppLogger.IsDebugMode}");
 
                 int achievementCount = 0;
                 foreach (var achievement in selectedAchievements)
@@ -575,13 +575,13 @@ namespace RunGame
                     // Safety check: Skip protected achievements (double-check even though UI should filter)
                     if (achievement.IsProtected)
                     {
-                        DebugLogger.LogDebug($"Skipping protected achievement {achievement.Id}");
+                        AppLogger.LogDebug($"Skipping protected achievement {achievement.Id}");
                         continue;
                     }
 
                     // Toggle the achievement state
                     bool newState = !achievement.IsAchieved;
-                    DebugLogger.LogDebug($"Achievement {achievement.Id} toggle: {achievement.IsAchieved} -> {newState}");
+                    AppLogger.LogDebug($"Achievement {achievement.Id} toggle: {achievement.IsAchieved} -> {newState}");
 
                     if (!_gameStatsService.SetAchievement(achievement.Id, newState))
                     {
@@ -611,19 +611,19 @@ namespace RunGame
                 // If statistics store failed, refresh and return
                 if (statCount < 0)
                 {
-                    DebugLogger.LogDebug("Statistics store failed in PerformStoreToggle - refreshing");
+                    AppLogger.LogDebug("Statistics store failed in PerformStoreToggle - refreshing");
                     RefreshAfterFailure(false);
                     return;
                 }
 
                 // Store changes to Steam
                 bool success = _gameStatsService.StoreStats();
-                DebugLogger.LogDebug($"StoreStats result: {success}");
+                AppLogger.LogDebug($"StoreStats result: {success}");
 
                 // If commit failed, refresh to resync
                 if (!success)
                 {
-                    DebugLogger.LogDebug("StoreStats failed in PerformStoreToggle - refreshing");
+                    AppLogger.LogDebug("StoreStats failed in PerformStoreToggle - refreshing");
                     this.DispatcherQueue.TryEnqueue(() =>
                     {
                         StatusLabel.Text = "Failed to commit changes to Steam. Refreshing...";
@@ -635,7 +635,7 @@ namespace RunGame
                 // Update UI on main thread
                 this.DispatcherQueue.TryEnqueue(() =>
                 {
-                    if (DebugLogger.IsDebugMode)
+                    if (AppLogger.IsDebugMode)
                     {
                         StatusLabel.Text = $"[DEBUG MODE] Fake toggled {achievementCount} achievements and {Math.Max(0, statCount)} statistics (not written to Steam). Refreshing to show actual state...";
 
@@ -653,14 +653,14 @@ namespace RunGame
                                     }
                                     catch (Exception ex)
                                     {
-                                        DebugLogger.LogDebug($"Error reloading stats (debug mode): {ex.GetType().Name}: {ex.Message}");
-                                        DebugLogger.LogDebug($"Stack trace: {ex.StackTrace}");
+                                        AppLogger.LogDebug($"Error reloading stats (debug mode): {ex.GetType().Name}: {ex.Message}");
+                                        AppLogger.LogDebug($"Stack trace: {ex.StackTrace}");
                                     }
                                 });
                             }
                             catch (Exception ex)
                             {
-                                DebugLogger.LogDebug($"Error in delayed reload task (debug mode): {ex.GetType().Name}: {ex.Message}");
+                                AppLogger.LogDebug($"Error in delayed reload task (debug mode): {ex.GetType().Name}: {ex.Message}");
                             }
                         });
                     }
@@ -682,14 +682,14 @@ namespace RunGame
                                     }
                                     catch (Exception ex)
                                     {
-                                        DebugLogger.LogDebug($"Error reloading stats: {ex.GetType().Name}: {ex.Message}");
-                                        DebugLogger.LogDebug($"Stack trace: {ex.StackTrace}");
+                                        AppLogger.LogDebug($"Error reloading stats: {ex.GetType().Name}: {ex.Message}");
+                                        AppLogger.LogDebug($"Stack trace: {ex.StackTrace}");
                                     }
                                 });
                             }
                             catch (Exception ex)
                             {
-                                DebugLogger.LogDebug($"Error in delayed reload task: {ex.GetType().Name}: {ex.Message}");
+                                AppLogger.LogDebug($"Error in delayed reload task: {ex.GetType().Name}: {ex.Message}");
                             }
                         });
                     }
@@ -697,7 +697,7 @@ namespace RunGame
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Error in PerformStoreToggle: {ex.Message}");
+                AppLogger.LogDebug($"Error in PerformStoreToggle: {ex.Message}");
                 this.DispatcherQueue.TryEnqueue(() =>
                 {
                     StatusLabel.Text = $"Error: {ex.Message}";
@@ -709,7 +709,7 @@ namespace RunGame
         {
             try
             {
-                DebugLogger.LogDebug($"PerformStore called (silent: {silent})");
+                AppLogger.LogDebug($"PerformStore called (silent: {silent})");
 
                 int achievementCount = StoreAchievements(silent);
                 if (achievementCount < 0)
@@ -733,7 +733,7 @@ namespace RunGame
                     {
                         ShowErrorDialog("Failed to commit changes to Steam. Refreshing to restore correct state...");
                     }
-                    DebugLogger.LogDebug("StoreStats failed - refreshing to resync with Steam");
+                    AppLogger.LogDebug("StoreStats failed - refreshing to resync with Steam");
                     // Refresh to resync UI with actual Steam state
                     RefreshAfterFailure(silent);
                     return;
@@ -744,7 +744,7 @@ namespace RunGame
                     // Ensure UI updates happen on the UI thread
                     this.DispatcherQueue.TryEnqueue(() =>
                     {
-                        if (DebugLogger.IsDebugMode)
+                        if (AppLogger.IsDebugMode)
                         {
                             StatusLabel.Text = $"[DEBUG MODE] Fake stored {achievementCount} achievements and {statCount} statistics (not written to Steam). Refreshing to show actual state...";
                             // Refresh in debug mode to show that changes weren't actually applied
@@ -761,14 +761,14 @@ namespace RunGame
                                         }
                                         catch (Exception ex)
                                         {
-                                            DebugLogger.LogDebug($"Error reloading stats (debug mode, PerformStore): {ex.GetType().Name}: {ex.Message}");
-                                            DebugLogger.LogDebug($"Stack trace: {ex.StackTrace}");
+                                            AppLogger.LogDebug($"Error reloading stats (debug mode, PerformStore): {ex.GetType().Name}: {ex.Message}");
+                                            AppLogger.LogDebug($"Stack trace: {ex.StackTrace}");
                                         }
                                     });
                                 }
                                 catch (Exception ex)
                                 {
-                                    DebugLogger.LogDebug($"Error in delayed reload task (debug mode, PerformStore): {ex.GetType().Name}: {ex.Message}");
+                                    AppLogger.LogDebug($"Error in delayed reload task (debug mode, PerformStore): {ex.GetType().Name}: {ex.Message}");
                                 }
                             });
                         }
@@ -789,14 +789,14 @@ namespace RunGame
                                         }
                                         catch (Exception ex)
                                         {
-                                            DebugLogger.LogDebug($"Error reloading stats (PerformStore): {ex.GetType().Name}: {ex.Message}");
-                                            DebugLogger.LogDebug($"Stack trace: {ex.StackTrace}");
+                                            AppLogger.LogDebug($"Error reloading stats (PerformStore): {ex.GetType().Name}: {ex.Message}");
+                                            AppLogger.LogDebug($"Stack trace: {ex.StackTrace}");
                                         }
                                     });
                                 }
                                 catch (Exception ex)
                                 {
-                                    DebugLogger.LogDebug($"Error in delayed reload task (PerformStore): {ex.GetType().Name}: {ex.Message}");
+                                    AppLogger.LogDebug($"Error in delayed reload task (PerformStore): {ex.GetType().Name}: {ex.Message}");
                                 }
                             });
                         }
@@ -810,7 +810,7 @@ namespace RunGame
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Error in PerformStore: {ex.Message}");
+                AppLogger.LogDebug($"Error in PerformStore: {ex.Message}");
                 if (!silent)
                 {
                     this.DispatcherQueue.TryEnqueue(() =>
@@ -841,7 +841,7 @@ namespace RunGame
                     ShowErrorDialog($"Cannot modify protected achievements:\n\n{protectedIds}\n\n" +
                                   $"These achievements are protected by the game developer.");
                 }
-                DebugLogger.LogDebug($"Blocked attempt to modify {protectedAchievements.Count} protected achievements");
+                AppLogger.LogDebug($"Blocked attempt to modify {protectedAchievements.Count} protected achievements");
                 return -1;
             }
 
@@ -850,7 +850,7 @@ namespace RunGame
 
             foreach (var achievement in sortedAchievements)
             {
-                DebugLogger.LogDebug($"Achievement {achievement.Id} modified: {achievement.OriginalIsAchieved} -> {achievement.IsAchieved}");
+                AppLogger.LogDebug($"Achievement {achievement.Id} modified: {achievement.OriginalIsAchieved} -> {achievement.IsAchieved}");
 
                 if (!_gameStatsService.SetAchievement(achievement.Id, achievement.IsAchieved))
                 {
@@ -913,7 +913,7 @@ namespace RunGame
 
         private void RefreshAfterFailure(bool silent)
         {
-            DebugLogger.LogDebug("RefreshAfterFailure called - reloading stats from Steam");
+            AppLogger.LogDebug("RefreshAfterFailure called - reloading stats from Steam");
 
             // Schedule refresh on UI thread
             _ = Task.Run(async () =>
@@ -939,7 +939,7 @@ namespace RunGame
                         }
                         catch (Exception ex)
                         {
-                            DebugLogger.LogDebug($"Error during refresh after failure: {ex.GetType().Name}: {ex.Message}");
+                            AppLogger.LogDebug($"Error during refresh after failure: {ex.GetType().Name}: {ex.Message}");
                             if (!silent)
                             {
                                 StatusLabel.Text = "Error refreshing data from Steam";
@@ -949,7 +949,7 @@ namespace RunGame
                 }
                 catch (Exception ex)
                 {
-                    DebugLogger.LogDebug($"Error in RefreshAfterFailure task: {ex.GetType().Name}: {ex.Message}");
+                    AppLogger.LogDebug($"Error in RefreshAfterFailure task: {ex.GetType().Name}: {ex.Message}");
                 }
             });
         }
@@ -1049,7 +1049,7 @@ namespace RunGame
 
         private void OnLockAll(object sender, RoutedEventArgs e)
         {
-            DebugLogger.LogDebug("Select all unlocked button clicked");
+            AppLogger.LogDebug("Select all unlocked button clicked");
             
             // Clear current selection
             AchievementListView.SelectedItems.Clear();
@@ -1064,12 +1064,12 @@ namespace RunGame
                 AchievementListView.SelectedItems.Add(achievement);
             }
             
-            DebugLogger.LogDebug($"Selected {unlockedAchievements.Count} unlocked achievements");
+            AppLogger.LogDebug($"Selected {unlockedAchievements.Count} unlocked achievements");
         }
 
         private void OnUnlockAll(object sender, RoutedEventArgs e)
         {
-            DebugLogger.LogDebug("Select all locked button clicked");
+            AppLogger.LogDebug("Select all locked button clicked");
             
             // Clear current selection
             AchievementListView.SelectedItems.Clear();
@@ -1084,12 +1084,12 @@ namespace RunGame
                 AchievementListView.SelectedItems.Add(achievement);
             }
             
-            DebugLogger.LogDebug($"Selected {lockedAchievements.Count} locked achievements");
+            AppLogger.LogDebug($"Selected {lockedAchievements.Count} locked achievements");
         }
 
         private void OnInvertAll(object sender, RoutedEventArgs e)
         {
-            DebugLogger.LogDebug("Select All button clicked");
+            AppLogger.LogDebug("Select All button clicked");
             
             // Clear current selection
             AchievementListView.SelectedItems.Clear();
@@ -1104,7 +1104,7 @@ namespace RunGame
                 AchievementListView.SelectedItems.Add(achievement);
             }
             
-            DebugLogger.LogDebug($"Selected {selectableAchievements.Count} achievements");
+            AppLogger.LogDebug($"Selected {selectableAchievements.Count} achievements");
         }
 
 
@@ -1184,7 +1184,7 @@ namespace RunGame
 
         private void ApplyColumnLayout(string layout)
         {
-            DebugLogger.LogDebug($"Column layout changed to: {layout}");
+            AppLogger.LogDebug($"Column layout changed to: {layout}");
             
             // For WinUI 3 limitations, we'll implement a practical solution
             // Show user feedback and provide information about the column layout feature
@@ -1286,12 +1286,12 @@ namespace RunGame
                 }
                 else
                 {
-                    DebugLogger.LogDebug("Set Timer dialog was cancelled by user");
+                    AppLogger.LogDebug("Set Timer dialog was cancelled by user");
                 }
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Error in OnSetTimer: {ex.Message}");
+                AppLogger.LogDebug($"Error in OnSetTimer: {ex.Message}");
                 ShowErrorDialog($"Error setting timer: {ex.Message}");
             }
         }
@@ -1319,14 +1319,14 @@ namespace RunGame
                 }
 
                 StatusLabel.Text = $"Reset {scheduledAchievements.Count} active timer(s)";
-                DebugLogger.LogDebug($"Reset all timers - {scheduledAchievements.Count} timers cancelled");
+                AppLogger.LogDebug($"Reset all timers - {scheduledAchievements.Count} timers cancelled");
 
                 // Update UI to reflect timer status
                 UpdateScheduledTimesDisplay();
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Error in OnResetAllTimers: {ex.Message}");
+                AppLogger.LogDebug($"Error in OnResetAllTimers: {ex.Message}");
             }
         }
 
@@ -1369,14 +1369,14 @@ namespace RunGame
                 }
 
                 StatusLabel.Text = $"Reset {resetCount} timer(s) for selected achievements";
-                DebugLogger.LogDebug($"Reset selected timers - {resetCount} timers cancelled");
+                AppLogger.LogDebug($"Reset selected timers - {resetCount} timers cancelled");
 
                 // Update UI to reflect timer status
                 UpdateScheduledTimesDisplay();
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Error in OnResetSelectedTimers: {ex.Message}");
+                AppLogger.LogDebug($"Error in OnResetSelectedTimers: {ex.Message}");
             }
         }
 
@@ -1430,7 +1430,7 @@ namespace RunGame
 
             var achievementList = new TextBlock
             {
-                Text = string.Join("\n", achievements.Take(5).Select(a => $"• {a.Id}: {a.Name}")) + 
+                Text = string.Join("\n", achievements.Take(5).Select(a => $"??{a.Id}: {a.Name}")) + 
                        (achievements.Count > 5 ? $"\n... and {achievements.Count - 5} more" : ""),
                 FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
                 FontSize = 12,
@@ -1500,7 +1500,7 @@ namespace RunGame
                 AutoMouseMoveButton.Label = enabled ? "Stop Auto Mouse" : "Auto Mouse";
                 AutoMouseMoveButton.Icon = enabled ? new SymbolIcon(Symbol.Pause) : new SymbolIcon(Symbol.Target);
                 ToolTipService.SetToolTip(AutoMouseMoveButton, enabled ? "Stop Auto Mouse" : "Auto Mouse");
-                DebugLogger.LogDebug($"Auto mouse movement {(enabled ? "enabled" : "disabled")}");
+                AppLogger.LogDebug($"Auto mouse movement {(enabled ? "enabled" : "disabled")}");
             }
         }
 
@@ -1594,12 +1594,12 @@ namespace RunGame
                 this.DispatcherQueue.TryEnqueue(() =>
                 {
                     StatusLabel.Text = $"Error: {message}";
-                    DebugLogger.LogDebug($"Error dialog: {message}");
+                    AppLogger.LogDebug($"Error dialog: {message}");
                 });
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Error showing error dialog: {ex.Message}");
+                AppLogger.LogDebug($"Error showing error dialog: {ex.Message}");
             }
         }
 
@@ -1627,18 +1627,18 @@ namespace RunGame
             {
                 // Check if user owns the game
                 bool ownsGame = _steamClient.IsSubscribedApp((uint)_gameId);
-                DebugLogger.LogDebug($"Game ownership check for {_gameId}: {ownsGame}");
+                AppLogger.LogDebug($"Game ownership check for {_gameId}: {ownsGame}");
                 
                 // Check if we can get game name
                 string? gameName = _steamClient.GetAppData((uint)_gameId, "name");
-                DebugLogger.LogDebug($"Game name: {gameName ?? "Unknown"}");
+                AppLogger.LogDebug($"Game name: {gameName ?? "Unknown"}");
                 
                 // Check if we can get other game data
                 string? gameType = _steamClient.GetAppData((uint)_gameId, "type");
-                DebugLogger.LogDebug($"Game type: {gameType ?? "Unknown"}");
+                AppLogger.LogDebug($"Game type: {gameType ?? "Unknown"}");
                 
                 string? gameState = _steamClient.GetAppData((uint)_gameId, "state");
-                DebugLogger.LogDebug($"Game state: {gameState ?? "Unknown"}");
+                AppLogger.LogDebug($"Game state: {gameState ?? "Unknown"}");
                 
                 if (!ownsGame)
                 {
@@ -1647,14 +1647,14 @@ namespace RunGame
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Error testing game ownership: {ex.Message}");
+                AppLogger.LogDebug($"Error testing game ownership: {ex.Message}");
             }
         }
 
         private void OnClearLog(object sender, RoutedEventArgs e)
         {
-            DebugLogger.ClearLog();
-            DebugLogger.LogDebug("Debug log cleared by user");
+            AppLogger.ClearLog();
+            AppLogger.LogDebug("Debug log cleared by user");
             StatusLabel.Text = "Debug log cleared";
         }
 
@@ -1694,14 +1694,14 @@ namespace RunGame
                                     }
                                     catch (Exception ex)
                                     {
-                                        DebugLogger.LogDebug($"Error creating BitmapImage for {achievement.Id}: {ex.Message}");
+                                        AppLogger.LogDebug($"Error creating BitmapImage for {achievement.Id}: {ex.Message}");
                                     }
                                 });
                             }
                         }
                         catch (Exception ex)
                         {
-                            DebugLogger.LogDebug($"Error loading icon for {achievement.Id}: {ex.Message}");
+                            AppLogger.LogDebug($"Error loading icon for {achievement.Id}: {ex.Message}");
                         }
                     });
 
@@ -1720,11 +1720,11 @@ namespace RunGame
                     await Task.Delay(1);
                 }
 
-                DebugLogger.LogDebug($"Finished loading icons for {total} achievements");
+                AppLogger.LogDebug($"Finished loading icons for {total} achievements");
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Error loading achievement icons: {ex.Message}");
+                AppLogger.LogDebug($"Error loading achievement icons: {ex.Message}");
             }
         }
 
@@ -1754,14 +1754,14 @@ namespace RunGame
                         }
                         catch (Exception ex)
                         {
-                            DebugLogger.LogDebug($"Error creating BitmapImage for {achievement.Id}: {ex.Message}");
+                            AppLogger.LogDebug($"Error creating BitmapImage for {achievement.Id}: {ex.Message}");
                         }
                     });
                 }
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Error updating icon for {achievement.Id}: {ex.Message}");
+                AppLogger.LogDebug($"Error updating icon for {achievement.Id}: {ex.Message}");
             }
         }
 
@@ -1769,12 +1769,12 @@ namespace RunGame
         {
             if (isActive)
             {
-                TimerStatusText.Text = "🟢 Timer On";
+                TimerStatusText.Text = "?�� Timer On";
                 TimerStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Green);
             }
             else
             {
-                TimerStatusText.Text = "⚪ Timer Off";
+                TimerStatusText.Text = "??Timer Off";
                 TimerStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Gray);
             }
         }
@@ -1799,48 +1799,48 @@ namespace RunGame
             // - Works without game installation
             try
             {
-                DebugLogger.LogDebug("Using Legacy SteamGameClient for Steam execution simulation...");
+                AppLogger.LogDebug("Using Legacy SteamGameClient for Steam execution simulation...");
                 var legacyClient = new SteamGameClient(gameId);
                 
                 if (legacyClient.Initialized)
                 {
-                    DebugLogger.LogDebug("Legacy SteamGameClient initialized successfully - can simulate game execution");
+                    AppLogger.LogDebug("Legacy SteamGameClient initialized successfully - can simulate game execution");
                     return legacyClient;
                 }
                 else
                 {
-                    DebugLogger.LogDebug("Legacy SteamGameClient failed to initialize");
+                    AppLogger.LogDebug("Legacy SteamGameClient failed to initialize");
                 }
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"Legacy SteamGameClient creation failed: {ex.Message}");
+                AppLogger.LogDebug($"Legacy SteamGameClient creation failed: {ex.Message}");
             }
             
             // Fallback to Modern client (for future use when Steam API supports execution simulation)
             try
             {
-                DebugLogger.LogDebug("Falling back to ModernSteamClient (limited functionality)...");
+                AppLogger.LogDebug("Falling back to ModernSteamClient (limited functionality)...");
                 var modernClient = new ModernSteamClient(gameId);
                 
                 if (modernClient.Initialized)
                 {
-                    DebugLogger.LogDebug("ModernSteamClient initialized successfully (but cannot simulate game execution)");
+                    AppLogger.LogDebug("ModernSteamClient initialized successfully (but cannot simulate game execution)");
                     return modernClient;
                 }
                 else
                 {
-                    DebugLogger.LogDebug("ModernSteamClient failed to initialize, disposing...");
+                    AppLogger.LogDebug("ModernSteamClient failed to initialize, disposing...");
                     modernClient.Dispose();
                 }
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"ModernSteamClient creation failed: {ex.Message}");
+                AppLogger.LogDebug($"ModernSteamClient creation failed: {ex.Message}");
             }
             
             // If both fail, create a non-functional modern client for interface compatibility
-            DebugLogger.LogDebug("Both Steam clients failed, creating non-functional ModernSteamClient for compatibility");
+            AppLogger.LogDebug("Both Steam clients failed, creating non-functional ModernSteamClient for compatibility");
             return new ModernSteamClient(gameId);
         }
     }

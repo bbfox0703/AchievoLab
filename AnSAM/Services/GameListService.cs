@@ -54,7 +54,7 @@ namespace AnSAM.Services
             {
                 ReportStatus("Using cached game list...");
 #if DEBUG
-                DebugLogger.LogDebug($"Using cached game list at {cachePath}");
+                AppLogger.LogDebug($"Using cached game list at {cachePath}");
 #endif
                 ValidateAndParse(cached);
                 ReportProgress(100);
@@ -63,7 +63,7 @@ namespace AnSAM.Services
 
             ReportStatus("Downloading game list...");
 #if DEBUG
-            DebugLogger.LogDebug($"Downloading game list from {GameListUrl} to {cachePath}");
+            AppLogger.LogDebug($"Downloading game list from {GameListUrl} to {cachePath}");
 #endif
 
             byte[] data;
@@ -119,7 +119,7 @@ namespace AnSAM.Services
                     File.Move(tempPath, cachePath);
                 }
 #if DEBUG
-                DebugLogger.LogDebug($"Game list saved to {cachePath}");
+                AppLogger.LogDebug($"Game list saved to {cachePath}");
 #endif
             }
             catch
@@ -173,7 +173,7 @@ namespace AnSAM.Services
                     ReportStatus("Using embedded game list (network unavailable)...");
                     ReportProgress(100);
 #if DEBUG
-                    DebugLogger.LogDebug($"Using embedded fallback game list from {embeddedPath}");
+                    AppLogger.LogDebug($"Using embedded fallback game list from {embeddedPath}");
 #endif
                     return embedded;
                 }
@@ -181,7 +181,7 @@ namespace AnSAM.Services
             catch (Exception embeddedEx)
             {
 #if DEBUG
-                DebugLogger.LogDebug($"Failed to load embedded game list: {embeddedEx.Message}");
+                AppLogger.LogDebug($"Failed to load embedded game list: {embeddedEx.Message}");
 #endif
                 // Fall through to throw below
             }
@@ -262,7 +262,7 @@ namespace AnSAM.Services
                     if (string.IsNullOrEmpty(raw))
                     {
 #if DEBUG
-                        DebugLogger.LogDebug("Skipping empty <game> entry in XML");
+                        AppLogger.LogDebug("Skipping empty <game> entry in XML");
 #endif
                         reader.MoveToContent();
                         continue;
@@ -275,7 +275,7 @@ namespace AnSAM.Services
 #if DEBUG
                     else
                     {
-                        DebugLogger.LogDebug($"Invalid game id '{raw}' in XML");
+                        AppLogger.LogDebug($"Invalid game id '{raw}' in XML");
                     }
 #endif
                     reader.MoveToContent();
@@ -284,11 +284,11 @@ namespace AnSAM.Services
 
             Games = parsed;
 #if DEBUG
-            DebugLogger.LogDebug($"Parsed {Games.Count} games from XML");
+            AppLogger.LogDebug($"Parsed {Games.Count} games from XML");
             if (Games.Count > 0)
             {
                 var sample = string.Join(", ", Games.Take(20).Select(g => g.Id));
-                DebugLogger.LogDebug($"Sample game IDs: {sample}{(Games.Count > 20 ? ", ..." : string.Empty)}");
+                AppLogger.LogDebug($"Sample game IDs: {sample}{(Games.Count > 20 ? ", ..." : string.Empty)}");
             }
 #endif
         }

@@ -37,19 +37,19 @@ namespace CommonUtilities
                 }
                 catch (InvalidOperationException ex)
                 {
-                    DebugLogger.LogDebug($"ApplicationSettingsService: InvalidOperationException accessing LocalSettings: {ex.Message}");
+                    AppLogger.LogDebug($"ApplicationSettingsService: InvalidOperationException accessing LocalSettings: {ex.Message}");
                     _initializationFailed = true;
                     _settings = null;
                 }
                 catch (System.IO.IOException ex)
                 {
-                    DebugLogger.LogDebug($"ApplicationSettingsService: IOException accessing LocalSettings: {ex.Message}");
+                    AppLogger.LogDebug($"ApplicationSettingsService: IOException accessing LocalSettings: {ex.Message}");
                     _initializationFailed = true;
                     _settings = null;
                 }
                 catch (Exception ex)
                 {
-                    DebugLogger.LogDebug($"ApplicationSettingsService: Exception accessing LocalSettings: {ex.Message}");
+                    AppLogger.LogDebug($"ApplicationSettingsService: Exception accessing LocalSettings: {ex.Message}");
                     _initializationFailed = true;
                     _settings = null;
                 }
@@ -92,7 +92,7 @@ namespace CommonUtilities
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"ApplicationSettingsService: Error reading key '{key}': {ex.Message}");
+                AppLogger.LogDebug($"ApplicationSettingsService: Error reading key '{key}': {ex.Message}");
             }
 
             return false;
@@ -122,7 +122,7 @@ namespace CommonUtilities
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"ApplicationSettingsService: Error reading enum key '{key}': {ex.Message}");
+                AppLogger.LogDebug($"ApplicationSettingsService: Error reading enum key '{key}': {ex.Message}");
             }
 
             return false;
@@ -161,7 +161,7 @@ namespace CommonUtilities
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"ApplicationSettingsService: Error reading int key '{key}': {ex.Message}");
+                AppLogger.LogDebug($"ApplicationSettingsService: Error reading int key '{key}': {ex.Message}");
             }
 
             return false;
@@ -200,7 +200,7 @@ namespace CommonUtilities
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"ApplicationSettingsService: Error reading bool key '{key}': {ex.Message}");
+                AppLogger.LogDebug($"ApplicationSettingsService: Error reading bool key '{key}': {ex.Message}");
             }
 
             return false;
@@ -226,7 +226,7 @@ namespace CommonUtilities
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"ApplicationSettingsService: Error writing key '{key}': {ex.Message}");
+                AppLogger.LogDebug($"ApplicationSettingsService: Error writing key '{key}': {ex.Message}");
                 return false;
             }
         }
@@ -263,7 +263,7 @@ namespace CommonUtilities
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"ApplicationSettingsService: Error writing int key '{key}': {ex.Message}");
+                AppLogger.LogDebug($"ApplicationSettingsService: Error writing int key '{key}': {ex.Message}");
                 return false;
             }
         }
@@ -288,7 +288,7 @@ namespace CommonUtilities
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"ApplicationSettingsService: Error writing bool key '{key}': {ex.Message}");
+                AppLogger.LogDebug($"ApplicationSettingsService: Error writing bool key '{key}': {ex.Message}");
                 return false;
             }
         }
@@ -312,7 +312,7 @@ namespace CommonUtilities
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"ApplicationSettingsService: Error removing key '{key}': {ex.Message}");
+                AppLogger.LogDebug($"ApplicationSettingsService: Error removing key '{key}': {ex.Message}");
                 return false;
             }
         }
@@ -335,7 +335,7 @@ namespace CommonUtilities
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"ApplicationSettingsService: Error checking key '{key}': {ex.Message}");
+                AppLogger.LogDebug($"ApplicationSettingsService: Error checking key '{key}': {ex.Message}");
                 return false;
             }
         }

@@ -25,7 +25,7 @@ namespace CommonUtilities
         /// <example>
         /// Returns strings like:
         /// - "CDN: CF:3 Steam:2 (95%)" - Normal operation
-        /// - "CDN: CF:5⚠ Steam:1 (60%)" - Cloudflare blocked/degraded
+        /// - "CDN: CF:5??Steam:1 (60%)" - Cloudflare blocked/degraded
         /// - "CDN OK (100%)" - All good but no active connections
         /// - "" - No stats available
         /// </example>
@@ -46,7 +46,7 @@ namespace CommonUtilities
 
                 if (active > 0 || isBlocked)
                 {
-                    var blockedIndicator = isBlocked ? "⚠" : "";
+                    var blockedIndicator = isBlocked ? "🚫" : "";
                     statParts.Add($"{name}:{active}{blockedIndicator}");
                 }
             }

@@ -1,4 +1,4 @@
-﻿using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Data;
@@ -17,6 +17,8 @@ using Windows.ApplicationModel.Activation;
 using Windows.Foundation;
 using Windows.Foundation.Collections;
 using CommonUtilities;
+using Serilog;
+using Microsoft.Extensions.Configuration;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -37,9 +39,36 @@ namespace MyOwnGames
         public App()
         {
             InitializeComponent();
+            InitializeLogging();
             EnsureConfigurationFile();
             AppDomain.CurrentDomain.ProcessExit += OnProcessExit;
             UnhandledException += OnUnhandledException;
+        }
+
+        /// <summary>
+        /// Initializes Serilog logging from appsettings.json
+        /// </summary>
+        private static void InitializeLogging()
+        {
+            try
+            {
+                var configuration = new ConfigurationBuilder()
+                    .SetBasePath(AppContext.BaseDirectory)
+                    .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
+                    .Build();
+
+                Log.Logger = new LoggerConfiguration()
+                    .ReadFrom.Configuration(configuration)
+                    .CreateLogger();
+
+                AppLogger.Initialize(Log.Logger);
+                AppLogger.LogInfo("MyOwnGames application logging initialized");
+            }
+            catch (Exception ex)
+            {
+                // Fallback to console if logging initialization fails
+                Console.WriteLine($"Failed to initialize logging: {ex.Message}");
+            }
         }
 
         /// <summary>
@@ -55,12 +84,12 @@ namespace MyOwnGames
 
                 if (configManager.EnsureConfigurationExists())
                 {
-                    DebugLogger.LogDebug("MyOwnGames: Configuration file was created or updated");
+                    AppLogger.LogDebug("MyOwnGames: Configuration file was created or updated");
                 }
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"MyOwnGames: Failed to ensure configuration file: {ex.Message}");
+                AppLogger.LogDebug($"MyOwnGames: Failed to ensure configuration file: {ex.Message}");
                 // Don't throw - allow app to continue with defaults
             }
         }
@@ -79,14 +108,14 @@ namespace MyOwnGames
         {
             if (_window is MainWindow mw)
             {
-                DebugLogger.LogDebug("Process exiting");
+                AppLogger.LogDebug("Process exiting");
                 mw.SaveAndDisposeAsync("process exit").GetAwaiter().GetResult();
             }
         }
 
         private async void OnUnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
         {
-            DebugLogger.LogDebug($"Unhandled exception: {e.Exception.Message}");
+            AppLogger.LogDebug($"Unhandled exception: {e.Exception.Message}");
             if (_window is MainWindow mw)
             {
                 await mw.SaveAndDisposeAsync("unhandled exception");

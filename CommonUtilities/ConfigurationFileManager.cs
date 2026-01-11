@@ -38,7 +38,7 @@ namespace CommonUtilities
                 // Check if file exists
                 if (!File.Exists(_configFilePath))
                 {
-                    DebugLogger.LogDebug($"ConfigurationFileManager: Config file not found at '{_configFilePath}', creating with defaults");
+                    AppLogger.LogDebug($"ConfigurationFileManager: Config file not found at '{_configFilePath}', creating with defaults");
                     WriteDefaultConfiguration();
                     return true;
                 }
@@ -46,17 +46,17 @@ namespace CommonUtilities
                 // Validate existing file
                 if (!ValidateConfiguration())
                 {
-                    DebugLogger.LogDebug($"ConfigurationFileManager: Config file at '{_configFilePath}' is incomplete or invalid");
+                    AppLogger.LogDebug($"ConfigurationFileManager: Config file at '{_configFilePath}' is incomplete or invalid");
                     BackupAndRegenerate();
                     return true;
                 }
 
-                DebugLogger.LogDebug($"ConfigurationFileManager: Config file at '{_configFilePath}' is valid");
+                AppLogger.LogDebug($"ConfigurationFileManager: Config file at '{_configFilePath}' is valid");
                 return false;
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"ConfigurationFileManager: Error ensuring configuration: {ex.Message}");
+                AppLogger.LogDebug($"ConfigurationFileManager: Error ensuring configuration: {ex.Message}");
                 return false;
             }
         }
@@ -76,11 +76,11 @@ namespace CommonUtilities
                 }
 
                 File.WriteAllText(_configFilePath, _defaultConfigContent, Encoding.UTF8);
-                DebugLogger.LogDebug($"ConfigurationFileManager: Successfully wrote default configuration to '{_configFilePath}'");
+                AppLogger.LogDebug($"ConfigurationFileManager: Successfully wrote default configuration to '{_configFilePath}'");
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"ConfigurationFileManager: Error writing default configuration: {ex.Message}");
+                AppLogger.LogDebug($"ConfigurationFileManager: Error writing default configuration: {ex.Message}");
                 throw;
             }
         }
@@ -99,7 +99,7 @@ namespace CommonUtilities
                 // Check if file is empty
                 if (string.IsNullOrWhiteSpace(content))
                 {
-                    DebugLogger.LogDebug("ConfigurationFileManager: Config file is empty");
+                    AppLogger.LogDebug("ConfigurationFileManager: Config file is empty");
                     return false;
                 }
 
@@ -118,12 +118,12 @@ namespace CommonUtilities
             }
             catch (JsonException ex)
             {
-                DebugLogger.LogDebug($"ConfigurationFileManager: JSON parse error: {ex.Message}");
+                AppLogger.LogDebug($"ConfigurationFileManager: JSON parse error: {ex.Message}");
                 return false;
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"ConfigurationFileManager: Validation error: {ex.Message}");
+                AppLogger.LogDebug($"ConfigurationFileManager: Validation error: {ex.Message}");
                 return false;
             }
         }
@@ -142,7 +142,7 @@ namespace CommonUtilities
                 if (File.Exists(_configFilePath))
                 {
                     File.Copy(_configFilePath, backupPath, true);
-                    DebugLogger.LogDebug($"ConfigurationFileManager: Backed up existing config to '{backupPath}'");
+                    AppLogger.LogDebug($"ConfigurationFileManager: Backed up existing config to '{backupPath}'");
                 }
 
                 // Write new default configuration
@@ -150,7 +150,7 @@ namespace CommonUtilities
             }
             catch (Exception ex)
             {
-                DebugLogger.LogDebug($"ConfigurationFileManager: Error during backup and regeneration: {ex.Message}");
+                AppLogger.LogDebug($"ConfigurationFileManager: Error during backup and regeneration: {ex.Message}");
                 throw;
             }
         }
