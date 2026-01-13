@@ -10,6 +10,7 @@
   <ItemGroup>
     <Compile Include="../AnSAM/Services/GameCacheService.cs" Link="GameCacheService.cs" />
     <Compile Include="../AnSAM/Services/GameListService.cs" Link="GameListService.cs" />
+    <!-- GameLauncher.cs cannot be linked directly due to GameItem dependency -->
     <!-- SteamLanguageResolver moved to CommonUtilities -->
     <Compile Include="../AnSAM/SteamAppData.cs" Link="SteamAppData.cs" />
     <Compile Include="../AnSAM/Steam/ISteamClient.cs" Link="ISteamClient.cs" />
