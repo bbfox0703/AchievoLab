@@ -8,16 +8,34 @@ using Microsoft.Extensions.Configuration;
 
 namespace RunGame
 {
+    /// <summary>
+    /// Provides application-specific behavior for the RunGame achievement manager.
+    /// Handles command-line parsing for AppID, theme management, and application initialization.
+    /// </summary>
     public partial class App : Application
     {
+        /// <summary>
+        /// Gets the application-specific local settings container.
+        /// May be null if LocalSettings access fails during initialization.
+        /// </summary>
         internal static ApplicationDataContainer? LocalSettings { get; private set; }
 
+        /// <summary>
+        /// Converts a WinUI ElementTheme to a WinUI ApplicationTheme.
+        /// Resolves ElementTheme.Default to the current system theme.
+        /// </summary>
+        /// <param name="theme">The ElementTheme to convert.</param>
+        /// <returns>The corresponding ApplicationTheme (Light or Dark).</returns>
         internal static ApplicationTheme ToApplicationTheme(ElementTheme theme)
         {
             var resolved = theme == ElementTheme.Default ? GetSystemTheme() : theme;
             return resolved == ElementTheme.Dark ? ApplicationTheme.Dark : ApplicationTheme.Light;
         }
 
+        /// <summary>
+        /// Retrieves the current system theme preference from the Windows registry.
+        /// </summary>
+        /// <returns>ElementTheme.Dark if system uses dark theme, otherwise ElementTheme.Light.</returns>
         private static ElementTheme GetSystemTheme()
         {
             try
@@ -36,6 +54,10 @@ namespace RunGame
             return ElementTheme.Light;
         }
 
+        /// <summary>
+        /// Initializes the singleton application object.
+        /// Sets up logging and ensures configuration file exists with defaults.
+        /// </summary>
         public App()
         {
             this.InitializeComponent();
@@ -92,6 +114,12 @@ namespace RunGame
             }
         }
 
+        /// <summary>
+        /// Invoked when the application is launched.
+        /// Validates command-line arguments for AppID parameter and creates the main window.
+        /// Displays an error dialog and exits if launched without proper parameters.
+        /// </summary>
+        /// <param name="args">Details about the launch request and process.</param>
         protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
         {
             try
@@ -147,6 +175,9 @@ namespace RunGame
             m_window.Activate();
         }
 
+        /// <summary>
+        /// The main application window instance.
+        /// </summary>
         private Window? m_window;
     }
 }

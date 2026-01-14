@@ -5,6 +5,11 @@ using CommonUtilities;
 
 namespace RunGame.Services
 {
+    /// <summary>
+    /// Prevents system idle detection by periodically moving the mouse cursor.
+    /// Only activates when the application window is in the foreground and the mouse hasn't moved manually.
+    /// Moves the cursor 5 pixels left and right every 30 seconds to simulate user activity.
+    /// </summary>
     public class MouseMoverService : IDisposable
     {
         [DllImport("user32.dll")]
@@ -33,6 +38,11 @@ namespace RunGame.Services
         private bool _moveRight = true;
         private readonly IntPtr _windowHandle;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="MouseMoverService"/> class.
+        /// The timer is created but not started until IsEnabled is set to true.
+        /// </summary>
+        /// <param name="windowHandle">The handle of the application window to monitor for foreground status.</param>
         public MouseMoverService(IntPtr windowHandle)
         {
             _windowHandle = windowHandle;
@@ -44,6 +54,10 @@ namespace RunGame.Services
             AppLogger.LogDebug("MouseMoverService initialized");
         }
 
+        /// <summary>
+        /// Gets or sets a value indicating whether automatic mouse movement is enabled.
+        /// When enabled, the mouse will move every 30 seconds if the window is in the foreground.
+        /// </summary>
         public bool IsEnabled
         {
             get => _isEnabled;
@@ -74,6 +88,12 @@ namespace RunGame.Services
             }
         }
 
+        /// <summary>
+        /// Timer callback that performs the actual mouse movement.
+        /// Checks if the window is in the foreground and if the cursor hasn't moved manually.
+        /// Moves the cursor 5 pixels in alternating directions (left/right) gradually to avoid detection.
+        /// </summary>
+        /// <param name="state">Timer state (unused).</param>
         private void MoveMouse(object? state)
         {
             try
@@ -122,6 +142,9 @@ namespace RunGame.Services
             }
         }
 
+        /// <summary>
+        /// Releases resources used by the service, disabling mouse movement and disposing the timer.
+        /// </summary>
         public void Dispose()
         {
             if (!_disposed)

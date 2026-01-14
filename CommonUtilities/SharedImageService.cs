@@ -11,6 +11,19 @@ using System.Linq;
 
 namespace CommonUtilities
 {
+    /// <summary>
+    /// High-level image service providing multi-language support, intelligent caching, and CDN failover.
+    /// Coordinates image downloads across Steam CDNs with rate limiting, concurrency control, and English fallback logic.
+    /// </summary>
+    /// <remarks>
+    /// This service implements a three-layer caching strategy:
+    /// <list type="number">
+    /// <item>In-memory cache for immediate access to recently used images</item>
+    /// <item>Disk cache with 30-day TTL and MIME validation</item>
+    /// <item>Language-specific cache folders with English fallback support</item>
+    /// </list>
+    /// Features language switching with non-blocking downloads, preventing UI freezes during rapid language changes.
+    /// </remarks>
     public class SharedImageService : IDisposable
     {
         private readonly HttpClient _httpClient;
@@ -35,8 +48,21 @@ namespace CommonUtilities
         private static readonly JsonSerializerOptions JsonOptions =
             new() { TypeInfoResolver = StoreApiJsonContext.Default };
 
+        /// <summary>
+        /// Raised when an image download completes successfully (either from network or cache).
+        /// </summary>
+        /// <remarks>
+        /// The event is triggered only once per unique appId-path combination to prevent duplicate notifications.
+        /// Event handlers should not throw exceptions as errors are caught and logged.
+        /// </remarks>
         public event Action<int, string?>? ImageDownloadCompleted;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="SharedImageService"/> with HTTP client and optional cache.
+        /// </summary>
+        /// <param name="httpClient">The HTTP client to use for downloading images. Should be a shared singleton for connection pooling.</param>
+        /// <param name="cache">Optional custom cache implementation. If null, creates default cache in %LOCALAPPDATA%/AchievoLab/ImageCache.</param>
+        /// <param name="disposeHttpClient">Whether to dispose the HTTP client when this service is disposed. Set to true if passing a dedicated client.</param>
         public SharedImageService(HttpClient httpClient, GameImageCache? cache = null, bool disposeHttpClient = false)
         {
             _httpClient = httpClient;
@@ -55,6 +81,15 @@ namespace CommonUtilities
             }
         }
 
+        /// <summary>
+        /// Switches the service to a new language, cancelling ongoing downloads and clearing language-specific caches.
+        /// </summary>
+        /// <param name="language">The new language code (e.g., "english", "tchinese", "japanese").</param>
+        /// <remarks>
+        /// This method waits up to 5 seconds for pending downloads to cancel gracefully before clearing caches.
+        /// The old CancellationTokenSource is NOT disposed to prevent ObjectDisposedException in ongoing downloads.
+        /// After switching, cached images from the previous language are invalidated to trigger reloads with correct language.
+        /// </remarks>
         public async Task SetLanguage(string language)
         {
             if (_currentLanguage != language)
@@ -100,13 +135,37 @@ namespace CommonUtilities
             }
         }
 
+        /// <summary>
+        /// Gets the currently active language code.
+        /// </summary>
+        /// <returns>The current language code (e.g., "english", "tchinese", "japanese").</returns>
         public string GetCurrentLanguage() => _currentLanguage;
-        
-        // Resource monitoring methods
+
+        /// <summary>
+        /// Gets the count of pending download requests currently in progress or queued.
+        /// </summary>
+        /// <returns>The number of pending image download requests.</returns>
+        /// <remarks>
+        /// Used for monitoring and preventing queue overflow. Requests are automatically cleaned up when completed.
+        /// </remarks>
         public int GetPendingRequestsCount() => _pendingRequests.Count;
+
+        /// <summary>
+        /// Gets the number of available download slots before hitting the concurrency limit.
+        /// </summary>
+        /// <returns>The number of available download slots (0 to MAX_CONCURRENT_DOWNLOADS).</returns>
+        /// <remarks>
+        /// When this returns 0, new downloads will wait for existing downloads to complete.
+        /// </remarks>
         public int GetAvailableDownloadSlots() => _downloadSemaphore.CurrentCount;
-        
-        // Cleanup method for stale pending requests
+
+        /// <summary>
+        /// Removes completed, cancelled, or faulted requests from the pending requests dictionary.
+        /// </summary>
+        /// <remarks>
+        /// This method is called automatically every 50 requests and during language switches to prevent memory leaks.
+        /// Stale requests are identified by checking their task completion status.
+        /// </remarks>
         public void CleanupStaleRequests()
         {
             var staleKeys = new List<string>();
@@ -130,9 +189,13 @@ namespace CommonUtilities
         }
 
         /// <summary>
-        /// Cancels all pending downloads (for rapid scrolling/viewport changes).
-        /// Unlike SetLanguage(), this does NOT clear caches - only stops in-flight downloads.
+        /// Cancels all pending downloads without clearing caches.
         /// </summary>
+        /// <remarks>
+        /// Designed for rapid scrolling/viewport changes where downloads for off-screen items should be cancelled.
+        /// Unlike <see cref="SetLanguage"/>, this preserves in-memory and disk caches for fast re-display.
+        /// A new CancellationTokenSource is created for subsequent downloads.
+        /// </remarks>
         public void CancelPendingDownloads()
         {
             var pendingCount = _pendingRequests.Count;
@@ -153,11 +216,25 @@ namespace CommonUtilities
             AppLogger.LogDebug($"Pending downloads cancelled. Remaining: {_pendingRequests.Count}");
         }
 
+        /// <summary>
+        /// Checks whether an image for the specified app exists in the cache.
+        /// </summary>
+        /// <param name="appId">The Steam application ID.</param>
+        /// <param name="language">The language code to check.</param>
+        /// <param name="checkEnglishFallback">Whether to check the English cache if language-specific image not found.</param>
+        /// <returns>True if the image exists in cache; otherwise, false.</returns>
         public bool HasImage(int appId, string language, bool checkEnglishFallback = false)
         {
             return _cache.TryGetCachedPath(appId.ToString(), language, checkEnglishFallback) != null;
         }
 
+        /// <summary>
+        /// Checks whether an image for the specified app exists in the cache. Alias for <see cref="HasImage"/>.
+        /// </summary>
+        /// <param name="appId">The Steam application ID.</param>
+        /// <param name="language">The language code to check.</param>
+        /// <param name="checkEnglishFallback">Whether to check the English cache if language-specific image not found.</param>
+        /// <returns>True if the image exists in cache; otherwise, false.</returns>
         public bool IsImageCached(int appId, string language, bool checkEnglishFallback = false) => HasImage(appId, language, checkEnglishFallback);
 
         /// <summary>
@@ -172,6 +249,33 @@ namespace CommonUtilities
             return _cache.TryGetCachedPath(appId.ToString(), language, checkEnglishFallback);
         }
 
+        /// <summary>
+        /// Gets the cached or downloads the game image for the specified app and language.
+        /// </summary>
+        /// <param name="appId">The Steam application ID.</param>
+        /// <param name="language">Optional language code. If null, uses the current language set via <see cref="SetLanguage"/>.</param>
+        /// <returns>The full path to the cached or downloaded image, or path to fallback icon if download fails.</returns>
+        /// <remarks>
+        /// <para>This method implements an intelligent multi-step caching and download strategy:</para>
+        /// <list type="number">
+        /// <item>Checks in-memory cache for instant access</item>
+        /// <item>Checks disk cache with freshness validation</item>
+        /// <item>For non-English languages, checks English cache as potential fallback</item>
+        /// <item>Skips download if recently failed (7-day failure tracking)</item>
+        /// <item>Attempts language-specific download from multiple CDNs</item>
+        /// <item>Falls back to English download if language-specific fails</item>
+        /// <item>Uses expired cache if all downloads fail</item>
+        /// <item>Returns hardcoded fallback icon as last resort</item>
+        /// </list>
+        /// <para>
+        /// Queue overflow protection: If pending requests exceed MAX_PENDING_QUEUE_SIZE, attempts to return
+        /// cached English image or fallback without starting a new download.
+        /// </para>
+        /// <para>
+        /// Duplicate request protection: If a request for the same appId+language is already in progress,
+        /// returns the existing task result instead of starting a duplicate download.
+        /// </para>
+        /// </remarks>
         public async Task<string?> GetGameImageAsync(int appId, string? language = null)
         {
             // Auto-cleanup stale pending requests every 50 calls for faster queue turnover
@@ -238,6 +342,18 @@ namespace CommonUtilities
             }
         }
 
+        /// <summary>
+        /// Internal implementation of image retrieval with full caching and fallback logic.
+        /// </summary>
+        /// <param name="appId">The Steam application ID.</param>
+        /// <param name="language">The requested language code.</param>
+        /// <param name="originalLanguage">The original requested language (preserved for logging).</param>
+        /// <param name="cacheKey">The cache key in format "appId_language".</param>
+        /// <returns>The path to the image file, or null if all retrieval attempts fail.</returns>
+        /// <remarks>
+        /// This method implements the core 8-step retrieval strategy described in <see cref="GetGameImageAsync"/>.
+        /// It respects failure tracking (7-day cooldown) and uses expired cache as fallback when fresh downloads fail.
+        /// </remarks>
         private async Task<string?> GetGameImageInternalAsync(int appId, string language, string originalLanguage, string cacheKey)
         {
             // Check in-memory cache first
@@ -335,6 +451,18 @@ namespace CommonUtilities
             return GetFallbackImagePath();
         }
 
+        /// <summary>
+        /// Attempts to download the language-specific image from multiple CDNs with failover.
+        /// </summary>
+        /// <param name="appId">The Steam application ID.</param>
+        /// <param name="language">The target language code.</param>
+        /// <param name="cacheKey">The cache key for storing the result.</param>
+        /// <returns>The path to the downloaded image, or null if all CDN attempts fail.</returns>
+        /// <remarks>
+        /// This method queries Steam Store API for the official header image URL, then attempts download from
+        /// multiple CDNs (Cloudflare, Steam, Akamai) using round-robin load balancing. Enforces concurrency limits
+        /// via semaphore to prevent resource exhaustion.
+        /// </remarks>
         private async Task<string?> TryDownloadLanguageSpecificImageAsync(int appId, string language, string cacheKey)
         {
 
@@ -460,6 +588,17 @@ namespace CommonUtilities
             }
         }
 
+        /// <summary>
+        /// Attempts to use English image as fallback when language-specific image is unavailable.
+        /// </summary>
+        /// <param name="appId">The Steam application ID.</param>
+        /// <param name="targetLanguage">The originally requested language (for logging purposes).</param>
+        /// <param name="cacheKey">The cache key for storing the result.</param>
+        /// <returns>The path to English image (fresh or expired), or fallback icon if English also unavailable.</returns>
+        /// <remarks>
+        /// Priority order: fresh English cache → download fresh English → expired English cache → fallback icon.
+        /// This ensures users see English images quickly while target language images are downloading in background.
+        /// </remarks>
         private async Task<string?> TryEnglishFallbackAsync(int appId, string targetLanguage, string cacheKey)
         {
             // Check English cache first (prefer fresh, but accept expired as fallback)
@@ -496,6 +635,16 @@ namespace CommonUtilities
             return GetFallbackImagePath();
         }
 
+        /// <summary>
+        /// Attempts to download the English version of a game image from multiple CDNs.
+        /// </summary>
+        /// <param name="appId">The Steam application ID.</param>
+        /// <param name="cacheKey">The cache key for storing the result.</param>
+        /// <returns>The path to the downloaded English image, or null if all attempts fail.</returns>
+        /// <remarks>
+        /// Similar to <see cref="TryDownloadLanguageSpecificImageAsync"/> but specifically for English images.
+        /// Records download failures to prevent retry storms. Uses same CDN failover strategy.
+        /// </remarks>
         private async Task<string?> TryDownloadEnglishImageAsync(int appId, string cacheKey)
         {
             // Wait for available download slot
@@ -606,12 +755,25 @@ namespace CommonUtilities
             }
         }
 
+        /// <summary>
+        /// Gets the path to the hardcoded fallback image shown when no game image is available.
+        /// </summary>
+        /// <returns>The path to Assets/no_icon.png, or null if the file doesn't exist.</returns>
         private string? GetFallbackImagePath()
         {
             var noIconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "no_icon.png");
             return File.Exists(noIconPath) ? noIconPath : null;
         }
 
+        /// <summary>
+        /// Raises the <see cref="ImageDownloadCompleted"/> event with duplicate detection.
+        /// </summary>
+        /// <param name="appId">The Steam application ID.</param>
+        /// <param name="path">The path to the downloaded or cached image.</param>
+        /// <remarks>
+        /// Uses a HashSet to track already-fired events and prevent duplicate notifications for the same appId-path combination.
+        /// Catches and logs exceptions from event handlers to prevent crashes in the image service.
+        /// </remarks>
         private void TriggerImageDownloadCompletedEvent(int appId, string? path)
         {
             var eventKey = $"{appId}_{path ?? "null"}";
@@ -636,6 +798,19 @@ namespace CommonUtilities
                 // Don't rethrow - event handler errors shouldn't crash the image service
             }
         }
+
+        /// <summary>
+        /// Queries the Steam Store API to get the official header image URL for a game.
+        /// </summary>
+        /// <param name="appId">The Steam application ID.</param>
+        /// <param name="language">The language code to request (e.g., "english", "tchinese").</param>
+        /// <param name="cancellationToken">Cancellation token for request cancellation.</param>
+        /// <returns>The header image URL with language parameter, or null if API request fails.</returns>
+        /// <remarks>
+        /// The Store API provides the most accurate image URLs but has rate limits. This method handles common
+        /// exceptions (HTTP errors, JSON parsing errors, timeouts) gracefully and returns null on failure.
+        /// Appends language parameter to URL if not already present.
+        /// </remarks>
         private async Task<string?> GetHeaderImageFromStoreApiAsync(int appId, string language, CancellationToken cancellationToken)
         {
             try
@@ -688,8 +863,23 @@ namespace CommonUtilities
         }
 
         /// <summary>
-        /// Download image with CDN failover strategy
+        /// Downloads an image using CDN failover strategy with intelligent load balancing.
         /// </summary>
+        /// <param name="cacheKey">The cache key for storing the downloaded image.</param>
+        /// <param name="cdnUrls">List of CDN URLs to try, in priority order.</param>
+        /// <param name="language">The language code for the image.</param>
+        /// <param name="failureId">Optional app ID to record download failures for failure tracking.</param>
+        /// <param name="cancellationToken">Cancellation token for request cancellation.</param>
+        /// <returns>The image result containing path and download status, or null if all CDNs fail.</returns>
+        /// <remarks>
+        /// Attempts up to 3 CDN downloads, selecting the best available CDN based on:
+        /// <list type="bullet">
+        /// <item>Active request count (prefer less loaded CDNs)</item>
+        /// <item>Success rate history</item>
+        /// <item>Whether CDN is currently blocked (429/403 responses trigger 5-minute blocks)</item>
+        /// </list>
+        /// Records success/failure metrics for each CDN to optimize future selections.
+        /// </remarks>
         private async Task<GameImageCache.ImageResult?> TryDownloadWithCdnFailover(
             string cacheKey,
             List<string> cdnUrls,
@@ -771,13 +961,26 @@ namespace CommonUtilities
         }
 
         /// <summary>
-        /// Get CDN statistics for monitoring
+        /// Gets statistics for all monitored CDNs.
         /// </summary>
+        /// <returns>Dictionary mapping CDN domain to active request count, blocked status, and success rate.</returns>
+        /// <remarks>
+        /// Useful for monitoring CDN health and debugging download issues. Success rate is calculated as
+        /// successful downloads / total attempts.
+        /// </remarks>
         public Dictionary<string, (int Active, bool IsBlocked, double SuccessRate)> GetCdnStats()
         {
             return _cdnLoadBalancer.GetStats();
         }
 
+        /// <summary>
+        /// Clears cached images from memory and disk.
+        /// </summary>
+        /// <param name="specificLanguage">Optional language code to clear only that language's cache. If null, clears all languages.</param>
+        /// <remarks>
+        /// When clearing a specific language, only removes files from that language's cache folder.
+        /// When clearing all languages (specificLanguage=null), also clears the event deduplication tracking.
+        /// </remarks>
         public void ClearCache(string? specificLanguage = null)
         {
             if (specificLanguage != null)
@@ -807,6 +1010,9 @@ namespace CommonUtilities
             }
         }
 
+        /// <summary>
+        /// Clears all cached images from memory and disk. Alias for <see cref="ClearCache()"/> with null parameter.
+        /// </summary>
         public void ClearGeneralCache() => ClearCache();
 
         /// <summary>
@@ -820,6 +1026,13 @@ namespace CommonUtilities
             return _cache.CleanupDuplicatedEnglishImages(dryRun);
         }
 
+        /// <summary>
+        /// Releases all resources used by the <see cref="SharedImageService"/>.
+        /// </summary>
+        /// <remarks>
+        /// Cancels all pending downloads, disposes the semaphore and cache, and optionally disposes the HTTP client
+        /// if <c>disposeHttpClient</c> was set to true in the constructor. Clears the in-memory image cache.
+        /// </remarks>
         public void Dispose()
         {
             _cts.Cancel();
@@ -833,6 +1046,15 @@ namespace CommonUtilities
             _imageCache.Clear();
         }
 
+        /// <summary>
+        /// Validates that an image file exists, is readable, and passes MIME type validation.
+        /// </summary>
+        /// <param name="path">The file path to validate.</param>
+        /// <returns>True if the image is valid and fresh; otherwise, false.</returns>
+        /// <remarks>
+        /// Images are considered fresh if they pass MIME validation, regardless of age.
+        /// The 30-day TTL check has been removed - successfully cached images never expire.
+        /// </remarks>
         private static bool IsFreshImage(string path)
         {
             try
@@ -856,17 +1078,32 @@ namespace CommonUtilities
         }
     }
 
+    /// <summary>
+    /// Represents the response from Steam Store API's appdetails endpoint.
+    /// </summary>
     internal class StoreApiResponse
     {
+        /// <summary>
+        /// Gets or sets whether the API request was successful.
+        /// </summary>
         [JsonPropertyName("success")]
         public bool Success { get; set; }
 
+        /// <summary>
+        /// Gets or sets the app data returned by the API.
+        /// </summary>
         [JsonPropertyName("data")]
         public StoreApiData? Data { get; set; }
     }
 
+    /// <summary>
+    /// Represents the data portion of a Steam Store API response.
+    /// </summary>
     internal class StoreApiData
     {
+        /// <summary>
+        /// Gets or sets the URL to the game's header image.
+        /// </summary>
         [JsonPropertyName("header_image")]
         public string? HeaderImage { get; set; }
     }

@@ -11,6 +11,19 @@ using CommonUtilities;
 
 namespace RunGame.Services
 {
+    /// <summary>
+    /// Manages game achievements and statistics by parsing UserGameStatsSchema VDF files
+    /// and interfacing with Steam's UserStats API.
+    /// Handles VDF binary parsing, localization, and validation of stat/achievement modifications.
+    /// </summary>
+    /// <remarks>
+    /// Design notes:
+    /// - VDF (Valve Data Format) files are binary KeyValue structures stored in %STEAM%/appcache/stats/
+    /// - Supports multiple languages with fallback to English
+    /// - Protected stats/achievements (permission & 3 != 0) cannot be modified
+    /// - Debug builds log operations without writing to Steam (safety feature)
+    /// - Release builds write directly to Steam via ISteamUserStats interface
+    /// </remarks>
     public class GameStatsService
     {
         private readonly ISteamUserStats _steamClient;
@@ -19,14 +32,27 @@ namespace RunGame.Services
         private readonly List<StatDefinition> _statDefinitions = new();
 
         /// <summary>
+        /// Gets or sets a value indicating whether automatic cascading of stat-based achievements is enabled.
+        /// </summary>
+        /// <remarks>
         /// EXPERIMENTAL: Enable automatic cascading of stat-based achievements.
         /// WARNING: This feature is game-specific and may cause unintended achievement unlocks.
         /// Only enable if you understand the risks.
-        /// </summary>
+        /// Currently hardcoded for Warhammer 40,000: Battlesector (AppID 1295480).
+        /// </remarks>
         public bool EnableAchievementCascading { get; set; } = false;
 
+        /// <summary>
+        /// Occurs when Steam sends a UserStatsReceived callback indicating stats have been loaded.
+        /// </summary>
         public event EventHandler<UserStatsReceivedEventArgs>? UserStatsReceived;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="GameStatsService"/> class.
+        /// Registers a callback to receive UserStatsReceived events from Steam.
+        /// </summary>
+        /// <param name="steamClient">The Steam client interface for accessing UserStats API.</param>
+        /// <param name="gameId">The Steam AppID of the game.</param>
         public GameStatsService(ISteamUserStats steamClient, long gameId)
         {
             _steamClient = steamClient;
@@ -34,6 +60,21 @@ namespace RunGame.Services
             _steamClient.RegisterUserStatsCallback(OnUserStatsReceived);
         }
 
+        /// <summary>
+        /// Loads and parses the UserGameStatsSchema VDF file for the current game.
+        /// Extracts achievement and statistic definitions with localized names/descriptions.
+        /// </summary>
+        /// <param name="currentLanguage">The language code (e.g., "english", "tchinese", "japanese") for localized strings.</param>
+        /// <returns>True if the schema was loaded successfully; false if the file doesn't exist or parsing failed.</returns>
+        /// <remarks>
+        /// VDF file location: %STEAM%/appcache/stats/UserGameStatsSchema_{gameId}.bin
+        /// The file is a binary KeyValue structure with the following hierarchy:
+        /// - Root → GameID → stats → [stat entries]
+        /// - Each stat entry has type_int or type fields indicating Integer, Float, AverageRate, Achievements, or GroupAchievements
+        /// - Achievements are stored under "bits" sections within Achievement-type stats
+        /// - Localized strings are stored with language codes as keys (e.g., "english", "tchinese")
+        /// - Falls back to English if the requested language is not available
+        /// </remarks>
         public bool LoadUserGameStatsSchema(string currentLanguage = "english")
         {
             try
@@ -246,6 +287,11 @@ namespace RunGame.Services
             }
         }
 
+        /// <summary>
+        /// Parses an integer statistic from a VDF KeyValue node.
+        /// </summary>
+        /// <param name="stat">The KeyValue node containing the stat definition.</param>
+        /// <param name="currentLanguage">The language code for localized display names.</param>
         private void ParseIntegerStat(KeyValue stat, string currentLanguage)
         {
             var id = stat["name"].AsString("");
@@ -268,6 +314,11 @@ namespace RunGame.Services
             });
         }
 
+        /// <summary>
+        /// Parses a floating-point statistic from a VDF KeyValue node.
+        /// </summary>
+        /// <param name="stat">The KeyValue node containing the stat definition.</param>
+        /// <param name="currentLanguage">The language code for localized display names.</param>
         private void ParseFloatStat(KeyValue stat, string currentLanguage)
         {
             var id = stat["name"].AsString("");
@@ -286,6 +337,12 @@ namespace RunGame.Services
             });
         }
 
+        /// <summary>
+        /// Parses achievement definitions from a VDF KeyValue node.
+        /// Achievements are stored under "bits" sections with display information (name, description, icons).
+        /// </summary>
+        /// <param name="stat">The KeyValue node containing achievement definitions.</param>
+        /// <param name="currentLanguage">The language code for localized names and descriptions.</param>
         private void ParseAchievements(KeyValue stat, string currentLanguage)
         {
             if (stat.Children == null) return;
@@ -322,6 +379,14 @@ namespace RunGame.Services
             }
         }
 
+        /// <summary>
+        /// Retrieves a localized string from a VDF KeyValue node with language fallback.
+        /// Attempts to get the string in the specified language, falls back to English, then to the raw value.
+        /// </summary>
+        /// <param name="kv">The KeyValue node containing localized strings.</param>
+        /// <param name="language">The preferred language code.</param>
+        /// <param name="defaultValue">The default value to return if no localized string is found.</param>
+        /// <returns>The localized string, or the default value if not found.</returns>
         private static string GetLocalizedString(KeyValue kv, string language, string defaultValue)
         {
             var name = kv[language].AsString("");
@@ -339,6 +404,11 @@ namespace RunGame.Services
             return defaultValue;
         }
 
+        /// <summary>
+        /// Requests user statistics from Steam for the current game.
+        /// This triggers a UserStatsReceived callback when Steam responds.
+        /// </summary>
+        /// <returns>True if the request was initiated successfully; false otherwise.</returns>
         public async Task<bool> RequestUserStatsAsync()
         {
             AppLogger.LogDebug($"GameStatsService.RequestUserStatsAsync called for game {_gameId}");
@@ -346,12 +416,21 @@ namespace RunGame.Services
             AppLogger.LogDebug($"GameStatsService.RequestUserStatsAsync result: {result}");
             return result;
         }
-        
+
+        /// <summary>
+        /// Gets the current Steam UI language code.
+        /// </summary>
+        /// <returns>The language code (e.g., "english", "tchinese", "japanese").</returns>
         public string GetCurrentGameLanguage()
         {
             return _steamClient.GetCurrentGameLanguage();
         }
 
+        /// <summary>
+        /// Retrieves all achievements with their current status (achieved/locked) and unlock times.
+        /// Queries Steam API for each achievement defined in the loaded schema.
+        /// </summary>
+        /// <returns>A list of achievement information objects.</returns>
         public List<AchievementInfo> GetAchievements()
         {
             AppLogger.LogDebug($"GetAchievements called - {_achievementDefinitions.Count} definitions available");
@@ -389,6 +468,11 @@ namespace RunGame.Services
             return achievements;
         }
 
+        /// <summary>
+        /// Retrieves all statistics with their current values from Steam.
+        /// Queries Steam API for each stat defined in the loaded schema.
+        /// </summary>
+        /// <returns>A list of statistic information objects (IntStatInfo or FloatStatInfo).</returns>
         public List<StatInfo> GetStatistics()
         {
             AppLogger.LogDebug($"GetStatistics called - {_statDefinitions.Count} definitions available");
@@ -446,6 +530,18 @@ namespace RunGame.Services
             return statistics;
         }
 
+        /// <summary>
+        /// Sets an achievement to achieved or locked state.
+        /// Protected achievements (permission & 3 != 0) cannot be modified.
+        /// Debug builds log the operation without writing to Steam.
+        /// </summary>
+        /// <param name="id">The unique achievement identifier.</param>
+        /// <param name="achieved">True to unlock the achievement, false to lock it.</param>
+        /// <returns>True if the operation succeeded (or was logged in debug mode); false if the achievement is protected or the API call failed.</returns>
+        /// <remarks>
+        /// If EnableAchievementCascading is true and the achievement is being set to achieved,
+        /// related statistics will be automatically adjusted (game-specific behavior).
+        /// </remarks>
         public bool SetAchievement(string id, bool achieved)
         {
             // Check if achievement is protected
@@ -491,13 +587,19 @@ namespace RunGame.Services
             AppLogger.LogDebug($"SetAchievement result: {success} for {id} = {achieved}");
             return success;
         }
-        
+
         /// <summary>
+        /// Adjusts statistics related to achievements for specific games (experimental cascading feature).
+        /// </summary>
+        /// <param name="achievementId">The achievement ID being unlocked.</param>
+        /// <remarks>
         /// EXPERIMENTAL: Adjusts statistics related to achievements for specific games.
         /// WARNING: This is GAME-SPECIFIC logic hardcoded for Warhammer 40,000: Battlesector.
         /// This should NOT be used for other games as it may cause incorrect stat values.
         /// Only activated when EnableAchievementCascading = true.
-        /// </summary>
+        /// When an achievement is unlocked, this method sets the related statistic to the required value
+        /// and automatically triggers any other achievements that depend on the same stat with lower requirements.
+        /// </remarks>
         private void AdjustRelatedStatistics(string achievementId)
         {
             // GAME-SPECIFIC: Warhammer 40,000: Battlesector (App ID: 1295480)
@@ -548,7 +650,17 @@ namespace RunGame.Services
                 AutoTriggerRelatedAchievements(statId, requiredValue);
             }
         }
-        
+
+        /// <summary>
+        /// Automatically triggers achievements that depend on the same statistic with lower or equal requirements.
+        /// </summary>
+        /// <param name="statId">The statistic ID that was modified.</param>
+        /// <param name="newValue">The new value of the statistic.</param>
+        /// <remarks>
+        /// This method finds all achievements that use the specified statistic and unlocks those
+        /// whose required value is less than or equal to the new stat value.
+        /// Skips achievements that are already unlocked.
+        /// </remarks>
         private void AutoTriggerRelatedAchievements(string statId, int newValue)
         {
             // Find all achievements that use this statistic with lower or equal requirements
@@ -606,6 +718,20 @@ namespace RunGame.Services
             }
         }
 
+        /// <summary>
+        /// Sets a statistic to a new value with validation.
+        /// Validates IncrementOnly, Min/Max bounds, MaxChange constraints, and protection status.
+        /// Debug builds log the operation without writing to Steam.
+        /// </summary>
+        /// <param name="stat">The statistic information object containing the new value.</param>
+        /// <returns>True if the operation succeeded (or was logged in debug mode); false if validation failed or the stat is protected.</returns>
+        /// <remarks>
+        /// Validation rules:
+        /// - Protected stats (permission & 3 != 0) cannot be modified
+        /// - IncrementOnly stats cannot be decreased
+        /// - Values must be within MinValue and MaxValue bounds
+        /// - Change must not exceed MaxChange (if specified)
+        /// </remarks>
         public bool SetStatistic(StatInfo stat)
         {
             // Check if stat is protected
@@ -694,6 +820,15 @@ namespace RunGame.Services
             return false;
         }
 
+        /// <summary>
+        /// Commits all pending achievement and statistic changes to Steam.
+        /// Debug builds log the operation without writing to Steam.
+        /// </summary>
+        /// <returns>True if the changes were stored successfully (or logged in debug mode); false otherwise.</returns>
+        /// <remarks>
+        /// This method must be called after SetAchievement() or SetStatistic() to persist changes.
+        /// Changes are batched locally until StoreStats() is called.
+        /// </remarks>
         public bool StoreStats()
         {
             if (AppLogger.IsDebugMode)
@@ -708,12 +843,26 @@ namespace RunGame.Services
             return success;
         }
 
+        /// <summary>
+        /// Resets all statistics (and optionally achievements) to their default values.
+        /// </summary>
+        /// <param name="achievementsToo">True to also reset achievements; false to only reset statistics.</param>
+        /// <returns>True if the reset succeeded; false otherwise.</returns>
+        /// <remarks>
+        /// WARNING: This operation is irreversible and will reset all progress.
+        /// Use with caution.
+        /// </remarks>
         public bool ResetAllStats(bool achievementsToo)
         {
             AppLogger.LogDebug($"GameStatsService.ResetAllStats called: achievements={achievementsToo}");
             return _steamClient.ResetAllStats(achievementsToo);
         }
 
+        /// <summary>
+        /// Handles the UserStatsReceived callback from Steam.
+        /// Forwards the callback to registered event handlers.
+        /// </summary>
+        /// <param name="userStatsReceived">The callback data from Steam containing game ID, result code, and user ID.</param>
         private void OnUserStatsReceived(SteamGameClient.UserStatsReceived userStatsReceived)
         {
             AppLogger.LogDebug($"GameStatsService.OnUserStatsReceived - GameId: {userStatsReceived.GameId}, Result: {userStatsReceived.Result}, UserId: {userStatsReceived.UserId}");
@@ -727,6 +876,11 @@ namespace RunGame.Services
             });
         }
 
+        /// <summary>
+        /// Retrieves the Steam installation path from the Windows registry.
+        /// Checks both HKLM and HKCU registry hives in 64-bit and 32-bit views.
+        /// </summary>
+        /// <returns>The Steam installation path, or an empty string if not found.</returns>
         private static string GetSteamInstallPath()
         {
             const string subKey = @"Software\Valve\Steam";
@@ -782,20 +936,60 @@ namespace RunGame.Services
         }
     }
 
+    /// <summary>
+    /// Event arguments for the UserStatsReceived event.
+    /// </summary>
     public class UserStatsReceivedEventArgs : EventArgs
     {
+        /// <summary>
+        /// Gets or sets the Steam AppID of the game for which stats were received.
+        /// </summary>
         public ulong GameId { get; set; }
+
+        /// <summary>
+        /// Gets or sets the result code from Steam (0 = success, non-zero = error).
+        /// </summary>
         public int Result { get; set; }
+
+        /// <summary>
+        /// Gets or sets the Steam user ID for which stats were received.
+        /// </summary>
         public ulong UserId { get; set; }
     }
 
+    /// <summary>
+    /// Enumeration of VDF stat types found in UserGameStatsSchema files.
+    /// </summary>
     public enum UserStatType
     {
+        /// <summary>
+        /// Invalid or unknown stat type.
+        /// </summary>
         Invalid = 0,
+
+        /// <summary>
+        /// Integer-based statistic.
+        /// </summary>
         Integer = 1,
+
+        /// <summary>
+        /// Floating-point statistic.
+        /// </summary>
         Float = 2,
+
+        /// <summary>
+        /// Average rate statistic (computed from two values).
+        /// </summary>
         AverageRate = 3,
+
+        /// <summary>
+        /// Achievement container (contains "bits" sections with individual achievements).
+        /// </summary>
         Achievements = 4,
+
+        /// <summary>
+        /// Grouped achievement container.
+        /// </summary>
         GroupAchievements = 5
     }
 }

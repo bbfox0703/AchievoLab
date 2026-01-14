@@ -8,6 +8,11 @@ using CommonUtilities;
 
 namespace RunGame.Services
 {
+    /// <summary>
+    /// Manages scheduled achievement unlocks with automatic batching to minimize Steam API calls.
+    /// Checks every second for achievements that should be unlocked, then batches unlocks to reduce
+    /// the number of StoreStats() calls sent to Steam.
+    /// </summary>
     public class AchievementTimerService : IDisposable
     {
         private readonly GameStatsService _gameStatsService;
@@ -17,8 +22,16 @@ namespace RunGame.Services
         private DateTime? _lastStoreTime = null;
         private bool _disposed = false;
 
+        /// <summary>
+        /// Occurs when the service status changes (e.g., achievement unlocked, stats stored).
+        /// </summary>
         public event Action<string>? StatusUpdated;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="AchievementTimerService"/> class.
+        /// Starts a timer that checks every second for scheduled achievements to unlock.
+        /// </summary>
+        /// <param name="gameStatsService">The game stats service used to unlock achievements and store stats.</param>
         public AchievementTimerService(GameStatsService gameStatsService)
         {
             _gameStatsService = gameStatsService;
@@ -30,6 +43,12 @@ namespace RunGame.Services
             AppLogger.LogDebug("AchievementTimerService initialized");
         }
 
+        /// <summary>
+        /// Schedules an achievement to be unlocked at a specific time.
+        /// If the unlock time is in the past, the schedule is ignored.
+        /// </summary>
+        /// <param name="achievementId">The unique achievement identifier.</param>
+        /// <param name="unlockTime">The date and time when the achievement should be unlocked.</param>
         public void ScheduleAchievement(string achievementId, DateTime unlockTime)
         {
             if (unlockTime <= DateTime.Now)
@@ -42,6 +61,10 @@ namespace RunGame.Services
             AppLogger.LogDebug($"Scheduled achievement {achievementId} to unlock at {unlockTime}");
         }
 
+        /// <summary>
+        /// Cancels a previously scheduled achievement unlock.
+        /// </summary>
+        /// <param name="achievementId">The unique achievement identifier.</param>
         public void CancelSchedule(string achievementId)
         {
             if (_scheduledAchievements.Remove(achievementId))
@@ -50,16 +73,29 @@ namespace RunGame.Services
             }
         }
 
+        /// <summary>
+        /// Gets the scheduled unlock time for a specific achievement.
+        /// </summary>
+        /// <param name="achievementId">The unique achievement identifier.</param>
+        /// <returns>The scheduled unlock time, or null if the achievement is not scheduled.</returns>
         public DateTime? GetScheduledTime(string achievementId)
         {
             return _scheduledAchievements.TryGetValue(achievementId, out var time) ? time : null;
         }
 
+        /// <summary>
+        /// Gets a copy of all currently scheduled achievements and their unlock times.
+        /// </summary>
+        /// <returns>A dictionary mapping achievement IDs to their scheduled unlock times.</returns>
         public Dictionary<string, DateTime> GetAllScheduledAchievements()
         {
             return new Dictionary<string, DateTime>(_scheduledAchievements);
         }
 
+        /// <summary>
+        /// Notifies the service that stats have been reloaded from Steam.
+        /// Updates the status message with information about active timers.
+        /// </summary>
         public void NotifyStatsReloaded()
         {
             // After stats reload, check if we still have pending timers
@@ -75,6 +111,12 @@ namespace RunGame.Services
             }
         }
 
+        /// <summary>
+        /// Timer callback that checks for achievements scheduled to be unlocked.
+        /// Implements intelligent batching: unlocks achievements immediately but delays StoreStats()
+        /// if another achievement is scheduled within 12 seconds to batch multiple unlocks together.
+        /// </summary>
+        /// <param name="state">Timer state (unused).</param>
         private void CheckScheduledAchievements(object? state)
         {
             try
@@ -152,14 +194,21 @@ namespace RunGame.Services
             }
         }
 
+        /// <summary>
+        /// Gets the next scheduled unlock time from all pending achievements.
+        /// </summary>
+        /// <returns>The earliest scheduled unlock time, or null if no achievements are scheduled.</returns>
         private DateTime? GetNextScheduledTime()
         {
             if (_scheduledAchievements.Count == 0)
                 return null;
-            
+
             return _scheduledAchievements.Values.Min();
         }
 
+        /// <summary>
+        /// Releases resources used by the service, stopping the timer.
+        /// </summary>
         public void Dispose()
         {
             if (!_disposed)

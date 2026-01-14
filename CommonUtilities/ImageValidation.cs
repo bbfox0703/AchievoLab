@@ -3,8 +3,21 @@ using System.IO;
 
 namespace CommonUtilities
 {
+    /// <summary>
+    /// Provides utilities for validating image file formats by inspecting file headers (magic numbers).
+    /// Supports PNG, JPEG, GIF, BMP, ICO, AVIF, and WEBP formats.
+    /// </summary>
     public static class ImageValidation
     {
+        /// <summary>
+        /// Validates whether the file at the specified path is a supported image format.
+        /// Performs validation by reading the file header and matching against known magic numbers.
+        /// </summary>
+        /// <param name="path">The full path to the file to validate.</param>
+        /// <returns>
+        /// True if the file exists, is non-empty, and has a recognized image format header;
+        /// otherwise, false.
+        /// </returns>
         public static bool IsValidImage(string path)
         {
             try
