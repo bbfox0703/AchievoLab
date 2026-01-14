@@ -9,9 +9,18 @@ using static RunGame.Steam.SteamGameClient;
 namespace RunGame.Steam
 {
     /// <summary>
-    /// Modern Steamworks SDK wrapper using SDK 162 flat API
-    /// This replaces the old complex vtable parsing with direct P/Invoke calls
+    /// Modern Steamworks SDK wrapper using Steamworks SDK 162+ flat API.
+    /// This replaces the old complex vtable parsing with direct P/Invoke calls.
+    /// Uses steam_api64.dll with modern interface accessors (SteamAPI_SteamUserStats, etc.).
     /// </summary>
+    /// <remarks>
+    /// Design notes:
+    /// - Uses modern SteamAPI_InitFlat() instead of manual pipe/user management
+    /// - Direct P/Invoke to flat API functions (no vtable parsing required)
+    /// - Callbacks handled automatically by Steam client (no manual pump needed)
+    /// - Debug builds log operations without writing to Steam (safety feature)
+    /// - Requires steam_api64.dll from game installations or Steam directory
+    /// </remarks>
     public sealed class ModernSteamClient : IDisposable, ISteamUserStats
     {
         private bool _initialized;
@@ -25,14 +34,28 @@ namespace RunGame.Steam
             NativeLibrary.SetDllImportResolver(typeof(ModernSteamClient).Assembly, ResolveSteamApi);
         }
 
+        /// <summary>
+        /// Gets a value indicating whether the Steam API was successfully initialized.
+        /// </summary>
         public bool Initialized => _initialized;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="ModernSteamClient"/> class.
+        /// Sets the SteamAppId environment variable and initializes the Steam API.
+        /// </summary>
+        /// <param name="gameId">The Steam AppID of the game.</param>
         public ModernSteamClient(long gameId)
         {
             _gameId = gameId;
             Initialize();
         }
 
+        /// <summary>
+        /// Initializes the Steam API using modern flat API functions.
+        /// Sets SteamAppId environment variable, calls SteamAPI_InitFlat, retrieves interface pointers,
+        /// and verifies user is logged in.
+        /// </summary>
+        /// <returns>True if initialization succeeded; false otherwise.</returns>
         private bool Initialize()
         {
             try
@@ -100,7 +123,12 @@ namespace RunGame.Steam
                 return false;
             }
         }
-        
+
+        /// <summary>
+        /// Logs user-friendly error messages based on Steam API initialization result codes.
+        /// </summary>
+        /// <param name="result">The initialization result code from SteamAPI_InitFlat.</param>
+        /// <param name="error">The detailed error message from Steam.</param>
         private void LogInitializationError(ESteamAPIInitResult result, string error)
         {
             switch (result)
@@ -120,6 +148,10 @@ namespace RunGame.Steam
             }
         }
 
+        /// <summary>
+        /// Gets the current Steam UI language code.
+        /// </summary>
+        /// <returns>The language code (e.g., "english", "tchinese", "japanese"), or "english" if unavailable.</returns>
         public string GetCurrentGameLanguage()
         {
             try
@@ -147,6 +179,14 @@ namespace RunGame.Steam
         }
 
         // ISteamUserStats implementation using modern flat API
+
+        /// <summary>
+        /// Gets the achievement status and unlock time for a specific achievement.
+        /// </summary>
+        /// <param name="id">The unique achievement identifier.</param>
+        /// <param name="achieved">Receives true if the achievement is unlocked; false otherwise.</param>
+        /// <param name="unlockTime">Receives the Unix timestamp when the achievement was unlocked (0 if locked).</param>
+        /// <returns>True if the achievement data was retrieved successfully; false otherwise.</returns>
         public bool GetAchievementAndUnlockTime(string id, out bool achieved, out uint unlockTime)
         {
             achieved = false;
@@ -166,6 +206,13 @@ namespace RunGame.Steam
             }
         }
 
+        /// <summary>
+        /// Sets an achievement to achieved or locked state.
+        /// Debug builds log the operation without writing to Steam.
+        /// </summary>
+        /// <param name="id">The unique achievement identifier.</param>
+        /// <param name="achieved">True to unlock the achievement, false to lock it.</param>
+        /// <returns>True if the operation succeeded (or was logged in debug mode); false otherwise.</returns>
         public bool SetAchievement(string id, bool achieved)
         {
             AppLogger.LogAchievementSet(id, achieved, AppLogger.IsDebugMode);
@@ -431,6 +478,9 @@ namespace RunGame.Steam
             AppLogger.LogDebug("RegisterUserStatsCallback called - modern SDK handles callbacks automatically");
         }
 
+        /// <summary>
+        /// Releases resources and shuts down the Steam API.
+        /// </summary>
         public void Dispose()
         {
             if (_initialized)
@@ -451,7 +501,14 @@ namespace RunGame.Steam
             }
         }
 
-        // DLL Import Resolver for Steam API
+        /// <summary>
+        /// DLL import resolver for steam_api64.dll.
+        /// Searches multiple locations: Steam installation directory, game directories, and PATH.
+        /// </summary>
+        /// <param name="libraryName">The library name being resolved.</param>
+        /// <param name="assembly">The assembly requesting the library.</param>
+        /// <param name="searchPath">The DLL import search path.</param>
+        /// <returns>A handle to the loaded library, or IntPtr.Zero if not found.</returns>
         private static IntPtr ResolveSteamApi(string libraryName, System.Reflection.Assembly assembly, DllImportSearchPath? searchPath)
         {
             if (!libraryName.Equals("steam_api64", StringComparison.OrdinalIgnoreCase))
@@ -732,18 +789,51 @@ namespace RunGame.Steam
         private static extern bool SteamAPI_ISteamUserStats_ResetAllStats(IntPtr steamUserStats, bool bAchievementsToo);
 
         // Enums
+
+        /// <summary>
+        /// Steam API initialization result codes.
+        /// </summary>
         public enum ESteamAPIInitResult
         {
+            /// <summary>
+            /// Initialization succeeded.
+            /// </summary>
             k_ESteamAPIInitResult_OK = 0,
+
+            /// <summary>
+            /// Generic failure.
+            /// </summary>
             k_ESteamAPIInitResult_FailedGeneric = 1,
+
+            /// <summary>
+            /// Steam is not running.
+            /// </summary>
             k_ESteamAPIInitResult_NoSteamClient = 2,
+
+            /// <summary>
+            /// Steam client version is out of date.
+            /// </summary>
             k_ESteamAPIInitResult_VersionMismatch = 3,
         }
 
+        /// <summary>
+        /// User license status result codes for checking app ownership.
+        /// </summary>
         public enum EUserHasLicenseForAppResult
         {
+            /// <summary>
+            /// User owns the app.
+            /// </summary>
             k_EUserHasLicenseResultHasLicense = 0,
+
+            /// <summary>
+            /// User does not own the app.
+            /// </summary>
             k_EUserHasLicenseResultDoesNotHaveLicense = 1,
+
+            /// <summary>
+            /// No auth/license information available.
+            /// </summary>
             k_EUserHasLicenseResultNoAuth = 2,
         }
     }

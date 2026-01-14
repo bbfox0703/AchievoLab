@@ -30,6 +30,9 @@ namespace MyOwnGames
     /// </summary>
     public partial class App : Application
     {
+        /// <summary>
+        /// The main application window instance.
+        /// </summary>
         private Window? _window;
 
         /// <summary>
@@ -104,6 +107,11 @@ namespace MyOwnGames
             _window.Activate();
         }
 
+        /// <summary>
+        /// Handles the ProcessExit event by saving application state and disposing resources.
+        /// </summary>
+        /// <param name="sender">The source of the event.</param>
+        /// <param name="e">Event data.</param>
         private void OnProcessExit(object? sender, EventArgs e)
         {
             if (_window is MainWindow mw)
@@ -113,6 +121,11 @@ namespace MyOwnGames
             }
         }
 
+        /// <summary>
+        /// Handles unhandled exceptions by logging and attempting to save application state.
+        /// </summary>
+        /// <param name="sender">The source of the event.</param>
+        /// <param name="e">Event data containing the unhandled exception.</param>
         private async void OnUnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
         {
             AppLogger.LogDebug($"Unhandled exception: {e.Exception.Message}");

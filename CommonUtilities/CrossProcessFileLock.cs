@@ -18,6 +18,11 @@ namespace CommonUtilities
         private bool _disposed;
         private bool _mutexOwned = false;
 
+        /// <summary>
+        /// Initializes a new instance of the CrossProcessFileLock class for the specified file path.
+        /// </summary>
+        /// <param name="filePath">The file path to create a lock for. A .lock file will be created alongside this path.</param>
+        /// <exception cref="ArgumentException">Thrown when filePath is null or empty.</exception>
         public CrossProcessFileLock(string filePath)
         {
             if (string.IsNullOrEmpty(filePath))
@@ -232,6 +237,9 @@ namespace CommonUtilities
             }
         }
 
+        /// <summary>
+        /// Releases all resources used by the CrossProcessFileLock and releases the lock if held.
+        /// </summary>
         public void Dispose()
         {
             if (_disposed)
@@ -244,21 +252,33 @@ namespace CommonUtilities
     }
 
     /// <summary>
-    /// Helper class for using CrossProcessFileLock with using statement
+    /// Helper class for using CrossProcessFileLock with using statement.
+    /// Automatically releases the lock when disposed.
     /// </summary>
     public class CrossProcessFileLockHandle : IDisposable, IAsyncDisposable
     {
         private readonly CrossProcessFileLock _lock;
         private readonly bool _acquired;
 
+        /// <summary>
+        /// Gets a value indicating whether the lock was successfully acquired.
+        /// </summary>
         public bool IsAcquired => _acquired;
 
+        /// <summary>
+        /// Initializes a new instance of the CrossProcessFileLockHandle class.
+        /// </summary>
+        /// <param name="fileLock">The CrossProcessFileLock instance to wrap.</param>
+        /// <param name="acquired">Indicates whether the lock was successfully acquired.</param>
         internal CrossProcessFileLockHandle(CrossProcessFileLock fileLock, bool acquired)
         {
             _lock = fileLock;
             _acquired = acquired;
         }
 
+        /// <summary>
+        /// Releases the lock if it was acquired.
+        /// </summary>
         public void Dispose()
         {
             if (_acquired)
@@ -267,6 +287,10 @@ namespace CommonUtilities
             }
         }
 
+        /// <summary>
+        /// Asynchronously releases the lock if it was acquired.
+        /// </summary>
+        /// <returns>A ValueTask representing the asynchronous operation.</returns>
         public ValueTask DisposeAsync()
         {
             Dispose();

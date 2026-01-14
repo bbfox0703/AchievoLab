@@ -20,16 +20,24 @@ namespace CommonUtilities
         private const int BaseBackoffMinutes = 5;
         private const int MaxBackoffMinutes = 20480; // 失敗 12 次+: 20480 分鐘 (上限)
 
+        /// <summary>
+        /// Initializes a new instance of the ImageFailureTrackingService class with the default cache directory.
+        /// Creates the games_image_failed_log.xml file in %LocalAppData%\AchievoLab\cache.
+        /// </summary>
         public ImageFailureTrackingService()
         {
             var cacheDirectory = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "AchievoLab", "cache");
-            
+
             Directory.CreateDirectory(cacheDirectory);
             _xmlFilePath = Path.Combine(cacheDirectory, "games_image_failed_log.xml");
         }
 
+        /// <summary>
+        /// Initializes a new instance of the ImageFailureTrackingService class with a custom cache directory.
+        /// </summary>
+        /// <param name="customCacheDirectory">The directory path where the failure tracking XML file will be stored.</param>
         public ImageFailureTrackingService(string customCacheDirectory)
         {
             Directory.CreateDirectory(customCacheDirectory);

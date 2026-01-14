@@ -12,6 +12,22 @@ using CommonUtilities;
 
 namespace RunGame.Steam
 {
+    /// <summary>
+    /// Legacy Steamworks client implementation using manual vtable parsing and steamclient64.dll.
+    /// This implementation manually creates pipes, connects to the global user, retrieves interface pointers,
+    /// and pumps callbacks on a timer. Works with older Steam clients and games.
+    /// </summary>
+    /// <remarks>
+    /// Design notes:
+    /// - Uses CreateInterface("SteamClient018") and manual vtable pointer arithmetic
+    /// - Creates pipe via CreateSteamPipe(), connects user via ConnectToGlobalUser()
+    /// - Retrieves interface pointers with GetISteamUserStats(), GetISteamApps(), etc.
+    /// - Pumps callbacks every 100ms using Steam_BGetCallback() timer
+    /// - Requires proper cleanup: ReleaseUser(), ReleaseSteamPipe()
+    /// - Tries multiple interface versions with fallback (ISteamUserStats013/012/011, SteamUser012/020/019/018)
+    /// - Debug builds log operations without writing to Steam (safety feature)
+    /// - Validates Steam is running, user is logged in, and AppID matches
+    /// </remarks>
     public sealed class SteamGameClient : IDisposable, ISteamUserStats
     {
         private readonly Timer? _callbackTimer;
@@ -65,8 +81,15 @@ namespace RunGame.Steam
             NativeLibrary.SetDllImportResolver(typeof(SteamGameClient).Assembly, ResolveSteamClient);
         }
 
+        /// <summary>
+        /// Gets a value indicating whether the Steam client was successfully initialized.
+        /// </summary>
         public bool Initialized { get; }
-        
+
+        /// <summary>
+        /// Gets the current Steam UI language code.
+        /// </summary>
+        /// <returns>The language code (e.g., "english", "tchinese", "japanese"), or "english" if unavailable.</returns>
         public string GetCurrentGameLanguage()
         {
             // Default to English if we can't determine the language
@@ -91,6 +114,12 @@ namespace RunGame.Steam
             return "english";
         }
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="SteamGameClient"/> class.
+        /// Validates Steam is running, creates Steam pipe and user connection, retrieves interface pointers,
+        /// validates user login and AppID match, and starts the callback pump timer.
+        /// </summary>
+        /// <param name="gameId">The Steam AppID of the game.</param>
         public SteamGameClient(long gameId)
         {
             _gameId = gameId;

@@ -15,6 +15,10 @@ namespace CommonUtilities
         private readonly ConcurrentDictionary<string, CdnStats> _stats = new();
         private readonly int _maxConcurrentPerDomain;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="CdnLoadBalancer"/> class.
+        /// </summary>
+        /// <param name="maxConcurrentPerDomain">Maximum number of concurrent requests allowed per CDN domain (default: 2).</param>
         public CdnLoadBalancer(int maxConcurrentPerDomain = 2)
         {
             _maxConcurrentPerDomain = maxConcurrentPerDomain;
@@ -195,7 +199,8 @@ namespace CommonUtilities
         }
 
         /// <summary>
-        /// CDN statistics tracking
+        /// Tracks success and failure statistics for a CDN domain to calculate success rates.
+        /// Thread-safe tracking of request outcomes for CDN selection prioritization.
         /// </summary>
         private class CdnStats
         {
@@ -203,6 +208,9 @@ namespace CommonUtilities
             private int _successCount;
             private readonly object _lock = new();
 
+            /// <summary>
+            /// Records a successful request, incrementing both total requests and successful requests counters.
+            /// </summary>
             public void RecordSuccess()
             {
                 lock (_lock)
@@ -212,6 +220,9 @@ namespace CommonUtilities
                 }
             }
 
+            /// <summary>
+            /// Records a failed request, incrementing only the total requests counter.
+            /// </summary>
             public void RecordFailure()
             {
                 lock (_lock)
@@ -220,6 +231,10 @@ namespace CommonUtilities
                 }
             }
 
+            /// <summary>
+            /// Calculates the success rate as a ratio of successful requests to total requests.
+            /// </summary>
+            /// <returns>Success rate between 0.0 and 1.0, or 1.0 (100%) if no requests have been tracked yet.</returns>
             public double GetSuccessRate()
             {
                 lock (_lock)

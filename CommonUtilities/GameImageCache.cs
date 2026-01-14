@@ -17,6 +17,11 @@ namespace CommonUtilities
     /// </summary>
     public class GameImageCache : IDisposable
     {
+        /// <summary>
+        /// Represents the result of an image retrieval operation.
+        /// </summary>
+        /// <param name="Path">The absolute file path to the image, or empty string if retrieval failed.</param>
+        /// <param name="Downloaded">True if the image was freshly downloaded from a CDN; false if loaded from cache or failed.</param>
         public readonly record struct ImageResult(string Path, bool Downloaded);
 
         private readonly string _baseCacheDir;
@@ -45,6 +50,22 @@ namespace CommonUtilities
             ["image/vnd.microsoft.icon"] = ".ico",
         };
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="GameImageCache"/> with configurable rate limiting,
+        /// concurrency control, and optional failure tracking.
+        /// </summary>
+        /// <param name="baseCacheDir">The base directory where language-specific cache folders will be created (e.g., %LOCALAPPDATA%/AchievoLab/ImageCache).</param>
+        /// <param name="failureTracker">Optional service to track download failures per language to prevent retry storms. Implements 7-day failure tracking.</param>
+        /// <param name="maxConcurrency">Maximum number of concurrent downloads allowed across all domains (default: 4). This is the per-cache semaphore limit.</param>
+        /// <param name="cacheDuration">Time-to-live for successfully cached images. Defaults to TimeSpan.MaxValue (never expire). Images are validated via MIME check on every access.</param>
+        /// <param name="maxConcurrentRequestsPerDomain">Maximum concurrent requests allowed per domain to prevent overwhelming CDN servers (default: 2).</param>
+        /// <param name="tokenBucketCapacity">Maximum token capacity for the rate limiter's token bucket (default: 60). Controls burst allowance.</param>
+        /// <param name="fillRatePerSecond">Rate at which tokens are added to the bucket per second (default: 1). Lower values = stricter rate limiting.</param>
+        /// <param name="initialTokens">Initial tokens in the bucket. Defaults to <paramref name="tokenBucketCapacity"/> (start with full bucket).</param>
+        /// <param name="baseDomainDelay">Base delay between requests to the same domain. If null, only token bucket limits apply.</param>
+        /// <param name="jitterSeconds">Random jitter added to delays to avoid thundering herd (default: 0.1s).</param>
+        /// <param name="httpClient">Optional HttpClient instance. If null, uses <see cref="HttpClientProvider.Shared"/> singleton.</param>
+        /// <param name="disposeHttpClient">If true and <paramref name="httpClient"/> is provided, the HttpClient will be disposed with this cache instance.</param>
         public GameImageCache(string baseCacheDir,
             ImageFailureTrackingService? failureTracker = null,
             int maxConcurrency = 4,
@@ -70,6 +91,12 @@ namespace CommonUtilities
             _disposeHttpClient = disposeHttpClient && httpClient != null;
         }
 
+        /// <summary>
+        /// Gets the language-specific cache directory, creating it if it doesn't exist.
+        /// Cache isolation by language prevents cross-contamination of localized images.
+        /// </summary>
+        /// <param name="language">The language code (e.g., "english", "tchinese", "japanese").</param>
+        /// <returns>The absolute path to the language-specific cache directory.</returns>
         private string GetCacheDir(string language)
         {
             var dir = Path.Combine(_baseCacheDir, language);
@@ -83,6 +110,10 @@ namespace CommonUtilities
         /// </summary>
         public event Action<int, int>? ProgressChanged;
 
+        /// <summary>
+        /// Resets the download progress counters to zero and triggers a <see cref="ProgressChanged"/> event.
+        /// Useful when starting a new batch of downloads (e.g., after language switch) to reset UI progress indicators.
+        /// </summary>
         public void ResetProgress()
         {
             Interlocked.Exchange(ref _totalRequests, 0);
@@ -90,6 +121,10 @@ namespace CommonUtilities
             ReportProgress();
         }
 
+        /// <summary>
+        /// Gets the current download progress counters in a thread-safe manner.
+        /// </summary>
+        /// <returns>A tuple containing (completed downloads, total initiated downloads).</returns>
         public (int completed, int total) GetProgress()
         {
             var total = Volatile.Read(ref _totalRequests);
@@ -97,6 +132,18 @@ namespace CommonUtilities
             return (completed, total);
         }
 
+        /// <summary>
+        /// Attempts to retrieve a cached image path synchronously without downloading.
+        /// Checks all supported image extensions and validates cache freshness via MIME validation.
+        /// </summary>
+        /// <param name="cacheKey">The cache key, typically the Steam AppID (e.g., "480").</param>
+        /// <param name="language">The target language for the image (default: "english").</param>
+        /// <param name="checkEnglishFallback">If true and target language is not English, also checks English cache as fallback (default: true).</param>
+        /// <returns>The absolute path to the cached image if found and valid, otherwise null.</returns>
+        /// <remarks>
+        /// This method is optimized for instant display during language switches. It enables the smart fallback strategy
+        /// where English images display immediately while target language downloads in background.
+        /// </remarks>
         public string? TryGetCachedPath(string cacheKey, string language = "english", bool checkEnglishFallback = true)
         {
             string? Check(string basePath)
@@ -132,6 +179,14 @@ namespace CommonUtilities
             return null;
         }
 
+        /// <summary>
+        /// Attempts to retrieve a cached image URI synchronously without downloading.
+        /// This is a convenience wrapper around <see cref="TryGetCachedPath"/> that returns a file:// URI.
+        /// </summary>
+        /// <param name="cacheKey">The cache key, typically the Steam AppID (e.g., "480").</param>
+        /// <param name="language">The target language for the image (default: "english").</param>
+        /// <param name="checkEnglishFallback">If true and target language is not English, also checks English cache as fallback (default: true).</param>
+        /// <returns>A file:// URI to the cached image if found and valid, otherwise null.</returns>
         public Uri? TryGetCachedUri(string cacheKey, string language = "english", bool checkEnglishFallback = true)
         {
             var path = TryGetCachedPath(cacheKey, language, checkEnglishFallback);
@@ -142,6 +197,22 @@ namespace CommonUtilities
             return null;
         }
 
+        /// <summary>
+        /// Gets the image path asynchronously, downloading from the specified URI if not cached.
+        /// This is the core single-URL retrieval method with deduplication, failure tracking, and rate limiting.
+        /// </summary>
+        /// <param name="cacheKey">The cache key, typically the Steam AppID (e.g., "480").</param>
+        /// <param name="uri">The CDN URL to download from if not cached.</param>
+        /// <param name="language">The target language for the image (default: "english").</param>
+        /// <param name="failureId">Optional AppID for failure tracking. If provided and download fails, this ID will be tracked to prevent retry storms for 7 days.</param>
+        /// <param name="cancellationToken">Cancellation token to abort the download operation.</param>
+        /// <param name="checkEnglishFallback">If true and target language is not English, checks English cache before downloading (default: true).</param>
+        /// <returns>An <see cref="ImageResult"/> containing the image path and whether it was downloaded. Empty path indicates failure.</returns>
+        /// <remarks>
+        /// In-flight deduplication ensures multiple concurrent requests for the same image share a single download task.
+        /// If the image is already cached and valid, it returns immediately with Downloaded=false.
+        /// If failure tracking indicates recent failures for this ID+language, returns empty path without attempting download.
+        /// </remarks>
         public Task<ImageResult> GetImagePathAsync(string cacheKey, Uri uri, string language = "english", int? failureId = null, CancellationToken cancellationToken = default, bool checkEnglishFallback = true)
         {
             var cacheDir = GetCacheDir(language);
@@ -187,6 +258,26 @@ namespace CommonUtilities
             });
         }
 
+        /// <summary>
+        /// Gets the image path asynchronously by trying multiple CDN URLs in sequence with automatic English fallback.
+        /// This is the high-level multi-URL retrieval method used by SharedImageService for Steam CDN resilience.
+        /// </summary>
+        /// <param name="cacheKey">The cache key, typically the Steam AppID (e.g., "480").</param>
+        /// <param name="uris">A list of CDN URLs to try in order (e.g., Cloudflare, Akamai, Steam CDN).</param>
+        /// <param name="language">The target language for the image (default: "english").</param>
+        /// <param name="failureId">Optional AppID for failure tracking. Required for English fallback to work.</param>
+        /// <param name="cancellationToken">Cancellation token to abort the download operation.</param>
+        /// <param name="tryEnglishFallback">If true and non-English language fails after 2 404s, automatically tries English URLs (default: true).</param>
+        /// <param name="checkEnglishFallback">If true and target language is not English, checks English cache before downloading (default: true).</param>
+        /// <returns>An <see cref="ImageResult"/> containing the image path and whether it was downloaded, or null if all attempts failed.</returns>
+        /// <remarks>
+        /// This method implements the CDN fallback chain with smart 404 detection:
+        /// 1. Tries each URL in the provided list sequentially
+        /// 2. After 2 consecutive 404 errors for non-English languages, switches to English fallback URLs
+        /// 3. English fallback tries header.jpg and logo.png URLs from multiple CDNs
+        /// 4. Only records failure tracking if operation wasn't cancelled
+        /// 5. Returns the first successful download or cached image found
+        /// </remarks>
         public async Task<ImageResult?> GetImagePathAsync(string cacheKey, IEnumerable<string> uris, string language = "english", int? failureId = null, CancellationToken cancellationToken = default, bool tryEnglishFallback = true, bool checkEnglishFallback = true)
         {
             var urlList = uris as IList<string> ?? uris.ToList();
@@ -268,6 +359,12 @@ namespace CommonUtilities
             return null;
         }
 
+        /// <summary>
+        /// Checks if a URI has recently (within 10 seconds) returned a 404 Not Found error.
+        /// This is used to implement the 404-counting logic that triggers English fallback after 2 consecutive 404s.
+        /// </summary>
+        /// <param name="uri">The URI to check.</param>
+        /// <returns>True if the URI returned a 404 within the last 10 seconds, otherwise false.</returns>
         private bool IsRecentNotFoundError(Uri uri)
         {
             var key = uri.ToString();
@@ -280,12 +377,36 @@ namespace CommonUtilities
             return false;
         }
 
+        /// <summary>
+        /// Records an error for a URI with timestamp and whether it was a 404 Not Found.
+        /// Used by the 404-counting logic to determine when to trigger English fallback.
+        /// </summary>
+        /// <param name="uri">The URI that failed.</param>
+        /// <param name="wasNotFound">True if the error was a 404 Not Found, false for other HTTP errors.</param>
         private void RecordError(Uri uri, bool wasNotFound)
         {
             var key = uri.ToString();
             _lastErrors[key] = (DateTime.UtcNow, wasNotFound);
         }
 
+        /// <summary>
+        /// Attempts to download an English version of the image as fallback when the requested language is not available.
+        /// This is a critical part of the language fallback strategy that ensures users always see something.
+        /// </summary>
+        /// <param name="cacheKey">The cache key, typically the Steam AppID.</param>
+        /// <param name="originalLanguage">The originally requested language that failed (used for logging and failure tracking removal).</param>
+        /// <param name="failureId">The Steam AppID for constructing English CDN URLs. Required for this method to work.</param>
+        /// <param name="cancellationToken">Cancellation token to abort the download operation.</param>
+        /// <returns>An <see cref="ImageResult"/> with the English image path if found, otherwise null.</returns>
+        /// <remarks>
+        /// Fallback strategy:
+        /// 1. First checks if English image is already cached (instant return)
+        /// 2. If not cached, tries downloading from multiple English CDN URLs (header.jpg from Cloudflare, Steam CDN, Akamai)
+        /// 3. After 2 404s, tries logo.png URLs as final fallback
+        /// 4. Returns the English image path directly (no copying to original language folder)
+        /// 5. On success, removes the failure record for the original language
+        /// 6. On complete failure, records failure for English language
+        /// </remarks>
         private async Task<ImageResult?> TryEnglishFallbackAsync(string cacheKey, string originalLanguage, int? failureId, CancellationToken cancellationToken)
         {
             AppLogger.LogDebug($"Attempting English fallback for {cacheKey} (original: {originalLanguage})");
@@ -367,6 +488,32 @@ namespace CommonUtilities
         }
 
 
+        /// <summary>
+        /// Downloads an image from a CDN with rate limiting, MIME validation, and comprehensive error handling.
+        /// This is the low-level download worker that handles the actual HTTP request and file caching.
+        /// </summary>
+        /// <param name="cacheKey">The cache key, typically the Steam AppID.</param>
+        /// <param name="language">The target language for the image.</param>
+        /// <param name="uri">The CDN URL to download from.</param>
+        /// <param name="basePath">The base file path for caching (without extension).</param>
+        /// <param name="ext">The initial file extension guess (will be replaced based on Content-Type header).</param>
+        /// <param name="failureId">Optional AppID for failure tracking.</param>
+        /// <param name="cancellationToken">Cancellation token to abort the download operation.</param>
+        /// <returns>An <see cref="ImageResult"/> containing the downloaded image path or empty string on failure.</returns>
+        /// <remarks>
+        /// Download pipeline:
+        /// 1. Waits for concurrency semaphore slot (max 4 concurrent downloads by default)
+        /// 2. Waits for domain rate limiter token (prevents CDN throttling)
+        /// 3. Sends HTTP GET with image Accept headers
+        /// 4. Handles 429 Too Many Requests and 403 Forbidden with Retry-After parsing
+        /// 5. Validates Content-Type and maps to correct file extension via MimeToExtension
+        /// 6. Writes response stream to disk
+        /// 7. Validates downloaded file with MIME magic number check (prevents corrupted cache)
+        /// 8. Updates failure tracker on success/failure
+        /// 9. Handles ObjectDisposedException gracefully during app shutdown or language switch
+        /// 10. Distinguishes 404 Not Found (expected for localized images) from other errors
+        /// 11. Updates progress counters and reports to subscribers
+        /// </remarks>
         private async Task<ImageResult> DownloadAsync(string cacheKey, string language, Uri uri, string basePath, string ext, int? failureId, CancellationToken cancellationToken)
         {
             try
@@ -539,6 +686,16 @@ namespace CommonUtilities
             }
         }
 
+        /// <summary>
+        /// Clears cached images from disk for a specific language or all languages.
+        /// Used when user wants to force re-download of images or free up disk space.
+        /// </summary>
+        /// <param name="language">The language to clear cache for, or null to clear all language caches. Defaults to null (clear all).</param>
+        /// <remarks>
+        /// If <paramref name="language"/> is null or empty, the entire base cache directory is deleted and recreated.
+        /// If <paramref name="language"/> is specified, only that language's subdirectory is deleted.
+        /// Exceptions are logged but not thrown to prevent cache clearing failures from crashing the app.
+        /// </remarks>
         public void ClearCache(string? language = null)
         {
             try
@@ -660,6 +817,20 @@ namespace CommonUtilities
             return duplicatesFound;
         }
 
+        /// <summary>
+        /// Validates that a cached image file is still valid and usable.
+        /// Performs MIME magic number validation and TTL check to prevent corrupted or stale cache usage.
+        /// </summary>
+        /// <param name="path">The absolute path to the cached image file.</param>
+        /// <returns>True if the file is a valid image and hasn't exceeded the cache duration TTL, otherwise false.</returns>
+        /// <remarks>
+        /// Validation checks performed:
+        /// 1. MIME magic number validation via <see cref="ImageValidation.IsValidImage"/> (reads first few bytes to confirm it's a real image)
+        /// 2. Cache duration check - compares file's LastWriteTimeUtc against <see cref="_cacheDuration"/>
+        ///
+        /// As of current implementation, _cacheDuration defaults to TimeSpan.MaxValue, so successfully downloaded images never expire.
+        /// This validation still runs to catch corrupted files and provides future flexibility for expiration policies.
+        /// </remarks>
         private bool IsCacheValid(string path)
         {
             try
@@ -683,6 +854,15 @@ namespace CommonUtilities
             return false;
         }
 
+        /// <summary>
+        /// Parses the Retry-After HTTP header from a 429 Too Many Requests or 403 Forbidden response.
+        /// Used by the rate limiter to respect CDN-imposed back-off delays.
+        /// </summary>
+        /// <param name="response">The HTTP response message containing the Retry-After header.</param>
+        /// <returns>
+        /// A TimeSpan indicating how long to wait before retrying, or null if the header is missing or invalid.
+        /// Supports both delta-seconds format (e.g., "120") and HTTP-date format (e.g., "Wed, 21 Oct 2015 07:28:00 GMT").
+        /// </returns>
         private static TimeSpan? ParseRetryAfter(HttpResponseMessage response)
         {
             var retry = response.Headers.RetryAfter;
@@ -700,6 +880,15 @@ namespace CommonUtilities
             return null;
         }
 
+        /// <summary>
+        /// Notifies all <see cref="ProgressChanged"/> subscribers with current download progress.
+        /// Safely invokes each handler in the invocation list with exception isolation.
+        /// </summary>
+        /// <remarks>
+        /// This method is called after every progress counter update (total incremented, completed incremented).
+        /// Each handler is invoked individually with try-catch to prevent one failing subscriber from affecting others.
+        /// Uses volatile reads to ensure thread-safe access to counters.
+        /// </remarks>
         private void ReportProgress()
         {
             var total = Volatile.Read(ref _totalRequests);

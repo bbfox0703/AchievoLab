@@ -26,6 +26,15 @@ namespace CommonUtilities
         private readonly TimeSpan _baseDomainDelay;
         private readonly double _jitterSeconds;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="DomainRateLimiter"/> class with token bucket rate limiting.
+        /// </summary>
+        /// <param name="maxConcurrentRequestsPerDomain">Maximum number of concurrent requests allowed per domain (default: 2).</param>
+        /// <param name="capacity">Maximum number of tokens in the bucket for global rate limiting (default: 60).</param>
+        /// <param name="fillRatePerSecond">Number of tokens added to the bucket per second (default: 1).</param>
+        /// <param name="initialTokens">Starting number of tokens in the bucket. If negative, defaults to <paramref name="capacity"/>.</param>
+        /// <param name="baseDomainDelay">Base delay between requests to the same domain. If null, defaults to 100 milliseconds.</param>
+        /// <param name="jitterSeconds">Random time variance added to domain delays in seconds to prevent synchronized requests (default: 0.1).</param>
         public DomainRateLimiter(
             int maxConcurrentRequestsPerDomain = 2,
             double capacity = 60,
@@ -43,7 +52,9 @@ namespace CommonUtilities
             _jitterSeconds = jitterSeconds;
         }
 
-        // Global request counter for debugging
+        /// <summary>
+        /// Tracks the total number of requests successfully processed through the rate limiter for monitoring and debugging purposes.
+        /// </summary>
         private int _totalRequestsProcessed = 0;
 
         /// <summary>
