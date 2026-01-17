@@ -1,11 +1,9 @@
 using System;
 using System.Buffers;
-using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
-using Microsoft.Win32;
 using CommonUtilities;
 
 namespace AnSAM.Steam
@@ -41,7 +39,7 @@ namespace AnSAM.Steam
 
         static SteamClient()
         {
-            NativeLibrary.SetDllImportResolver(typeof(SteamClient).Assembly, ResolveSteamClient);
+            NativeLibrary.SetDllImportResolver(typeof(SteamClient).Assembly, SteamPathResolver.ResolveSteamClientDll);
         }
 
         /// <summary>
@@ -317,104 +315,6 @@ namespace AnSAM.Steam
             }
         }
 
-        /// <summary>
-        /// Resolves the path to steamclient64.dll when the native library loader requests it.
-        /// </summary>
-        private static IntPtr ResolveSteamClient(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
-        {
-            if (!libraryName.Equals("steamclient64", StringComparison.OrdinalIgnoreCase))
-                return IntPtr.Zero;
-
-            
-#if DEBUG
-            AppLogger.LogDebug("Attempting to determine Steam install path");
-#endif
-            string? installPath = GetSteamPath();
-#if DEBUG
-            AppLogger.LogDebug($"Steam install path: {installPath ?? "<null>"}");
-#endif
-            if (string.IsNullOrEmpty(installPath))
-                return IntPtr.Zero;
-
-            string libraryPath = Path.Combine(installPath, "steamclient64.dll");
-            if (!File.Exists(libraryPath))
-            {
-                libraryPath = Path.Combine(installPath, "bin", "steamclient64.dll");
-            }
-#if DEBUG
-            AppLogger.LogDebug($"Resolved steamclient64 path: {libraryPath}");
-#endif
-            if (!File.Exists(libraryPath))
-                return IntPtr.Zero;
-
-            Native.AddDllDirectory(installPath);
-            Native.AddDllDirectory(Path.Combine(installPath, "bin"));
-            return Native.LoadLibraryEx(libraryPath, IntPtr.Zero,
-                Native.LoadLibrarySearchDefaultDirs | Native.LoadLibrarySearchUserDirs);
-        }
-
-        /// <summary>
-        /// Attempts to locate the Steam installation directory via the registry.
-        /// </summary>
-        private static string? GetSteamPath()
-        {
-            const string subKey = @"Software\\Valve\\Steam";
-#if DEBUG
-            AppLogger.LogDebug("Attempting to locate Steam install path from registry");
-#endif
-
-            // Check HKLM 64-bit and 32-bit (WOW6432Node) views
-            foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
-            {
-#if DEBUG
-                AppLogger.LogDebug($"Checking HKLM {view} for Steam InstallPath");
-#endif
-                using var key = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, view).OpenSubKey(subKey);
-                if (key == null)
-                {
-#if DEBUG
-                    AppLogger.LogDebug($"HKLM {view} key not found");
-#endif
-                    continue;
-                }
-                var path = key?.GetValue("InstallPath") as string;
-                if (string.IsNullOrEmpty(path) == false)
-                {
-#if DEBUG
-                    AppLogger.LogDebug($"Found Steam path in HKLM {view}: {path}");
-#endif
-                    return path;
-                }
-#if DEBUG
-                AppLogger.LogDebug($"HKLM {view} InstallPath empty");
-#endif
-            }
-
-            // Fall back to HKCU
-#if DEBUG
-            AppLogger.LogDebug("Checking HKCU for Steam InstallPath");
-#endif
-            using var userKey = RegistryKey.OpenBaseKey(RegistryHive.CurrentUser, RegistryView.Default).OpenSubKey(subKey);
-            if (userKey != null)
-            {
-                var path = userKey.GetValue("InstallPath") as string;
-                if (string.IsNullOrEmpty(path) == false)
-                {
-#if DEBUG
-                    AppLogger.LogDebug($"Found Steam path in HKCU: {path}");
-#endif
-                    return path;
-                }
-#if DEBUG
-                AppLogger.LogDebug("HKCU InstallPath empty");
-#endif
-            }
-#if DEBUG
-            AppLogger.LogDebug("Steam install path not found in registry");
-#endif
-            return null;
-        }
-
         [StructLayout(LayoutKind.Sequential)]
         private struct CallbackMsg
         {
@@ -422,18 +322,6 @@ namespace AnSAM.Steam
             public int Id;
             public IntPtr ParamPointer;
             public int ParamSize;
-        }
-
-        private static class Native
-        {
-            [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-            internal static extern IntPtr LoadLibraryEx(string lpFileName, IntPtr hFile, uint dwFlags);
-
-            [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-            internal static extern IntPtr AddDllDirectory(string lpPathName);
-
-            internal const uint LoadLibrarySearchDefaultDirs = 0x00001000;
-            internal const uint LoadLibrarySearchUserDirs = 0x00000400;
         }
 
         [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl,

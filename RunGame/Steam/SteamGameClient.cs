@@ -1,13 +1,10 @@
 using System;
 using System.Buffers;
 using System.Collections.Generic;
-using System.Diagnostics;
-using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
-using Microsoft.Win32;
 using CommonUtilities;
 
 namespace RunGame.Steam
@@ -78,7 +75,7 @@ namespace RunGame.Steam
 
         static SteamGameClient()
         {
-            NativeLibrary.SetDllImportResolver(typeof(SteamGameClient).Assembly, ResolveSteamClient);
+            NativeLibrary.SetDllImportResolver(typeof(SteamGameClient).Assembly, SteamPathResolver.ResolveSteamClientDll);
         }
 
         /// <summary>
@@ -129,7 +126,7 @@ namespace RunGame.Steam
                 AppLogger.LogDebug($"Initializing SteamGameClient for game {gameId}");
                 
                 // Check if Steam is running
-                if (!IsSteamRunning())
+                if (!SteamPathResolver.IsSteamRunning())
                 {
                     AppLogger.LogDebug("Steam is not running - cannot initialize Steam client");
                     return;
@@ -643,112 +640,6 @@ namespace RunGame.Steam
             }
         }
 
-        private static IntPtr ResolveSteamClient(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
-        {
-            try
-            {
-                if (!libraryName.Equals("steamclient64", StringComparison.OrdinalIgnoreCase))
-                    return IntPtr.Zero;
-
-                AppLogger.LogDebug("Attempting to determine Steam install path");
-                string? installPath = GetSteamPath();
-                if (string.IsNullOrEmpty(installPath)) return IntPtr.Zero;
-
-                string libraryPath = Path.Combine(installPath, "steamclient64.dll");
-                if (!File.Exists(libraryPath))
-                {
-                    libraryPath = Path.Combine(installPath, "bin", "steamclient64.dll");
-                }
-                
-                if (!File.Exists(libraryPath)) 
-                {
-                    AppLogger.LogDebug($"steamclient64.dll not found at expected paths in {installPath}");
-                    return IntPtr.Zero;
-                }
-
-                Native.AddDllDirectory(installPath);
-                Native.AddDllDirectory(Path.Combine(installPath, "bin"));
-                return Native.LoadLibraryEx(libraryPath, IntPtr.Zero,
-                    Native.LoadLibrarySearchDefaultDirs | Native.LoadLibrarySearchUserDirs);
-            }
-            catch (Exception ex)
-            {
-                AppLogger.LogDebug($"Error in ResolveSteamClient: {ex.Message}");
-                return IntPtr.Zero;
-            }
-        }
-
-        private static bool IsSteamRunning()
-        {
-            try
-            {
-                var steamProcesses = Process.GetProcessesByName("steam");
-                bool isRunning = steamProcesses.Length > 0;
-                AppLogger.LogDebug($"Steam process check: {isRunning} (found {steamProcesses.Length} processes)");
-                return isRunning;
-            }
-            catch (Exception ex)
-            {
-                AppLogger.LogDebug($"Error checking Steam process: {ex.Message}");
-                return false;
-            }
-        }
-
-        private static string? GetSteamPath()
-        {
-            try
-            {
-                AppLogger.LogDebug("Searching registry for Steam install path");
-                const string subKey = @"Software\\Valve\\Steam";
-
-                // Check HKLM 64-bit and 32-bit (WOW6432Node) views
-                foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
-                {
-                    try
-                    {
-                        using var key = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, view).OpenSubKey(subKey);
-                        var path = key?.GetValue("InstallPath") as string;
-                        if (!string.IsNullOrEmpty(path))
-                        {
-                            AppLogger.LogDebug($"Steam install path found: {path}");
-                            return path;
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        AppLogger.LogDebug($"Error accessing HKLM registry (view: {view}): {ex.Message}");
-                    }
-                }
-
-                // Fall back to HKCU
-                foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
-                {
-                    try
-                    {
-                        using var key = RegistryKey.OpenBaseKey(RegistryHive.CurrentUser, view).OpenSubKey(subKey);
-                        var path = key?.GetValue("InstallPath") as string;
-                        if (!string.IsNullOrEmpty(path))
-                        {
-                            AppLogger.LogDebug($"Steam install path found: {path}");
-                            return path;
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        AppLogger.LogDebug($"Error accessing HKCU registry (view: {view}): {ex.Message}");
-                    }
-                }
-
-                AppLogger.LogDebug("Steam install path not found in registry");
-                return null;
-            }
-            catch (Exception ex)
-            {
-                AppLogger.LogDebug($"Error in GetSteamPath: {ex.Message}");
-                return null;
-            }
-        }
-
         // P/Invoke and delegate declarations
         [StructLayout(LayoutKind.Sequential)]
         private struct CallbackMsg
@@ -765,18 +656,6 @@ namespace RunGame.Steam
             public ulong GameId;
             public int Result;
             public ulong UserId;
-        }
-
-        private static class Native
-        {
-            [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-            internal static extern IntPtr LoadLibraryEx(string lpFileName, IntPtr hFile, uint dwFlags);
-
-            [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-            internal static extern IntPtr AddDllDirectory(string lpPathName);
-
-            internal const uint LoadLibrarySearchDefaultDirs = 0x00001000;
-            internal const uint LoadLibrarySearchUserDirs = 0x00000400;
         }
 
         [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl,

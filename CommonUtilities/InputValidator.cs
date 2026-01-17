@@ -1,9 +1,10 @@
 using System.Text.RegularExpressions;
 
-namespace MyOwnGames
+namespace CommonUtilities
 {
     /// <summary>
     /// Provides validation methods for Steam Web API credentials and identifiers.
+    /// Shared across applications that need to validate Steam-related input.
     /// </summary>
     public static class InputValidator
     {
