@@ -26,10 +26,10 @@ using Windows.Foundation.Collections;
 using Windows.UI;
 using Windows.UI.ViewManagement;
 using WinRT.Interop;
+using CommonUtilities;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
-using CommonUtilities;
 using MyOwnGames.Services;
 
 namespace MyOwnGames

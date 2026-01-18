@@ -14,7 +14,6 @@
     <!-- SteamLanguageResolver moved to CommonUtilities -->
     <Compile Include="../AnSAM/SteamAppData.cs" Link="SteamAppData.cs" />
     <Compile Include="../AnSAM/Steam/ISteamClient.cs" Link="ISteamClient.cs" />
-    <Compile Include="../MyOwnGames/InputValidator.cs" Link="InputValidator.cs" />
     <Compile Include="../MyOwnGames/SteamApiService.cs" Link="SteamApiService.cs" />
     <Compile Include="../MyOwnGames/Services/RateLimiterService.cs" Link="RateLimiterService.cs" />
     <Compile Include="../MyOwnGames/SteamApiJsonContext.cs" Link="SteamApiJsonContext.cs" />

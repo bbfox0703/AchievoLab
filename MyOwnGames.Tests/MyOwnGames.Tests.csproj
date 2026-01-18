@@ -10,7 +10,6 @@
   <ItemGroup>
     <Compile Include="../MyOwnGames/SteamApiService.cs" Link="SteamApiService.cs" />
     <Compile Include="../MyOwnGames/Services/RateLimiterService.cs" Link="RateLimiterService.cs" />
-    <Compile Include="../MyOwnGames/InputValidator.cs" Link="InputValidator.cs" />
     <Compile Include="../MyOwnGames/SteamApiJsonContext.cs" Link="SteamApiJsonContext.cs" />
   </ItemGroup>
   <ItemGroup>

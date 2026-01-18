@@ -1,4 +1,4 @@
-using MyOwnGames;
+using CommonUtilities;
 using Xunit;
 
 namespace AnSAM.Tests

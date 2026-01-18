@@ -1,10 +1,7 @@
 using Microsoft.UI.Xaml;
 using System;
-using System.IO;
 using Windows.Storage;
 using CommonUtilities;
-using Serilog;
-using Microsoft.Extensions.Configuration;
 
 namespace RunGame
 {
@@ -27,32 +24,7 @@ namespace RunGame
         /// <param name="theme">The ElementTheme to convert.</param>
         /// <returns>The corresponding ApplicationTheme (Light or Dark).</returns>
         internal static ApplicationTheme ToApplicationTheme(ElementTheme theme)
-        {
-            var resolved = theme == ElementTheme.Default ? GetSystemTheme() : theme;
-            return resolved == ElementTheme.Dark ? ApplicationTheme.Dark : ApplicationTheme.Light;
-        }
-
-        /// <summary>
-        /// Retrieves the current system theme preference from the Windows registry.
-        /// </summary>
-        /// <returns>ElementTheme.Dark if system uses dark theme, otherwise ElementTheme.Light.</returns>
-        private static ElementTheme GetSystemTheme()
-        {
-            try
-            {
-                using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
-                var value = key?.GetValue("AppsUseLightTheme");
-                if (value is int i)
-                {
-                    return i != 0 ? ElementTheme.Light : ElementTheme.Dark;
-                }
-            }
-            catch
-            {
-                // Fall back to light theme if we can't read the registry
-            }
-            return ElementTheme.Light;
-        }
+            => ThemeManagementService.ToApplicationTheme(theme);
 
         /// <summary>
         /// Initializes the singleton application object.
@@ -61,57 +33,8 @@ namespace RunGame
         public App()
         {
             this.InitializeComponent();
-            InitializeLogging();
-            EnsureConfigurationFile();
-        }
-
-        /// <summary>
-        /// Initializes Serilog logging from appsettings.json
-        /// </summary>
-        private static void InitializeLogging()
-        {
-            try
-            {
-                var configuration = new ConfigurationBuilder()
-                    .SetBasePath(AppContext.BaseDirectory)
-                    .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
-                    .Build();
-
-                Log.Logger = new LoggerConfiguration()
-                    .ReadFrom.Configuration(configuration)
-                    .CreateLogger();
-
-                AppLogger.Initialize(Log.Logger);
-                AppLogger.LogInfo("RunGame application logging initialized");
-            }
-            catch (Exception ex)
-            {
-                // Fallback to console if logging initialization fails
-                Console.WriteLine($"Failed to initialize logging: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// Ensures appsettings.json exists with all required parameters.
-        /// If the file doesn't exist or is incomplete, creates/updates it with defaults.
-        /// </summary>
-        private static void EnsureConfigurationFile()
-        {
-            try
-            {
-                var configPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
-                var configManager = new ConfigurationFileManager(configPath, DefaultConfigurations.RunGame);
-
-                if (configManager.EnsureConfigurationExists())
-                {
-                    AppLogger.LogDebug("RunGame: Configuration file was created or updated");
-                }
-            }
-            catch (Exception ex)
-            {
-                AppLogger.LogDebug($"RunGame: Failed to ensure configuration file: {ex.Message}");
-                // Don't throw - allow app to continue with defaults
-            }
+            ApplicationInitializationHelper.InitializeLogging("RunGame");
+            ApplicationInitializationHelper.EnsureConfigurationFile("RunGame", DefaultConfigurations.RunGame);
         }
 
         /// <summary>
