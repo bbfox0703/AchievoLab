@@ -74,7 +74,8 @@ namespace AnSAM.Tests
             var elapsed = stopwatch.Elapsed;
 
             Assert.True(elapsed >= TimeSpan.FromSeconds(5.5));
-            Assert.True(elapsed <= TimeSpan.FromSeconds(7.5));
+            // Allow up to SteamJitterMaxSeconds (8) plus 0.5s tolerance for system overhead
+            Assert.True(elapsed <= TimeSpan.FromSeconds(8.5));
         }
     }
 }
