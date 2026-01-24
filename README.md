@@ -1,7 +1,7 @@
 <img src="./docs/res/AchievoLabP.png" alt="AchievoLab" width="250"/>  
   
 # AchievoLab
-A 64-bit Steam achievement management GUI built with WinUI 3 and .NET 8, compatible with Windows 10 (1904) and Windows 11.
+A 64-bit Steam achievement management GUI built with WinUI 3 and .NET 10, compatible with Windows 10 (1904) and Windows 11.
 
 ## Features
 - Directly wraps the Steamworks API via `steamclient64.dll` to query ownership and metadata of installed apps.
@@ -11,23 +11,30 @@ A 64-bit Steam achievement management GUI built with WinUI 3 and .NET 8, compati
 - Allows launching games directly from the GUI via right-click context menu.
 - Retrieves your owned game list and localized game titles (if available) through the Steam Web API.
 - Multi-language support for game title / image, if present.
+- Automatic dark/light mode support following Windows system theme and accent color.
+- CDN load balancing with real-time statistics display for optimized image downloads.
+- Image failure tracking with exponential backoff to avoid repeated failed requests.
+- Scheduled achievement unlocks with intelligent batching (RunGame).
+- Anti-idle mouse movement to prevent Steam from marking you as away (RunGame).
 
 ## Technical Notes
-- Built with .NET 8 and the Windows App SDK (WinUI 3).
+- Built with .NET 10 and the Windows App SDK (WinUI 3).
+- Uses Serilog for structured logging, configurable via `appsettings.json`.
 - Interfaces with Steamworks by loading `steamclient64.dll` directly.
 - Caches global game data and cover images on disk for faster subsequent launches.
+- Cross-process file locking ensures safe concurrent access to shared data files.
 - Consists of three executables: the main UI, a per-game achievement manager, and a Steam Web API fetcher.
 
 ## Prerequisites
 These apps use framework-dependent deployments. Ensure the target machine has the following runtimes installed:
 
-- [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/en-us/download/dotnet/8.0)
+- [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/en-us/download/dotnet/10.0)
 - [Windows App SDK 1.7 Runtime](https://learn.microsoft.com/windows/apps/windows-app-sdk/)
 
 You can install them via [winget](https://learn.microsoft.com/windows/package-manager/winget/):
 
 ```powershell
-winget install Microsoft.DotNet.DesktopRuntime.8 Microsoft.WindowsAppSDK.1.7
+winget install Microsoft.DotNet.DesktopRuntime.10 Microsoft.WindowsAppSDK.1.7
 ```
 
 ## Program List
@@ -37,7 +44,7 @@ winget install Microsoft.DotNet.DesktopRuntime.8 Microsoft.WindowsAppSDK.1.7
    Invoked by *AnASM.exe* when a game cover is double-clicked. Used to manage achievements for the selected game.
 3. **./MyOwnGames/MyOwnGames.exe**
    Retrieves your owned game data from the Steam Web API.
-   ⚠️ Note: This process may take some time. The Steam API may temporarily block your key if requests are made too frequently.
+   Note: This process may take some time. The Steam API may temporarily block your key if requests are made too frequently.
 
 ## Screenshots
 
@@ -54,8 +61,8 @@ winget install Microsoft.DotNet.DesktopRuntime.8 Microsoft.WindowsAppSDK.1.7
 ## Using *MyOwnGames*
 Unlike AnSAM, MyOwnGames get localized game title data via Steam API. Data shared between AnSAM & MyOwnGames.
 To get localized game title data:
-1. Obtain a Steam API key from [Steam Developer](https://steamcommunity.com/dev/apikey).  
-   ⚠️ Your API key is sensitive and tied to your Steam account. **Do not share it with anyone.**
+1. Obtain a Steam API key from [Steam Developer](https://steamcommunity.com/dev/apikey).
+   Your API key is sensitive and tied to your Steam account. **Do not share it with anyone.**
 2. Obtain your **SteamID64**. This tool saves your game list data, which will then be used by the main program (*AnASM*).
 
 ## How to Find Your SteamID64
@@ -84,6 +91,61 @@ To get localized game title data:
 ```
 
 The `SteamMaxCallsPerMinute` and `SteamJitter*` values let you tune Steam-specific throttling separately from the general settings.
+
+## Configuration
+
+Each application has an `appsettings.json` file for tuning behavior. Below are key settings:
+
+### Image Caching (AnSAM, MyOwnGames)
+
+```json
+{
+  "ImageCaching": {
+    "MaxConcurrentPerDomain": 4,
+    "CdnBlockDurationMinutes": 5,
+    "FailureTrackingDaysEnglish": 15,
+    "FailureTrackingDaysOtherLanguages": 7
+  }
+}
+```
+
+- `MaxConcurrentPerDomain`: Maximum concurrent requests per CDN domain.
+- `CdnBlockDurationMinutes`: How long to avoid a CDN after rate limit errors.
+- `FailureTrackingDaysEnglish/OtherLanguages`: Days before retrying failed image downloads.
+
+### File Locking (AnSAM, MyOwnGames)
+
+```json
+{
+  "FileLocking": {
+    "ReadTimeoutSeconds": 5,
+    "WriteTimeoutSeconds": 30
+  }
+}
+```
+
+### RunGame Settings
+
+```json
+{
+  "AchievementTimer": {
+    "CheckIntervalSeconds": 1,
+    "StoreStatsDelaySeconds": 12
+  },
+  "MouseMovement": {
+    "MovementIntervalSeconds": 30,
+    "MoveDistancePixels": 5,
+    "StepDelayMs": 15
+  },
+  "Steam": {
+    "CallbackPumpIntervalMs": 100
+  }
+}
+```
+
+- `AchievementTimer`: Controls scheduled achievement unlock timing and batching.
+- `MouseMovement`: Anti-idle cursor movement settings.
+- `Steam.CallbackPumpIntervalMs`: Interval for polling Steam callbacks.
 
 ## License
 This project is licensed under the [MIT License](LICENSE).
