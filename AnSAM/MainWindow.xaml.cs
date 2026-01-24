@@ -556,6 +556,12 @@ namespace AnSAM
             GameListService.ProgressChanged -= OnGameListProgressChanged;
             _themeService.GetUISettings().ColorValuesChanged -= UiSettings_ColorValuesChanged;
             Activated -= OnWindowActivated;
+
+            if (_gamesScrollViewer != null)
+            {
+                _gamesScrollViewer.ViewChanged -= GamesScrollViewer_ViewChanged;
+            }
+
             _imageService.Dispose();
             _imageHttpClient.Dispose();
 

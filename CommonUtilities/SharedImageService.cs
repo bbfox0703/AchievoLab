@@ -110,7 +110,7 @@ namespace CommonUtilities
                     try
                     {
                         // Wait up to 5 seconds for pending requests to complete/cancel
-                        await Task.WhenAny(Task.WhenAll(pending), Task.Delay(5000));
+                        await Task.WhenAny(Task.WhenAll(pending), Task.Delay(5000)).ConfigureAwait(false);
                         AppLogger.LogDebug($"Pending downloads completed or timed out");
                     }
                     catch (Exception ex)
@@ -411,11 +411,11 @@ namespace CommonUtilities
                 }
 
                 // Fall back to English
-                return await TryEnglishFallbackAsync(appId, language, cacheKey);
+                return await TryEnglishFallbackAsync(appId, language, cacheKey).ConfigureAwait(false);
             }
 
             // Step 4: Try to download language-specific image
-            var downloadResult = await TryDownloadLanguageSpecificImageAsync(appId, language, cacheKey);
+            var downloadResult = await TryDownloadLanguageSpecificImageAsync(appId, language, cacheKey).ConfigureAwait(false);
             if (downloadResult != null)
             {
                 // Step 5: Download successful - remove failure record if exists and return
@@ -446,7 +446,7 @@ namespace CommonUtilities
             // Step 8: English fallback logic (only for non-English languages)
             if (!string.Equals(language, "english", StringComparison.OrdinalIgnoreCase))
             {
-                return await TryEnglishFallbackAsync(appId, language, cacheKey);
+                return await TryEnglishFallbackAsync(appId, language, cacheKey).ConfigureAwait(false);
             }
 
             // If we reach here, English download failed - return fallback image
@@ -471,7 +471,7 @@ namespace CommonUtilities
             if (_disposed) return null;
 
             // Wait for available download slot
-            await _downloadSemaphore.WaitAsync(_cts.Token);
+            await _downloadSemaphore.WaitAsync(_cts.Token).ConfigureAwait(false);
 
             // Check again after acquiring semaphore in case Dispose was called while waiting
             if (_disposed)
@@ -523,7 +523,7 @@ namespace CommonUtilities
                 return result;
             }
 
-            var header = await GetHeaderImageFromStoreApiAsync(appId, language, _cts.Token);
+            var header = await GetHeaderImageFromStoreApiAsync(appId, language, _cts.Token).ConfigureAwait(false);
             if (!string.IsNullOrEmpty(header))
             {
                 AddUrl(languageSpecificUrlMap, header);
@@ -561,7 +561,7 @@ namespace CommonUtilities
                 var languageUrls = RoundRobin(languageSpecificUrlMap);
 
                 // Use CDN load balancer with failover strategy
-                var result = await TryDownloadWithCdnFailover(appId.ToString(), languageUrls, language, appId, _cts.Token);
+                var result = await TryDownloadWithCdnFailover(appId.ToString(), languageUrls, language, appId, _cts.Token).ConfigureAwait(false);
 
                 if (!string.IsNullOrEmpty(result?.Path) && IsFreshImage(result.Value.Path))
                 {
@@ -626,7 +626,7 @@ namespace CommonUtilities
             }
 
             // Try to download fresh English image
-            var englishDownloadResult = await TryDownloadEnglishImageAsync(appId, cacheKey);
+            var englishDownloadResult = await TryDownloadEnglishImageAsync(appId, cacheKey).ConfigureAwait(false);
             if (englishDownloadResult != null)
             {
                 AppLogger.LogDebug($"Downloaded fresh English image for {appId}");
@@ -663,7 +663,7 @@ namespace CommonUtilities
             if (_disposed) return null;
 
             // Wait for available download slot
-            await _downloadSemaphore.WaitAsync(_cts.Token);
+            await _downloadSemaphore.WaitAsync(_cts.Token).ConfigureAwait(false);
 
             // Check again after acquiring semaphore in case Dispose was called while waiting
             if (_disposed)
@@ -716,7 +716,7 @@ namespace CommonUtilities
             }
 
             // Get English header from Store API
-            var header = await GetHeaderImageFromStoreApiAsync(appId, "english", _cts.Token);
+            var header = await GetHeaderImageFromStoreApiAsync(appId, "english", _cts.Token).ConfigureAwait(false);
             if (!string.IsNullOrEmpty(header))
             {
                 AddUrl(languageSpecificUrlMap, header);
@@ -734,7 +734,7 @@ namespace CommonUtilities
                 var englishUrls = RoundRobin(languageSpecificUrlMap);
 
                 // Use CDN load balancer with failover strategy
-                var result = await TryDownloadWithCdnFailover(appId.ToString(), englishUrls, "english", appId, _cts.Token);
+                var result = await TryDownloadWithCdnFailover(appId.ToString(), englishUrls, "english", appId, _cts.Token).ConfigureAwait(false);
 
                 if (!string.IsNullOrEmpty(result?.Path) && IsFreshImage(result.Value.Path))
                 {
@@ -839,13 +839,13 @@ namespace CommonUtilities
             try
             {
                 var storeApiUrl = $"https://store.steampowered.com/api/appdetails?appids={appId}&l={language}";
-                using var response = await _httpClient.GetAsync(storeApiUrl, cancellationToken);
+                using var response = await _httpClient.GetAsync(storeApiUrl, cancellationToken).ConfigureAwait(false);
                 if (!response.IsSuccessStatusCode)
                 {
                     return null;
                 }
 
-                var jsonContent = await response.Content.ReadAsStringAsync();
+                var jsonContent = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
                 var storeData = JsonSerializer.Deserialize(jsonContent, StoreApiJsonContext.Default.DictionaryStringStoreApiResponse);
 
                 if (storeData != null && storeData.TryGetValue(appId.ToString(), out var app) && app.Success)
@@ -944,7 +944,7 @@ namespace CommonUtilities
                         language,
                         failureId,
                         cancellationToken,
-                        checkEnglishFallback: false);
+                        checkEnglishFallback: false).ConfigureAwait(false);
 
                     if (!string.IsNullOrEmpty(result.Path))
                     {
