@@ -838,35 +838,37 @@ namespace AnSAM
 
                 _ = DispatcherQueue.TryEnqueue(() =>
                 {
-                    _allGames.Clear();
-                    _allGames.AddRange(allGames);
-
-                    // Load localized titles if current language is not English
-                    if (_currentLanguage != "english")
+                    try
                     {
-                        LoadLocalizedTitlesFromXml();
+                        _allGames.Clear();
+                        _allGames.AddRange(allGames);
+
+                        // Load localized titles if current language is not English
+                        if (_currentLanguage != "english")
+                        {
+                            LoadLocalizedTitlesFromXml();
+                        }
+
+                        // Update all game titles to current language
+                        UpdateAllGameTitles(_currentLanguage);
+
+                        Games.Clear();
+                        foreach (var game in filteredGames)
+                        {
+                            Games.Add(game);
+                        }
+
+                        StatusText.Text = _steamClient.Initialized
+                            ? $"Loaded {_allGames.Count} games (Language: {_currentLanguage})"
+                            : $"Steam unavailable - showing {_allGames.Count} games (Language: {_currentLanguage})";
+
+                        // CRITICAL: Start sequential image loading after initial load
+                        StartSequentialImageLoading();
                     }
-
-                    // Update all game titles to current language
-                    UpdateAllGameTitles(_currentLanguage);
-
-                    Games.Clear();
-                    foreach (var game in filteredGames)
+                    catch (Exception ex)
                     {
-                        Games.Add(game);
+                        AppLogger.LogDebug($"Error in RefreshAsync UI update: {ex}");
                     }
-
-                    StatusText.Text = _steamClient.Initialized
-                        ? $"Loaded {_allGames.Count} games (Language: {_currentLanguage})"
-                        : $"Steam unavailable - showing {_allGames.Count} games (Language: {_currentLanguage})";
-
-                    // CRITICAL: Start sequential image loading after initial load
-                    StartSequentialImageLoading();
-
-                    // NOTE: Don't reset progress here - StartSequentialImageLoading() manages progress updates
-                    // Old code (removed to prevent overwriting language switch progress):
-                    // StatusProgress.Value = 0;
-                    // StatusExtra.Text = $"{Games.Count}/{_allGames.Count}";
                 });
             }
             catch (Exception ex)
@@ -876,9 +878,13 @@ namespace AnSAM
 
                 _ = DispatcherQueue.TryEnqueue(() =>
                 {
-                    StatusText.Text = $"Refresh failed: {ex.Message}";
-                    ClearProgress(ProgressContext.InitialLoad);
-                    StatusProgress.IsIndeterminate = false;
+                    try
+                    {
+                        StatusText.Text = $"Refresh failed: {ex.Message}";
+                        ClearProgress(ProgressContext.InitialLoad);
+                        StatusProgress.IsIndeterminate = false;
+                    }
+                    catch { /* Ignore UI update errors during error handling */ }
                 });
             }
         }

@@ -959,14 +959,12 @@ namespace CommonUtilities
                     }
                 }
                 catch (HttpRequestException ex) when (
-                    ex.Message.Contains("429", StringComparison.OrdinalIgnoreCase) ||
-                    ex.Message.Contains("TooManyRequests", StringComparison.OrdinalIgnoreCase) ||
-                    ex.Message.Contains("403", StringComparison.OrdinalIgnoreCase) ||
-                    ex.Message.Contains("Forbidden", StringComparison.OrdinalIgnoreCase))
+                    ex.StatusCode == System.Net.HttpStatusCode.TooManyRequests ||
+                    ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
                 {
-                    // CDN returned rate limit error, mark as blocked
+                    // CDN returned rate limit or forbidden error, mark as blocked
                     _cdnLoadBalancer.RecordBlockedDomain(domain, TimeSpan.FromMinutes(5));
-                    AppLogger.LogDebug($"CDN {domain} returned rate limit error ({ex.Message}), marking as blocked");
+                    AppLogger.LogDebug($"CDN {domain} returned {ex.StatusCode} error, marking as blocked");
                 }
                 catch (Exception ex)
                 {
