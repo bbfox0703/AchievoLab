@@ -437,31 +437,13 @@ namespace AnSAM
         {
             if (_autoLoaded) return;
             _autoLoaded = true;
-            DispatcherQueue.TryEnqueue(async () =>
+            if (!DispatcherQueue.TryEnqueue(async () =>
             {
-                // DISABLED: CleanupDuplicatedEnglishImages was mistakenly deleting legitimate language-specific
-                // images that happen to have identical content to English versions (e.g., games without localized assets).
-                // This cleanup mechanism was designed for an old bug where English images were copied to language folders,
-                // but that copying mechanism has been removed, so cleanup is no longer needed.
-
-                // _ = Task.Run(() =>
-                // {
-                //     try
-                //     {
-                //         var duplicates = _imageService.CleanupDuplicatedEnglishImages(dryRun: false);
-                //         if (duplicates > 0)
-                //         {
-                //             AppLogger.LogDebug($"Startup cleanup: removed {duplicates} duplicated images");
-                //         }
-                //     }
-                //     catch (Exception ex)
-                //     {
-                //         AppLogger.LogDebug($"Cleanup error: {ex.Message}");
-                //     }
-                // });
-
                 await RefreshAsync();
-            });
+            }))
+            {
+                AppLogger.LogDebug("Failed to enqueue RefreshAsync - DispatcherQueue may be shutting down");
+            }
         }
 
         /// <summary>
@@ -1292,7 +1274,7 @@ namespace AnSAM
                     {
                         var game = gamesNeedingEnglish[i + j];
                         var tcs = new TaskCompletionSource<bool>();
-                        DispatcherQueue.TryEnqueue(async () =>
+                        bool enqueued = DispatcherQueue.TryEnqueue(async () =>
                         {
                             try
                             {
@@ -1304,6 +1286,13 @@ namespace AnSAM
                                 tcs.SetException(ex);
                             }
                         });
+
+                        if (!enqueued)
+                        {
+                            // DispatcherQueue is shutting down, cancel remaining work
+                            tcs.SetCanceled();
+                        }
+
                         phase2Tasks.Add(tcs.Task);
 
                         // If not English mode, will need target language in Phase 3
@@ -1372,7 +1361,7 @@ namespace AnSAM
                         {
                             var game = gamesNeedingTarget[i + j];
                             var tcs = new TaskCompletionSource<bool>();
-                            DispatcherQueue.TryEnqueue(async () =>
+                            bool enqueued = DispatcherQueue.TryEnqueue(async () =>
                             {
                                 try
                                 {
@@ -1385,6 +1374,13 @@ namespace AnSAM
                                     tcs.SetException(ex);
                                 }
                             });
+
+                            if (!enqueued)
+                            {
+                                // DispatcherQueue is shutting down, cancel remaining work
+                                tcs.SetCanceled();
+                            }
+
                             phase3Tasks.Add(tcs.Task);
                         }
 

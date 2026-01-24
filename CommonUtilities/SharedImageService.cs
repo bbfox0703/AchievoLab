@@ -29,10 +29,11 @@ namespace CommonUtilities
         private readonly HttpClient _httpClient;
         private readonly GameImageCache _cache;
         private readonly bool _disposeHttpClient;
-        private readonly Dictionary<string, string> _imageCache = new();
+        private readonly ConcurrentDictionary<string, string> _imageCache = new();
         private readonly ConcurrentDictionary<string, Task<string?>> _pendingRequests = new();
         private readonly HashSet<string> _completedEvents = new();
         private readonly object _eventLock = new();
+        private readonly object _ctsLock = new();
         private CancellationTokenSource _cts = new();
         private string _currentLanguage = "english";
         private int _requestCount = 0;
@@ -365,7 +366,7 @@ namespace CommonUtilities
                 }
 
                 try { File.Delete(cached); } catch { }
-                _imageCache.Remove(cacheKey);
+                _imageCache.TryRemove(cacheKey, out _);
                 // Don't record as failed download - file was corrupted, not missing
             }
 
@@ -986,17 +987,12 @@ namespace CommonUtilities
             if (specificLanguage != null)
             {
                 _cache.ClearCache(specificLanguage);
-                var keys = new List<string>();
-                foreach (var kv in _imageCache)
+                var keysToRemove = _imageCache.Keys
+                    .Where(k => k.EndsWith($"_{specificLanguage}", StringComparison.Ordinal))
+                    .ToList();
+                foreach (var key in keysToRemove)
                 {
-                    if (kv.Key.EndsWith($"_{specificLanguage}"))
-                    {
-                        keys.Add(kv.Key);
-                    }
-                }
-                foreach (var key in keys)
-                {
-                    _imageCache.Remove(key);
+                    _imageCache.TryRemove(key, out _);
                 }
             }
             else
