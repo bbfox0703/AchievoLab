@@ -199,75 +199,83 @@ namespace AnSAM
         /// <summary>Launches RunGame with a manually entered App ID.</summary>
         private async void LaunchByAppId_Click(object sender, RoutedEventArgs e)
         {
-            var dialog = new ContentDialog
+            try
             {
-                Title = "Launch by App ID",
-                Content = new TextBox
+                var dialog = new ContentDialog
                 {
-                    PlaceholderText = "Enter Steam App ID (e.g., 730 for CS:GO)",
-                    Name = "AppIdInput"
-                },
-                PrimaryButtonText = "Launch",
-                CloseButtonText = "Cancel",
-                DefaultButton = ContentDialogButton.Primary,
-                XamlRoot = Content?.XamlRoot
-            };
+                    Title = "Launch by App ID",
+                    Content = new TextBox
+                    {
+                        PlaceholderText = "Enter Steam App ID (e.g., 730 for CS:GO)",
+                        Name = "AppIdInput"
+                    },
+                    PrimaryButtonText = "Launch",
+                    CloseButtonText = "Cancel",
+                    DefaultButton = ContentDialogButton.Primary,
+                    XamlRoot = Content?.XamlRoot
+                };
 
-            if (Content?.XamlRoot == null)
-                return; // UI not ready
+                if (Content?.XamlRoot == null)
+                    return; // UI not ready
 
-            var result = await dialog.ShowAsync();
-            if (result == ContentDialogResult.Primary)
+                var result = await dialog.ShowAsync();
+                if (result == ContentDialogResult.Primary)
+                {
+                    var textBox = dialog.Content as TextBox;
+                    var input = textBox?.Text?.Trim();
+
+                    if (string.IsNullOrEmpty(input))
+                    {
+                        StatusText.Text = "No App ID entered";
+                        return;
+                    }
+
+                    if (!uint.TryParse(input, out var appId) || appId == 0)
+                    {
+                        StatusText.Text = "Invalid App ID format";
+                        return;
+                    }
+
+                    // Verify ownership and add to usergames.xml
+                    var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab");
+                    bool isOwned = Services.GameCacheService.TryAddUserGame(baseDir, _steamClient, (int)appId);
+
+                    if (!isOwned && _steamClient.Initialized)
+                    {
+                        // User doesn't own this game, but allow launch anyway (for testing/debugging)
+                        StatusText.Text = $"Warning: You don't own App ID {appId}. Launching anyway...";
+                    }
+                    else if (isOwned)
+                    {
+                        StatusText.Text = $"App ID {appId} verified and saved to usergames.xml";
+                    }
+
+                    // Create a temporary GameItem and launch RunGame
+                    var tempGame = new GameItem(
+                        $"App {appId}",     // title
+                        (int)appId,         // id
+                        DispatcherQueue     // dispatcher
+                    );
+
+                    // Set icon to default no_icon.png
+                    tempGame.IconUri = "ms-appx:///Assets/no_icon.png";
+
+                    StartAchievementManager(tempGame);
+
+                    if (isOwned)
+                    {
+                        StatusText.Text = $"Launched App ID {appId} (saved to cache)";
+                    }
+                    else
+                    {
+                        StatusText.Text = $"Launched App ID {appId} (not verified)";
+                    }
+                }
+            }
+            catch (Exception ex)
             {
-                var textBox = dialog.Content as TextBox;
-                var input = textBox?.Text?.Trim();
-
-                if (string.IsNullOrEmpty(input))
-                {
-                    StatusText.Text = "No App ID entered";
-                    return;
-                }
-
-                if (!uint.TryParse(input, out var appId) || appId == 0)
-                {
-                    StatusText.Text = "Invalid App ID format";
-                    return;
-                }
-
-                // Verify ownership and add to usergames.xml
-                var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab");
-                bool isOwned = Services.GameCacheService.TryAddUserGame(baseDir, _steamClient, (int)appId);
-
-                if (!isOwned && _steamClient.Initialized)
-                {
-                    // User doesn't own this game, but allow launch anyway (for testing/debugging)
-                    StatusText.Text = $"Warning: You don't own App ID {appId}. Launching anyway...";
-                }
-                else if (isOwned)
-                {
-                    StatusText.Text = $"App ID {appId} verified and saved to usergames.xml";
-                }
-
-                // Create a temporary GameItem and launch RunGame
-                var tempGame = new GameItem(
-                    $"App {appId}",     // title
-                    (int)appId,         // id
-                    DispatcherQueue     // dispatcher
-                );
-
-                // Set icon to default no_icon.png
-                tempGame.IconUri = "ms-appx:///Assets/no_icon.png";
-
-                StartAchievementManager(tempGame);
-
-                if (isOwned)
-                {
-                    StatusText.Text = $"Launched App ID {appId} (saved to cache)";
-                }
-                else
-                {
-                    StatusText.Text = $"Launched App ID {appId} (not verified)";
-                }
+                AppLogger.LogDebug($"LaunchByAppId_Click error: {ex}");
+                StatusText.Text = "Failed to launch by App ID";
             }
         }
 
@@ -292,14 +300,15 @@ namespace AnSAM
 
                 AppLogger.LogDebug($"Language changed from {_currentLanguage} to {lang}");
 
-                // CRITICAL: Wait for any previous language switch to complete before starting new one
-                // This prevents hang/crash when switching while downloads are in progress
-                // By NOT cancelling previous switches, we ensure each switch completes fully
-                // This prevents UI inconsistency where titles/images are from different languages
-                await _languageSwitchLock.WaitAsync();
-
+                bool lockAcquired = false;
                 try
                 {
+                    // CRITICAL: Wait for any previous language switch to complete before starting new one
+                    // This prevents hang/crash when switching while downloads are in progress
+                    // By NOT cancelling previous switches, we ensure each switch completes fully
+                    // This prevents UI inconsistency where titles/images are from different languages
+                    await _languageSwitchLock.WaitAsync();
+                    lockAcquired = true;
                     // Create a new CancellationTokenSource for THIS switch only
                     // We no longer cancel previous switches - they complete naturally via mutex serialization
                     var cts = new CancellationTokenSource();
@@ -379,11 +388,30 @@ namespace AnSAM
                         _isLanguageSwitching = false;
                     }
                 }
+                catch (ObjectDisposedException)
+                {
+                    // Lock was disposed during shutdown, ignore
+                    AppLogger.LogDebug("Language switch lock disposed during operation");
+                }
+                catch (Exception ex)
+                {
+                    AppLogger.LogDebug($"LanguageComboBox_SelectionChanged unexpected error: {ex}");
+                }
                 finally
                 {
                     // CRITICAL: Always release the mutex lock, even if cancelled or error occurred
-                    _languageSwitchLock.Release();
-                    AppLogger.LogDebug($"Language switch lock released for {lang}");
+                    if (lockAcquired)
+                    {
+                        try
+                        {
+                            _languageSwitchLock.Release();
+                            AppLogger.LogDebug($"Language switch lock released for {lang}");
+                        }
+                        catch (ObjectDisposedException)
+                        {
+                            // Lock was disposed, ignore
+                        }
+                    }
                 }
             }
         }
@@ -1149,15 +1177,17 @@ namespace AnSAM
         /// <param name="progressContext">The progress context to use (InitialLoad or LanguageSwitch)</param>
         private async void StartSequentialImageLoading(ProgressContext progressContext = ProgressContext.InitialLoad)
         {
-            // Cancel any previous sequential loading
-            var oldCts = _sequentialLoadCts;
-            _sequentialLoadCts = new CancellationTokenSource();
-            oldCts.Cancel();
-            oldCts.Dispose();
+            try
+            {
+                // Cancel any previous sequential loading
+                var oldCts = _sequentialLoadCts;
+                _sequentialLoadCts = new CancellationTokenSource();
+                oldCts.Cancel();
+                oldCts.Dispose();
 
-            var ct = _sequentialLoadCts.Token;
-            var currentLanguage = _currentLanguage;
-            bool isEnglish = string.Equals(currentLanguage, "english", StringComparison.OrdinalIgnoreCase);
+                var ct = _sequentialLoadCts.Token;
+                var currentLanguage = _currentLanguage;
+                bool isEnglish = string.Equals(currentLanguage, "english", StringComparison.OrdinalIgnoreCase);
 
 #if DEBUG
             AppLogger.LogDebug($"StartSequentialImageLoading: THREE-PHASE loading for {_allGames.Count} games in {currentLanguage}");
@@ -1405,13 +1435,19 @@ namespace AnSAM
                 }
             }
 
-            // Clear progress and reset status text
-            ClearProgress(progressContext);
-            DispatcherQueue.TryEnqueue(() => StatusText.Text = "Ready");
+                // Clear progress and reset status text
+                ClearProgress(progressContext);
+                DispatcherQueue.TryEnqueue(() => StatusText.Text = "Ready");
 
 #if DEBUG
-            AppLogger.LogDebug("Sequential image loading completed");
+                AppLogger.LogDebug("Sequential image loading completed");
 #endif
+            }
+            catch (Exception ex)
+            {
+                AppLogger.LogDebug($"StartSequentialImageLoading error: {ex}");
+                ClearProgress(progressContext);
+            }
         }
 
         /// <summary>

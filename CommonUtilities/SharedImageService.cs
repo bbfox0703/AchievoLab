@@ -37,6 +37,7 @@ namespace CommonUtilities
         private CancellationTokenSource _cts = new();
         private string _currentLanguage = "english";
         private int _requestCount = 0;
+        private volatile bool _disposed = false;
 
         // Concurrency limiter to prevent resource exhaustion
         private const int MAX_CONCURRENT_DOWNLOADS = 10;
@@ -466,9 +467,19 @@ namespace CommonUtilities
         /// </remarks>
         private async Task<string?> TryDownloadLanguageSpecificImageAsync(int appId, string language, string cacheKey)
         {
+            // Early exit if disposed
+            if (_disposed) return null;
 
             // Wait for available download slot
             await _downloadSemaphore.WaitAsync(_cts.Token);
+
+            // Check again after acquiring semaphore in case Dispose was called while waiting
+            if (_disposed)
+            {
+                try { _downloadSemaphore.Release(); } catch { }
+                return null;
+            }
+
             var pending = _pendingRequests.Count;
             var available = _downloadSemaphore.CurrentCount;
             AppLogger.LogDebug($"Starting download for {appId} ({language}) - Pending: {pending}, Available slots: {available}");
@@ -648,8 +659,19 @@ namespace CommonUtilities
         /// </remarks>
         private async Task<string?> TryDownloadEnglishImageAsync(int appId, string cacheKey)
         {
+            // Early exit if disposed
+            if (_disposed) return null;
+
             // Wait for available download slot
             await _downloadSemaphore.WaitAsync(_cts.Token);
+
+            // Check again after acquiring semaphore in case Dispose was called while waiting
+            if (_disposed)
+            {
+                try { _downloadSemaphore.Release(); } catch { }
+                return null;
+            }
+
             var pending = _pendingRequests.Count;
             var available = _downloadSemaphore.CurrentCount;
             AppLogger.LogDebug($"Starting English download for {appId} - Pending: {pending}, Available slots: {available}");
@@ -1031,6 +1053,7 @@ namespace CommonUtilities
         /// </remarks>
         public void Dispose()
         {
+            _disposed = true;
             _cts.Cancel();
             _cts.Dispose();
             _downloadSemaphore.Dispose();
