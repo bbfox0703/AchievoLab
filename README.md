@@ -92,6 +92,36 @@ To get localized game title data:
 
 The `SteamMaxCallsPerMinute` and `SteamJitter*` values let you tune Steam-specific throttling separately from the general settings.
 
+## Backup and Migration
+
+All cache data is stored in `%LocalAppData%\AchievoLab\`. To backup or transfer to another PC, copy the entire folder.
+
+### Folder Structure
+
+```
+%LocalAppData%\AchievoLab\
+  cache\
+    steam_games.xml           # Game list and metadata
+    games_image_failed_log.xml # Failed download tracking
+  ImageCache\
+    english\                  # Cover images by language
+    tchinese\
+    japanese\
+    ...
+  Achievement_IconCache\
+    <AppId>\                  # Achievement icons per game
+```
+
+### How to Migrate
+
+1. On the source PC, close all AchievoLab applications.
+2. Copy the `%LocalAppData%\AchievoLab` folder to a USB drive or network location.
+3. On the target PC, paste the folder to `%LocalAppData%\AchievoLab`.
+
+You can open `%LocalAppData%` by pressing `Win+R` and typing `%LocalAppData%`.
+
+Note: The `games_image_failed_log.xml` file can be deleted if you want to retry all previously failed image downloads on the new PC.
+
 ## Configuration
 
 Each application has an `appsettings.json` file for tuning behavior. Below are key settings:
