@@ -60,8 +60,7 @@ public class ImageFailureTrackingServiceTests
             // First failure
             tracker.RecordFailedDownload(appId, "tchinese", "TestGame1");
             var records = tracker.GetFailedRecords();
-            var record = records.FirstOrDefault(r => r.AppId == appId && r.Language == "tchinese");
-            Assert.NotNull(record);
+            Assert.Contains(records, r => r.AppId == appId && r.Language == "tchinese");
 
             // Read XML to check FailureCount
             var doc = XDocument.Load(tracker.GetXmlFilePath());
