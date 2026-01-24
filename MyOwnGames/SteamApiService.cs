@@ -320,7 +320,7 @@ namespace MyOwnGames
                     AppLogger.LogDebug($"No localized name available for {appId} in {targetLanguage}, using English fallback");
                 }
             }
-            catch (HttpRequestException ex) when (ex.Message.Contains("429") || ex.Message.Contains("Too Many Requests") || ex.Message.Contains("rate limit", StringComparison.OrdinalIgnoreCase))
+            catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
             {
                 // 429 already recorded by GetStringWithRateLimitCheckAsync, Steam API blocked for 30 minutes
                 AppLogger.LogDebug($"Rate limited when getting localized name for {appId}, using English fallback. Steam API blocked for 30 minutes.");

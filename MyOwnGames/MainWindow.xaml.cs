@@ -482,16 +482,16 @@ namespace MyOwnGames
 
                 // If we're selecting non-English language but have games missing English names,
                 // we need to force English data update first
-                bool needsEnglishUpdate = selectedLanguage != "english" && 
+                bool needsEnglishUpdate = selectedLanguage != "english" &&
                                         (existingGamesData.Count == 0 || gamesMissingEnglishNames.Count > 0);
-                
+
+                // Create Steam API service early so it's available for both English update and main scan
+                _steamService = new SteamApiService(apiKey!);
+
                 if (needsEnglishUpdate)
                 {
                     AppendLog($"Found {gamesMissingEnglishNames.Count} games missing English names. Forcing English data update first...");
                     StatusText = "First updating English game names (required for localization)...";
-
-                    // Force English update first with batch writing
-                    ArgumentNullException.ThrowIfNull(_steamService);
                     var englishBatchBuffer = new List<SteamGame>();
                     const int batchSize = 100; // Write every 100 games to reduce lock contention
 
@@ -545,8 +545,7 @@ namespace MyOwnGames
                     ? "Scanning all games..."
                     : $"Scanning all games for {selectedLanguage} language data (this will be slower to avoid Steam API rate limits)...";
 
-                // Use real Steam API service with selected language with batch writing
-                _steamService = new SteamApiService(apiKey!);
+                // Use the Steam API service created earlier with batch writing
                 var languageBatchBuffer = new List<SteamGame>();
                 const int languageBatchSize = 100; // Write every 100 games to reduce lock contention
 

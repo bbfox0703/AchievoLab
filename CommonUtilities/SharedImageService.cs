@@ -29,13 +29,15 @@ namespace CommonUtilities
         private readonly HttpClient _httpClient;
         private readonly GameImageCache _cache;
         private readonly bool _disposeHttpClient;
-        private readonly Dictionary<string, string> _imageCache = new();
+        private readonly ConcurrentDictionary<string, string> _imageCache = new();
         private readonly ConcurrentDictionary<string, Task<string?>> _pendingRequests = new();
         private readonly HashSet<string> _completedEvents = new();
         private readonly object _eventLock = new();
+        private readonly object _ctsLock = new();
         private CancellationTokenSource _cts = new();
         private string _currentLanguage = "english";
         private int _requestCount = 0;
+        private volatile bool _disposed = false;
 
         // Concurrency limiter to prevent resource exhaustion
         private const int MAX_CONCURRENT_DOWNLOADS = 10;
@@ -108,7 +110,7 @@ namespace CommonUtilities
                     try
                     {
                         // Wait up to 5 seconds for pending requests to complete/cancel
-                        await Task.WhenAny(Task.WhenAll(pending), Task.Delay(5000));
+                        await Task.WhenAny(Task.WhenAll(pending), Task.Delay(5000)).ConfigureAwait(false);
                         AppLogger.LogDebug($"Pending downloads completed or timed out");
                     }
                     catch (Exception ex)
@@ -365,7 +367,7 @@ namespace CommonUtilities
                 }
 
                 try { File.Delete(cached); } catch { }
-                _imageCache.Remove(cacheKey);
+                _imageCache.TryRemove(cacheKey, out _);
                 // Don't record as failed download - file was corrupted, not missing
             }
 
@@ -409,11 +411,11 @@ namespace CommonUtilities
                 }
 
                 // Fall back to English
-                return await TryEnglishFallbackAsync(appId, language, cacheKey);
+                return await TryEnglishFallbackAsync(appId, language, cacheKey).ConfigureAwait(false);
             }
 
             // Step 4: Try to download language-specific image
-            var downloadResult = await TryDownloadLanguageSpecificImageAsync(appId, language, cacheKey);
+            var downloadResult = await TryDownloadLanguageSpecificImageAsync(appId, language, cacheKey).ConfigureAwait(false);
             if (downloadResult != null)
             {
                 // Step 5: Download successful - remove failure record if exists and return
@@ -444,7 +446,7 @@ namespace CommonUtilities
             // Step 8: English fallback logic (only for non-English languages)
             if (!string.Equals(language, "english", StringComparison.OrdinalIgnoreCase))
             {
-                return await TryEnglishFallbackAsync(appId, language, cacheKey);
+                return await TryEnglishFallbackAsync(appId, language, cacheKey).ConfigureAwait(false);
             }
 
             // If we reach here, English download failed - return fallback image
@@ -465,9 +467,19 @@ namespace CommonUtilities
         /// </remarks>
         private async Task<string?> TryDownloadLanguageSpecificImageAsync(int appId, string language, string cacheKey)
         {
+            // Early exit if disposed
+            if (_disposed) return null;
 
             // Wait for available download slot
-            await _downloadSemaphore.WaitAsync(_cts.Token);
+            await _downloadSemaphore.WaitAsync(_cts.Token).ConfigureAwait(false);
+
+            // Check again after acquiring semaphore in case Dispose was called while waiting
+            if (_disposed)
+            {
+                try { _downloadSemaphore.Release(); } catch { }
+                return null;
+            }
+
             var pending = _pendingRequests.Count;
             var available = _downloadSemaphore.CurrentCount;
             AppLogger.LogDebug($"Starting download for {appId} ({language}) - Pending: {pending}, Available slots: {available}");
@@ -511,7 +523,7 @@ namespace CommonUtilities
                 return result;
             }
 
-            var header = await GetHeaderImageFromStoreApiAsync(appId, language, _cts.Token);
+            var header = await GetHeaderImageFromStoreApiAsync(appId, language, _cts.Token).ConfigureAwait(false);
             if (!string.IsNullOrEmpty(header))
             {
                 AddUrl(languageSpecificUrlMap, header);
@@ -549,7 +561,7 @@ namespace CommonUtilities
                 var languageUrls = RoundRobin(languageSpecificUrlMap);
 
                 // Use CDN load balancer with failover strategy
-                var result = await TryDownloadWithCdnFailover(appId.ToString(), languageUrls, language, appId, _cts.Token);
+                var result = await TryDownloadWithCdnFailover(appId.ToString(), languageUrls, language, appId, _cts.Token).ConfigureAwait(false);
 
                 if (!string.IsNullOrEmpty(result?.Path) && IsFreshImage(result.Value.Path))
                 {
@@ -614,7 +626,7 @@ namespace CommonUtilities
             }
 
             // Try to download fresh English image
-            var englishDownloadResult = await TryDownloadEnglishImageAsync(appId, cacheKey);
+            var englishDownloadResult = await TryDownloadEnglishImageAsync(appId, cacheKey).ConfigureAwait(false);
             if (englishDownloadResult != null)
             {
                 AppLogger.LogDebug($"Downloaded fresh English image for {appId}");
@@ -647,8 +659,19 @@ namespace CommonUtilities
         /// </remarks>
         private async Task<string?> TryDownloadEnglishImageAsync(int appId, string cacheKey)
         {
+            // Early exit if disposed
+            if (_disposed) return null;
+
             // Wait for available download slot
-            await _downloadSemaphore.WaitAsync(_cts.Token);
+            await _downloadSemaphore.WaitAsync(_cts.Token).ConfigureAwait(false);
+
+            // Check again after acquiring semaphore in case Dispose was called while waiting
+            if (_disposed)
+            {
+                try { _downloadSemaphore.Release(); } catch { }
+                return null;
+            }
+
             var pending = _pendingRequests.Count;
             var available = _downloadSemaphore.CurrentCount;
             AppLogger.LogDebug($"Starting English download for {appId} - Pending: {pending}, Available slots: {available}");
@@ -693,7 +716,7 @@ namespace CommonUtilities
             }
 
             // Get English header from Store API
-            var header = await GetHeaderImageFromStoreApiAsync(appId, "english", _cts.Token);
+            var header = await GetHeaderImageFromStoreApiAsync(appId, "english", _cts.Token).ConfigureAwait(false);
             if (!string.IsNullOrEmpty(header))
             {
                 AddUrl(languageSpecificUrlMap, header);
@@ -711,7 +734,7 @@ namespace CommonUtilities
                 var englishUrls = RoundRobin(languageSpecificUrlMap);
 
                 // Use CDN load balancer with failover strategy
-                var result = await TryDownloadWithCdnFailover(appId.ToString(), englishUrls, "english", appId, _cts.Token);
+                var result = await TryDownloadWithCdnFailover(appId.ToString(), englishUrls, "english", appId, _cts.Token).ConfigureAwait(false);
 
                 if (!string.IsNullOrEmpty(result?.Path) && IsFreshImage(result.Value.Path))
                 {
@@ -816,13 +839,13 @@ namespace CommonUtilities
             try
             {
                 var storeApiUrl = $"https://store.steampowered.com/api/appdetails?appids={appId}&l={language}";
-                using var response = await _httpClient.GetAsync(storeApiUrl, cancellationToken);
+                using var response = await _httpClient.GetAsync(storeApiUrl, cancellationToken).ConfigureAwait(false);
                 if (!response.IsSuccessStatusCode)
                 {
                     return null;
                 }
 
-                var jsonContent = await response.Content.ReadAsStringAsync();
+                var jsonContent = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
                 var storeData = JsonSerializer.Deserialize(jsonContent, StoreApiJsonContext.Default.DictionaryStringStoreApiResponse);
 
                 if (storeData != null && storeData.TryGetValue(appId.ToString(), out var app) && app.Success)
@@ -921,7 +944,7 @@ namespace CommonUtilities
                         language,
                         failureId,
                         cancellationToken,
-                        checkEnglishFallback: false);
+                        checkEnglishFallback: false).ConfigureAwait(false);
 
                     if (!string.IsNullOrEmpty(result.Path))
                     {
@@ -936,14 +959,12 @@ namespace CommonUtilities
                     }
                 }
                 catch (HttpRequestException ex) when (
-                    ex.Message.Contains("429", StringComparison.OrdinalIgnoreCase) ||
-                    ex.Message.Contains("TooManyRequests", StringComparison.OrdinalIgnoreCase) ||
-                    ex.Message.Contains("403", StringComparison.OrdinalIgnoreCase) ||
-                    ex.Message.Contains("Forbidden", StringComparison.OrdinalIgnoreCase))
+                    ex.StatusCode == System.Net.HttpStatusCode.TooManyRequests ||
+                    ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
                 {
-                    // CDN returned rate limit error, mark as blocked
+                    // CDN returned rate limit or forbidden error, mark as blocked
                     _cdnLoadBalancer.RecordBlockedDomain(domain, TimeSpan.FromMinutes(5));
-                    AppLogger.LogDebug($"CDN {domain} returned rate limit error ({ex.Message}), marking as blocked");
+                    AppLogger.LogDebug($"CDN {domain} returned {ex.StatusCode} error, marking as blocked");
                 }
                 catch (Exception ex)
                 {
@@ -986,17 +1007,12 @@ namespace CommonUtilities
             if (specificLanguage != null)
             {
                 _cache.ClearCache(specificLanguage);
-                var keys = new List<string>();
-                foreach (var kv in _imageCache)
+                var keysToRemove = _imageCache.Keys
+                    .Where(k => k.EndsWith($"_{specificLanguage}", StringComparison.Ordinal))
+                    .ToList();
+                foreach (var key in keysToRemove)
                 {
-                    if (kv.Key.EndsWith($"_{specificLanguage}"))
-                    {
-                        keys.Add(kv.Key);
-                    }
-                }
-                foreach (var key in keys)
-                {
-                    _imageCache.Remove(key);
+                    _imageCache.TryRemove(key, out _);
                 }
             }
             else
@@ -1035,6 +1051,7 @@ namespace CommonUtilities
         /// </remarks>
         public void Dispose()
         {
+            _disposed = true;
             _cts.Cancel();
             _cts.Dispose();
             _downloadSemaphore.Dispose();

@@ -179,7 +179,7 @@ namespace CommonUtilities
                     }
 
                     // Small async delay before retry
-                    await Task.Delay(50, cancellationToken);
+                    await Task.Delay(50, cancellationToken).ConfigureAwait(false);
                 }
 
                 // Only log final timeout message

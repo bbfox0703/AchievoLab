@@ -592,7 +592,7 @@ namespace CommonUtilities
                 catch (HttpRequestException ex)
                 {
                     // Check if it's a 404 - this is expected for many localized images
-                    bool isNotFound = ex.Message.Contains("NotFound", StringComparison.OrdinalIgnoreCase);
+                    bool isNotFound = ex.StatusCode == System.Net.HttpStatusCode.NotFound;
                     RecordError(uri, isNotFound);
 
                     if (isNotFound)
@@ -604,7 +604,7 @@ namespace CommonUtilities
                     }
                     else
                     {
-                        AppLogger.LogDebug($"HTTP request failed for {uri}: {ex.Message}");
+                        AppLogger.LogDebug($"HTTP request failed for {uri}: {ex.StatusCode} - {ex.Message}");
                         if (failureId.HasValue)
                         {
                             _failureTracker?.RecordFailedDownload(failureId.Value, language);
