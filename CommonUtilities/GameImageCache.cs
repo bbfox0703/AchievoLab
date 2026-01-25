@@ -22,7 +22,8 @@ namespace CommonUtilities
         /// </summary>
         /// <param name="Path">The absolute file path to the image, or empty string if retrieval failed.</param>
         /// <param name="Downloaded">True if the image was freshly downloaded from a CDN; false if loaded from cache or failed.</param>
-        public readonly record struct ImageResult(string Path, bool Downloaded);
+        /// <param name="IsNotFound">True if the image was not found (404); false otherwise. Used to distinguish "image doesn't exist" from "CDN failure".</param>
+        public readonly record struct ImageResult(string Path, bool Downloaded, bool IsNotFound = false);
 
         private readonly string _baseCacheDir;
         private readonly HttpClient _http;
@@ -250,12 +251,29 @@ namespace CommonUtilities
                 ext = ".jpg";
             }
 
-            return _inFlight.GetOrAdd(basePath, _ =>
+            // Use a wrapper task that ensures the key is added to _inFlight BEFORE DownloadAsync starts
+            // This fixes a race condition where synchronous HTTP handlers (like in tests) would cause
+            // DownloadAsync to complete before GetOrAdd returns, making TryRemove fail
+            var task = _inFlight.GetOrAdd(basePath, _ =>
             {
                 Interlocked.Increment(ref _totalRequests);
                 ReportProgress();
-                return DownloadAsync(cacheKey, language, uri, basePath, ext, failureId, cancellationToken);
+                // Wrap in Task.Run to ensure the task is added to _inFlight before execution starts
+                return Task.Run(async () =>
+                {
+                    try
+                    {
+                        return await DownloadAsync(cacheKey, language, uri, basePath, ext, failureId, cancellationToken).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        _inFlight.TryRemove(basePath, out Task<ImageResult>? _);
+                        Interlocked.Increment(ref _completed);
+                        ReportProgress();
+                    }
+                }, cancellationToken);
             });
+            return task;
         }
 
         /// <summary>
@@ -283,7 +301,6 @@ namespace CommonUtilities
             var urlList = uris as IList<string> ?? uris.ToList();
             int notFoundCount = 0;
             var totalUrls = urlList.Count;
-            
 
             foreach (var url in urlList)
             {
@@ -295,8 +312,9 @@ namespace CommonUtilities
                         return result;
                     }
 
-                    // Check if this was a 404 (we can detect this by checking the last error)
-                    if (IsRecentNotFoundError(uri))
+                    // Check if this was a 404 - use result.IsNotFound directly instead of _lastErrors lookup
+                    // because each URL has a different key in _lastErrors
+                    if (result.IsNotFound)
                     {
                         notFoundCount++;
                         AppLogger.LogDebug($"404 count for {cacheKey} in {language}: {notFoundCount}/{totalUrls}");
@@ -450,7 +468,9 @@ namespace CommonUtilities
                         return new ImageResult(result.Path, true);
                     }
 
-                    if (IsRecentNotFoundError(uri))
+                    // Use result.IsNotFound directly instead of _lastErrors lookup
+                    // because each URL has a different key in _lastErrors
+                    if (result.IsNotFound)
                     {
                         notFoundCount++;
                     }
@@ -557,11 +577,11 @@ namespace CommonUtilities
                     if (response.StatusCode == HttpStatusCode.TooManyRequests || response.StatusCode == HttpStatusCode.Forbidden)
                     {
                         retryDelay = ParseRetryAfter(response);
-                        throw new HttpRequestException($"Failed: {response.StatusCode}");
+                        throw new HttpRequestException($"Failed: {response.StatusCode}", null, response.StatusCode);
                     }
                     if (!response.IsSuccessStatusCode)
                     {
-                        throw new HttpRequestException($"Failed: {response.StatusCode}");
+                        throw new HttpRequestException($"Failed: {response.StatusCode}", null, response.StatusCode);
                     }
 
                     var mime = response.Content.Headers.ContentType?.MediaType;
@@ -600,7 +620,7 @@ namespace CommonUtilities
                         AppLogger.LogDebug($"Image not found at {uri} (404) - will try fallback");
                         // Don't record 404 as a failure for tracking purposes
                         success = true;
-                        return new ImageResult(string.Empty, false);
+                        return new ImageResult(string.Empty, false, IsNotFound: true);
                     }
                     else
                     {
@@ -680,9 +700,8 @@ namespace CommonUtilities
                     // Semaphore was disposed (app shutting down or language switch), ignore
                     AppLogger.LogDebug($"Semaphore already disposed for {uri}, skipping release");
                 }
-                _inFlight.TryRemove(basePath, out _);
-                Interlocked.Increment(ref _completed);
-                ReportProgress();
+                // Note: _inFlight cleanup, _completed increment, and ReportProgress() are now handled
+                // in the wrapper task in GetImagePathAsync to avoid a race condition
             }
         }
 
