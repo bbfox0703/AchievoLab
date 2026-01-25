@@ -413,9 +413,15 @@ namespace RunGame
                 int processed = 0;
                 foreach (var achievement in _allAchievements)
                 {
+                    // Search in localized name/description AND English name/description
                     bool matchesSearch = string.IsNullOrEmpty(searchText) ||
                         achievement.Name.IndexOf(searchText, StringComparison.OrdinalIgnoreCase) >= 0 ||
-                        achievement.Description.IndexOf(searchText, StringComparison.OrdinalIgnoreCase) >= 0;
+                        achievement.Description.IndexOf(searchText, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        (!string.IsNullOrEmpty(achievement.EnglishName) &&
+                         achievement.EnglishName.IndexOf(searchText, StringComparison.OrdinalIgnoreCase) >= 0) ||
+                        (!string.IsNullOrEmpty(achievement.EnglishDescription) &&
+                         achievement.EnglishDescription.IndexOf(searchText, StringComparison.OrdinalIgnoreCase) >= 0) ||
+                        achievement.Id.IndexOf(searchText, StringComparison.OrdinalIgnoreCase) >= 0;
 
                     bool matchesFilter = (!showLockedOnly && !showUnlockedOnly) ||
                         (showLockedOnly && !achievement.IsAchieved) ||

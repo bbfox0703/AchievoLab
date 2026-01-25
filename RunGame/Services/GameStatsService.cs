@@ -347,7 +347,7 @@ namespace RunGame.Services
         {
             if (stat.Children == null) return;
 
-            foreach (var bits in stat.Children.Where(b => 
+            foreach (var bits in stat.Children.Where(b =>
                 string.Compare(b.Name, "bits", StringComparison.InvariantCultureIgnoreCase) == 0))
             {
                 if (!bits.Valid || bits.Children == null) continue;
@@ -358,18 +358,24 @@ namespace RunGame.Services
                     string name = GetLocalizedString(bit["display"]["name"], currentLanguage, id);
                     string desc = GetLocalizedString(bit["display"]["desc"], currentLanguage, "");
 
-                    AppLogger.LogDebug($"Achievement parsed - ID: {id}, Name: '{name}', Desc: '{desc}', Language: {currentLanguage}");
+                    // Always get English names for search purposes
+                    string englishName = GetLocalizedString(bit["display"]["name"], "english", id);
+                    string englishDesc = GetLocalizedString(bit["display"]["desc"], "english", "");
+
+                    AppLogger.LogDebug($"Achievement parsed - ID: {id}, Name: '{name}', EnglishName: '{englishName}', Language: {currentLanguage}");
 
                     string iconNormal = bit["display"]["icon"].AsString("");
                     string iconLocked = bit["display"]["icon_gray"].AsString("");
-                    
+
                     AppLogger.LogDebug($"Achievement {id} icons - Normal: '{iconNormal}', Locked: '{iconLocked}'");
-                    
+
                     _achievementDefinitions.Add(new AchievementDefinition
                     {
                         Id = id,
                         Name = name,
+                        EnglishName = englishName,
                         Description = desc,
+                        EnglishDescription = englishDesc,
                         IconNormal = iconNormal,
                         IconLocked = iconLocked,
                         IsHidden = bit["display"]["hidden"].AsBoolean(false),
@@ -446,16 +452,18 @@ namespace RunGame.Services
                     {
                         Id = def.Id,
                         Name = def.Name,
+                        EnglishName = def.EnglishName,
                         Description = def.Description,
+                        EnglishDescription = def.EnglishDescription,
                         IsAchieved = isAchieved,
-                        UnlockTime = isAchieved && unlockTime > 0 
-                            ? DateTimeOffset.FromUnixTimeSeconds(unlockTime).LocalDateTime 
+                        UnlockTime = isAchieved && unlockTime > 0
+                            ? DateTimeOffset.FromUnixTimeSeconds(unlockTime).LocalDateTime
                             : null,
                         IconNormal = def.IconNormal,
                         IconLocked = string.IsNullOrEmpty(def.IconLocked) ? def.IconNormal : def.IconLocked,
                         Permission = def.Permission
                     };
-                    
+
                     AppLogger.LogDebug($"Achievement created - ID: {achievement.Id}, Name: '{achievement.Name}', IsAchieved: {achievement.IsAchieved}");
                     achievements.Add(achievement);
                 }
