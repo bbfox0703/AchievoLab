@@ -952,6 +952,13 @@ namespace CommonUtilities
                         AppLogger.LogDebug($"Successfully downloaded from {domain}");
                         return result;
                     }
+                    else if (result.IsNotFound)
+                    {
+                        // 404 means image doesn't exist on any CDN - not a CDN failure
+                        // Record as success since the CDN responded correctly
+                        _cdnLoadBalancer.RecordSuccess(domain);
+                        AppLogger.LogDebug($"Image not found on {domain} (404) - trying next CDN");
+                    }
                     else
                     {
                         _cdnLoadBalancer.RecordFailure(domain);

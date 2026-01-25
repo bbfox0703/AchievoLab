@@ -172,7 +172,9 @@ public class GameImageCacheTests : IDisposable
             listener.Stop();
         });
 
-        var result = await _cache.GetImagePathAsync(id.ToString(), new[] { prefix + "bad.png" }, language, id);
+        // Disable English fallback since we're testing that invalid downloads are ignored,
+        // not the fallback behavior (which would make real network requests to Steam CDN)
+        var result = await _cache.GetImagePathAsync(id.ToString(), new[] { prefix + "bad.png" }, language, id, tryEnglishFallback: false);
         await serverTask;
         Assert.Null(result);
         Assert.Empty(Directory.EnumerateFiles(Path.Combine(_baseCacheDir, language), $"{id}.*"));
@@ -459,7 +461,8 @@ public class GameImageCacheTests : IDisposable
         Assert.Null(result);
         Assert.True(tracker.ShouldSkipDownload(id, language));
         Assert.True(tracker.ShouldSkipDownload(id, "english"));
-        Assert.Equal(5, handler.RequestCount);
+        // 2 Spanish URLs + 3 English header URLs + 2 English logo URLs = 7 requests
+        Assert.Equal(7, handler.RequestCount);
 
         var logos = new[]
         {
@@ -469,7 +472,8 @@ public class GameImageCacheTests : IDisposable
 
         var logoResult = await cache.GetImagePathAsync(id.ToString(), logos, language, id);
         Assert.Null(logoResult);
-        Assert.Equal(5, handler.RequestCount);
+        // Should skip download because both spanish and english are already marked as failed
+        Assert.Equal(7, handler.RequestCount);
 
         tracker.RemoveFailedRecord(id, language);
         tracker.RemoveFailedRecord(id, "english");
