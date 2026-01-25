@@ -17,9 +17,19 @@ namespace RunGame.Models
         public string Name { get; set; } = string.Empty;
 
         /// <summary>
+        /// Gets or sets the English display name of the achievement for search purposes.
+        /// </summary>
+        public string EnglishName { get; set; } = string.Empty;
+
+        /// <summary>
         /// Gets or sets the localized description of the achievement.
         /// </summary>
         public string Description { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Gets or sets the English description of the achievement for search purposes.
+        /// </summary>
+        public string EnglishDescription { get; set; } = string.Empty;
 
         /// <summary>
         /// Gets or sets the file path to the unlocked/achieved icon image.

@@ -413,9 +413,15 @@ namespace RunGame
                 int processed = 0;
                 foreach (var achievement in _allAchievements)
                 {
+                    // Search in localized name/description AND English name/description
                     bool matchesSearch = string.IsNullOrEmpty(searchText) ||
                         achievement.Name.IndexOf(searchText, StringComparison.OrdinalIgnoreCase) >= 0 ||
-                        achievement.Description.IndexOf(searchText, StringComparison.OrdinalIgnoreCase) >= 0;
+                        achievement.Description.IndexOf(searchText, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        (!string.IsNullOrEmpty(achievement.EnglishName) &&
+                         achievement.EnglishName.IndexOf(searchText, StringComparison.OrdinalIgnoreCase) >= 0) ||
+                        (!string.IsNullOrEmpty(achievement.EnglishDescription) &&
+                         achievement.EnglishDescription.IndexOf(searchText, StringComparison.OrdinalIgnoreCase) >= 0) ||
+                        achievement.Id.IndexOf(searchText, StringComparison.OrdinalIgnoreCase) >= 0;
 
                     bool matchesFilter = (!showLockedOnly && !showUnlockedOnly) ||
                         (showLockedOnly && !achievement.IsAchieved) ||
@@ -443,6 +449,9 @@ namespace RunGame
             {
                 _achievements.Add(achievement);
             }
+
+            // Restore timer display state for filtered achievements
+            UpdateScheduledTimesDisplay();
         }
 
         private void LoadStatistics()
@@ -1385,8 +1394,11 @@ namespace RunGame
             if (_achievementTimerService == null) return;
 
             var scheduledAchievements = _achievementTimerService.GetAllScheduledAchievements();
-            
-            foreach (var achievement in _achievements)
+
+            // Update _allAchievements to ensure timer state is preserved across filter changes
+            // Since _achievements contains references to objects in _allAchievements,
+            // updating _allAchievements will also update the filtered view
+            foreach (var achievement in _allAchievements)
             {
                 if (scheduledAchievements.TryGetValue(achievement.Id, out var scheduledTime))
                 {
