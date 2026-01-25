@@ -794,6 +794,16 @@ namespace MyOwnGames
                 }
 
                 var stats = _imageService.GetCdnStats();
+                var pendingCount = _imageService.GetPendingRequestsCount();
+                var hasActiveDownloads = pendingCount > 0 || stats.Values.Any(s => s.Active > 0);
+
+                // Reset status when no active downloads
+                if (!hasActiveDownloads)
+                {
+                    StatusCdn.Text = string.Empty;
+                    return;
+                }
+
                 StatusCdn.Text = CdnStatsFormatter.FormatCdnStats(stats);
             }
             catch (ObjectDisposedException)
