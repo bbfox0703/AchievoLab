@@ -15,6 +15,7 @@ A 64-bit Steam achievement management GUI built with WinUI 3 and .NET 10, compat
 - CDN load balancing with real-time statistics display for optimized image downloads.
 - Image failure tracking with exponential backoff to avoid repeated failed requests.
 - Scheduled achievement unlocks with intelligent batching (RunGame).
+- Real-time icon updates when achievements are unlocked (via timer or manual toggle).
 - Anti-idle mouse movement to prevent Steam from marking you as away (RunGame).
 
 ## Technical Notes
