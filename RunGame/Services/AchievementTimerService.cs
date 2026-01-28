@@ -28,6 +28,12 @@ namespace RunGame.Services
         public event Action<string>? StatusUpdated;
 
         /// <summary>
+        /// Occurs when an achievement is unlocked by the timer service.
+        /// The string parameter is the achievement ID that was unlocked.
+        /// </summary>
+        public event Action<string>? AchievementUnlocked;
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="AchievementTimerService"/> class.
         /// Starts a timer that checks every second for scheduled achievements to unlock.
         /// </summary>
@@ -140,6 +146,9 @@ namespace RunGame.Services
                         AppLogger.LogDebug($"Successfully set achievement {achievementId} to unlocked");
                         _pendingUnlocks.Add(achievementId);
                         hasNewUnlocks = true;
+
+                        // Notify UI to update the achievement's IsAchieved property and icon
+                        AchievementUnlocked?.Invoke(achievementId);
                     }
                     else
                     {

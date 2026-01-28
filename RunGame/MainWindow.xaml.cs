@@ -181,7 +181,8 @@ namespace RunGame
             // Initialize new services
             _achievementTimerService = new AchievementTimerService(_gameStatsService);
             _achievementTimerService.StatusUpdated += OnTimerStatusUpdated;
-            
+            _achievementTimerService.AchievementUnlocked += OnTimerAchievementUnlocked;
+
             // Get window handle for mouse service
             var windowHandle = WinRT.Interop.WindowNative.GetWindowHandle(this);
             _mouseMoverService = new MouseMoverService(windowHandle);
@@ -1797,6 +1798,21 @@ namespace RunGame
             DispatcherQueue.TryEnqueue(() =>
             {
                 StatusLabel.Text = status;
+            });
+        }
+
+        private void OnTimerAchievementUnlocked(string achievementId)
+        {
+            // Update UI on dispatcher thread - this will trigger OnAchievementPropertyChanged to update the icon
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                var achievement = _allAchievements.FirstOrDefault(a => a.Id == achievementId);
+                if (achievement != null && !achievement.IsAchieved)
+                {
+                    achievement.IsAchieved = true;
+                    achievement.ScheduledUnlockTime = null;
+                    AppLogger.LogDebug($"UI updated for timer-unlocked achievement: {achievementId}");
+                }
             });
         }
 
