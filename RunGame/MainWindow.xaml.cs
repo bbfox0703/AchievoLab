@@ -612,6 +612,12 @@ namespace RunGame
                         return;
                     }
 
+                    // Update UI model immediately to trigger icon update via OnAchievementPropertyChanged
+                    this.DispatcherQueue.TryEnqueue(() =>
+                    {
+                        achievement.IsAchieved = newState;
+                    });
+
                     achievementCount++;
                 }
                 
