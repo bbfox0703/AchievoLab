@@ -612,6 +612,12 @@ namespace RunGame
                         return;
                     }
 
+                    // Update UI model immediately to trigger icon update via OnAchievementPropertyChanged
+                    this.DispatcherQueue.TryEnqueue(() =>
+                    {
+                        achievement.IsAchieved = newState;
+                    });
+
                     achievementCount++;
                 }
                 
@@ -1782,12 +1788,12 @@ namespace RunGame
         {
             if (isActive)
             {
-                TimerStatusText.Text = "? Timer On";
+                TimerStatusText.Text = "\U0001F7E2 Timer On";
                 TimerStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Green);
             }
             else
             {
-                TimerStatusText.Text = "??Timer Off";
+                TimerStatusText.Text = "\u26AA Timer Off";
                 TimerStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Gray);
             }
         }
