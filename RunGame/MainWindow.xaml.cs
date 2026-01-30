@@ -204,16 +204,26 @@ namespace RunGame
         {
             try
             {
+                // Unsubscribe event handlers to prevent leaks
+                _uiSettings.ColorValuesChanged -= UiSettings_ColorValuesChanged;
+                _gameStatsService.UserStatsReceived -= OnUserStatsReceived;
+                if (_achievementTimerService != null)
+                {
+                    _achievementTimerService.StatusUpdated -= OnTimerStatusUpdated;
+                    _achievementTimerService.AchievementUnlocked -= OnTimerAchievementUnlocked;
+                }
+
                 // Dispose services
                 _achievementTimerService?.Dispose();
                 _mouseMoverService?.Dispose();
                 _achievementIconService?.Dispose();
 
-                // Stop timers
-                _callbackTimer?.Stop();
-                _timeTimer?.Stop();
-                _achievementTimer?.Stop();
-                _mouseTimer?.Stop();
+                // Stop timers and remove tick handlers
+                if (_callbackTimer != null) { _callbackTimer.Stop(); }
+                if (_timeTimer != null) { _timeTimer.Stop(); _timeTimer.Tick -= OnTimeTimerTick; }
+                if (_achievementTimer != null) { _achievementTimer.Stop(); _achievementTimer.Tick -= OnAchievementTimerTick; }
+                if (_mouseTimer != null) { _mouseTimer.Stop(); _mouseTimer.Tick -= OnMouseTimerTick; }
+                if (_searchDebounceTimer != null) { _searchDebounceTimer.Stop(); }
 
                 // Dispose Steam client to release Steam pipe and user handles
                 if (_steamClient is IDisposable disposableSteamClient)

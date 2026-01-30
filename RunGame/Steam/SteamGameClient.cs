@@ -624,6 +624,9 @@ namespace RunGame.Steam
                 System.Threading.Thread.Sleep(50);
             }
 
+            // Clear callback list to release managed delegates
+            _userStatsCallbacks.Clear();
+
             // Now safe to release Steam resources
             if (Initialized)
             {

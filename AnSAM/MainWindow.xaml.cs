@@ -41,7 +41,6 @@ namespace AnSAM
         private readonly List<GameItem> _allGames = new();
         private readonly SteamClient _steamClient;
         private readonly AppWindow _appWindow;
-        private readonly HttpClient _imageHttpClient = new();
         private readonly SharedImageService _imageService;
         private volatile bool _isLanguageSwitching = false;
         private readonly DispatcherQueue _dispatcher;
@@ -72,7 +71,7 @@ namespace AnSAM
         public MainWindow(SteamClient steamClient, ElementTheme theme)
         {
             _steamClient = steamClient;
-            _imageService = new SharedImageService(_imageHttpClient);
+            _imageService = new SharedImageService(HttpClientProvider.Shared);
             InitializeComponent();
             _dispatcher = DispatcherQueue;
 
@@ -163,7 +162,9 @@ namespace AnSAM
             
             LanguageComboBox.SelectedItem = initial;
             SteamLanguageResolver.OverrideLanguage = initial;
-            _imageService.SetLanguage(initial).GetAwaiter().GetResult();
+            // SetLanguage is called fire-and-forget here since the constructor cannot await.
+            // The initial language is "english" which is already the default, so this is safe.
+            _ = _imageService.SetLanguage(initial);
             _currentLanguage = initial; // Set current language to English
             _languageInitialized = true;
         }
@@ -573,7 +574,6 @@ namespace AnSAM
             }
 
             _imageService.Dispose();
-            _imageHttpClient.Dispose();
 
             if (Content is FrameworkElement root)
             {

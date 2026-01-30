@@ -80,6 +80,7 @@ namespace RunGame.Services
             if (!_disposed)
             {
                 _memoryCache.Clear();
+                _cache.Dispose();
                 _disposed = true;
             }
         }

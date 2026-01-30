@@ -127,10 +127,11 @@ namespace CommonUtilities
                     _completedEvents.Clear();
                 }
 
-                // CRITICAL: Do NOT dispose old CTS immediately - old downloads may still be using it
-                // Just create a new CTS for new operations and let old one be garbage collected
-                // _cts.Dispose(); // Removed - causes ObjectDisposedException in old downloads
+                // Dispose old CTS after cancellation. Since we already waited for pending downloads
+                // above (up to 5 seconds), it's now safe to dispose.
+                var oldCts = _cts;
                 _cts = new CancellationTokenSource();
+                oldCts.Dispose();
                 _currentLanguage = language;
 
                 AppLogger.LogDebug($"Language switch completed. Reset state for {language}");
