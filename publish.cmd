@@ -21,6 +21,7 @@ if %errorlevel% neq 0 goto :error
 echo.
 echo Removing *.pdb files...
 del /s /q publish\*.pdb >nul 2>&1
+del /s /q output\Release\*.pdb >nul 2>&1
 
 echo.
 echo ========================================
