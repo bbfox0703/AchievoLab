@@ -9,8 +9,9 @@ namespace CommonUtilities
     /// Rate limiter that throttles requests per-domain with a base delay plus jitter and
     /// globally using a token bucket. Also enforces single concurrent request per domain.
     /// </summary>
-    internal class DomainRateLimiter
+    internal class DomainRateLimiter : IDisposable
     {
+        private bool _disposed;
         private readonly Dictionary<string, DateTime> _lastCall = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, SemaphoreSlim> _domainSemaphores = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, TimeSpan> _domainExtraDelay = new(StringComparer.OrdinalIgnoreCase);
@@ -244,6 +245,20 @@ namespace CommonUtilities
             {
                 _tokens = Math.Min(_capacity, _tokens + elapsed * _fillRatePerSecond);
                 _lastRefill = now;
+            }
+        }
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            lock (_lock)
+            {
+                foreach (var semaphore in _domainSemaphores.Values)
+                {
+                    semaphore.Dispose();
+                }
+                _domainSemaphores.Clear();
             }
         }
     }

@@ -947,6 +947,7 @@ namespace CommonUtilities
                 _http.Dispose();
             }
             _concurrency?.Dispose();
+            _rateLimiter.Dispose();
         }
     }
 }

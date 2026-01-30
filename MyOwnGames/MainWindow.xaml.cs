@@ -42,7 +42,6 @@ namespace MyOwnGames
         public ObservableCollection<GameEntry> GameItems { get; } = new();
         private List<GameEntry> AllGameItems { get; } = new();
         // REMOVED: LogEntries - all logs now go to Debug log only
-        private readonly HttpClient _imageHttpClient = new();
         private readonly SharedImageService _imageService;
         private readonly GameDataService _dataService = new();
         private readonly Action<string> _logHandler;
@@ -172,7 +171,7 @@ namespace MyOwnGames
         }
         public MainWindow()
         {
-            _imageService = new SharedImageService(_imageHttpClient);
+            _imageService = new SharedImageService(HttpClientProvider.Shared);
             InitializeComponent();
             this.ExtendsContentIntoTitleBar = true;
             this.AppWindow.Title = "My Own Steam Games";
@@ -196,9 +195,10 @@ namespace MyOwnGames
             // Subscribe to image download completion events
             _imageService.ImageDownloadCompleted += OnImageDownloadCompleted;
 
-            // Initialize image service with default language
+            // Initialize image service with default language.
+            // Fire-and-forget is safe here since the initial language is "english" (the default).
             var initialLanguage = GetCurrentLanguage();
-            _imageService.SetLanguage(initialLanguage).GetAwaiter().GetResult();
+            _ = _imageService.SetLanguage(initialLanguage);
             AppendLog($"Initialized with language: {initialLanguage}");
 
             // Initialize CDN statistics timer (updates every 2 seconds)
@@ -903,6 +903,8 @@ namespace MyOwnGames
         /// </summary>
         private async void StartSequentialImageLoading()
         {
+            try
+            {
             // Cancel any previous sequential loading
             var oldCts = _sequentialLoadCts;
             _sequentialLoadCts = new CancellationTokenSource();
@@ -1123,6 +1125,11 @@ namespace MyOwnGames
 #if DEBUG
             AppLogger.LogDebug("Sequential image loading completed");
 #endif
+            }
+            catch (Exception ex)
+            {
+                AppLogger.LogDebug($"StartSequentialImageLoading unhandled error: {ex.Message}");
+            }
         }
 
         private GameEntry? FindGameEntryFromElement(FrameworkElement element)
@@ -1253,7 +1260,6 @@ namespace MyOwnGames
                     _imageService.ImageDownloadCompleted -= OnImageDownloadCompleted;
                     _imageService.Dispose();
                 }
-                _imageHttpClient.Dispose();
             }
             catch (Exception ex)
             {
@@ -1337,7 +1343,14 @@ namespace MyOwnGames
                 // 異步處理圖片刷新：優先可見圖片，隱藏圖片清空
                 _ = Task.Run(async () =>
                 {
-                    await ProcessLanguageSwitchImageRefresh(newLanguage);
+                    try
+                    {
+                        await ProcessLanguageSwitchImageRefresh(newLanguage);
+                    }
+                    catch (Exception ex)
+                    {
+                        AppLogger.LogDebug($"ProcessLanguageSwitchImageRefresh error: {ex.Message}");
+                    }
                 });
 
                 StatusText = $"Language switched to {newLanguage}. Refreshing images...";
