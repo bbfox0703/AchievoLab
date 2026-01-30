@@ -19,6 +19,10 @@ dotnet publish MyOwnGames/MyOwnGames.csproj -c Release -r win-x64 --self-contain
 if %errorlevel% neq 0 goto :error
 
 echo.
+echo Removing *.pdb files...
+del /s /q publish\*.pdb >nul 2>&1
+
+echo.
 echo ========================================
 echo  All projects published successfully!
 echo ========================================
