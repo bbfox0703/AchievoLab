@@ -38,8 +38,8 @@ namespace CommonUtilities
         /// <param name="jitterSeconds">Random time variance added to domain delays in seconds to prevent synchronized requests (default: 0.1).</param>
         public DomainRateLimiter(
             int maxConcurrentRequestsPerDomain = 2,
-            double capacity = 60,
-            double fillRatePerSecond = 1,
+            double capacity = 15,
+            double fillRatePerSecond = 2,
             double initialTokens = -1,
             TimeSpan? baseDomainDelay = null,
             double jitterSeconds = 0.1)

@@ -312,6 +312,7 @@ namespace AnSAM
                     lockAcquired = true;
                     // Create a new CancellationTokenSource for THIS switch only
                     // We no longer cancel previous switches - they complete naturally via mutex serialization
+                    _languageSwitchCts?.Dispose();
                     var cts = new CancellationTokenSource();
                     _languageSwitchCts = cts;
 
@@ -574,6 +575,8 @@ namespace AnSAM
             }
 
             _imageService.Dispose();
+            _languageSwitchCts?.Dispose();
+            _sequentialLoadCts.Dispose();
 
             if (Content is FrameworkElement root)
             {

@@ -34,6 +34,7 @@ namespace CommonUtilities
         private readonly ImageFailureTrackingService? _failureTracker;
         private readonly DomainRateLimiter _rateLimiter;
         private readonly ConcurrentDictionary<string, (DateTime Time, bool WasNotFound)> _lastErrors = new();
+        private int _lastErrorsCleanupCounter;
 
         private int _totalRequests;
         private int _completed;
@@ -60,8 +61,8 @@ namespace CommonUtilities
         /// <param name="maxConcurrency">Maximum number of concurrent downloads allowed across all domains (default: 4). This is the per-cache semaphore limit.</param>
         /// <param name="cacheDuration">Time-to-live for successfully cached images. Defaults to TimeSpan.MaxValue (never expire). Images are validated via MIME check on every access.</param>
         /// <param name="maxConcurrentRequestsPerDomain">Maximum concurrent requests allowed per domain to prevent overwhelming CDN servers (default: 2).</param>
-        /// <param name="tokenBucketCapacity">Maximum token capacity for the rate limiter's token bucket (default: 60). Controls burst allowance.</param>
-        /// <param name="fillRatePerSecond">Rate at which tokens are added to the bucket per second (default: 1). Lower values = stricter rate limiting.</param>
+        /// <param name="tokenBucketCapacity">Maximum token capacity for the rate limiter's token bucket (default: 15). Controls burst allowance.</param>
+        /// <param name="fillRatePerSecond">Rate at which tokens are added to the bucket per second (default: 2). Lower values = stricter rate limiting.</param>
         /// <param name="initialTokens">Initial tokens in the bucket. Defaults to <paramref name="tokenBucketCapacity"/> (start with full bucket).</param>
         /// <param name="baseDomainDelay">Base delay between requests to the same domain. If null, only token bucket limits apply.</param>
         /// <param name="jitterSeconds">Random jitter added to delays to avoid thundering herd (default: 0.1s).</param>
@@ -72,8 +73,8 @@ namespace CommonUtilities
             int maxConcurrency = 4,
             TimeSpan? cacheDuration = null,
             int maxConcurrentRequestsPerDomain = 2,
-            int tokenBucketCapacity = 60,
-            double fillRatePerSecond = 1,
+            int tokenBucketCapacity = 15,
+            double fillRatePerSecond = 2,
             double? initialTokens = null,
             TimeSpan? baseDomainDelay = null,
             double jitterSeconds = 0.1,
@@ -405,6 +406,19 @@ namespace CommonUtilities
         {
             var key = uri.ToString();
             _lastErrors[key] = (DateTime.UtcNow, wasNotFound);
+
+            // Periodically clean up stale entries to prevent unbounded growth
+            if (Interlocked.Increment(ref _lastErrorsCleanupCounter) % 100 == 0)
+            {
+                var cutoff = DateTime.UtcNow - TimeSpan.FromSeconds(30);
+                foreach (var kvp in _lastErrors)
+                {
+                    if (kvp.Value.Time < cutoff)
+                    {
+                        _lastErrors.TryRemove(kvp.Key, out _);
+                    }
+                }
+            }
         }
 
         /// <summary>
