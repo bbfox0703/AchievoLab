@@ -1266,11 +1266,12 @@ namespace MyOwnGames
                 AppLogger.LogDebug($"Error disposing image service: {ex.Message}");
             }
             
-            // Dispose cancellation token source
+            // Dispose cancellation token sources
             try
             {
                 _cancellationTokenSource?.Dispose();
                 _cancellationTokenSource = null;
+                _sequentialLoadCts.Dispose();
             }
             catch (Exception ex)
             {

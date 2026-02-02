@@ -61,6 +61,13 @@ namespace MyOwnGames
         private readonly bool _disposeHttpClient;
 
         /// <summary>
+        /// Flag indicating whether this instance owns the rate limiters and should dispose them.
+        /// True if rate limiters were created internally via <see cref="RateLimiterService.FromAppSettings"/>.
+        /// </summary>
+        private readonly bool _ownsRateLimiter;
+        private readonly bool _ownsSteamRateLimiter;
+
+        /// <summary>
         /// Flag indicating whether this instance has been disposed.
         /// </summary>
         private bool _disposed;
@@ -120,7 +127,9 @@ namespace MyOwnGames
             _apiKey = apiKey;
             _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
             _disposeHttpClient = disposeHttpClient;
+            _ownsRateLimiter = rateLimiter == null;
             _rateLimiter = rateLimiter ?? RateLimiterService.FromAppSettings();
+            _ownsSteamRateLimiter = steamRateLimiter != null && steamRateLimiter != _rateLimiter;
             _steamRateLimiter = steamRateLimiter ?? _rateLimiter;
 
             if (_disposeHttpClient)
@@ -471,7 +480,7 @@ namespace MyOwnGames
         /// <remarks>
         /// This method is idempotent and can be called multiple times safely.
         /// The HttpClient is only disposed if disposeHttpClient was true in the constructor.
-        /// Rate limiters are not disposed (they may be shared across instances).
+        /// Rate limiters are disposed only if they were created internally by this instance.
         /// </remarks>
         public void Dispose()
         {
@@ -483,6 +492,16 @@ namespace MyOwnGames
             if (_disposeHttpClient)
             {
                 _httpClient.Dispose();
+            }
+
+            if (_ownsSteamRateLimiter)
+            {
+                _steamRateLimiter.Dispose();
+            }
+
+            if (_ownsRateLimiter)
+            {
+                _rateLimiter.Dispose();
             }
 
             _disposed = true;

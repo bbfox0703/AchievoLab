@@ -127,11 +127,10 @@ namespace CommonUtilities
                     _completedEvents.Clear();
                 }
 
-                // Dispose old CTS after cancellation. Since we already waited for pending downloads
-                // above (up to 5 seconds), it's now safe to dispose.
-                var oldCts = _cts;
+                // Replace CTS for new operations. The old CTS is not disposed here because
+                // timed-out downloads may still reference its token. It will be collected by GC.
+                // CTS only holds unmanaged resources if Token.WaitHandle was accessed.
                 _cts = new CancellationTokenSource();
-                oldCts.Dispose();
                 _currentLanguage = language;
 
                 AppLogger.LogDebug($"Language switch completed. Reset state for {language}");
@@ -281,8 +280,8 @@ namespace CommonUtilities
         /// </remarks>
         public async Task<string?> GetGameImageAsync(int appId, string? language = null)
         {
-            // Auto-cleanup stale pending requests every 50 calls for faster queue turnover
-            if (Interlocked.Increment(ref _requestCount) % 50 == 0)
+            // Auto-cleanup stale pending requests every 20 calls for faster queue turnover
+            if (Interlocked.Increment(ref _requestCount) % 20 == 0)
             {
                 CleanupStaleRequests();
             }
