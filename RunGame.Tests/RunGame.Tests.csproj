@@ -17,6 +17,7 @@
     <Compile Include="../RunGame/Models/StatDefinition.cs" Link="StatDefinition.cs" />
     <Compile Include="../RunGame/Models/AchievementInfo.cs" Link="AchievementInfo.cs" />
     <Compile Include="../RunGame/Steam/ISteamUserStats.cs" Link="ISteamUserStats.cs" />
+    <Compile Include="../RunGame/Steam/SteamDllResolver.cs" Link="SteamDllResolver.cs" />
     <Compile Include="../RunGame/Steam/SteamGameClient.cs" Link="SteamGameClient.cs" />
     <Compile Include="../RunGame/Steam/ModernSteamClient.cs" Link="ModernSteamClient.cs" />
     <Compile Include="../RunGame/Utils/KeyValue.cs" Link="KeyValue.cs" />

@@ -31,7 +31,7 @@ namespace RunGame.Steam
         
         static ModernSteamClient()
         {
-            NativeLibrary.SetDllImportResolver(typeof(ModernSteamClient).Assembly, ResolveSteamApi);
+            SteamDllResolver.EnsureRegistered();
         }
 
         /// <summary>
@@ -509,7 +509,7 @@ namespace RunGame.Steam
         /// <param name="assembly">The assembly requesting the library.</param>
         /// <param name="searchPath">The DLL import search path.</param>
         /// <returns>A handle to the loaded library, or IntPtr.Zero if not found.</returns>
-        private static IntPtr ResolveSteamApi(string libraryName, System.Reflection.Assembly assembly, DllImportSearchPath? searchPath)
+        internal static IntPtr ResolveSteamApi(string libraryName, System.Reflection.Assembly assembly, DllImportSearchPath? searchPath)
         {
             if (!libraryName.Equals("steam_api64", StringComparison.OrdinalIgnoreCase))
                 return IntPtr.Zero;
@@ -532,7 +532,6 @@ namespace RunGame.Steam
                             var directory = System.IO.Path.GetDirectoryName(path);
                             if (!string.IsNullOrEmpty(directory))
                             {
-                                NativeLibrary.SetDllImportResolver(typeof(ModernSteamClient).Assembly, ResolveSteamApi); // Reset resolver
                                 return NativeLibrary.Load(path);
                             }
                         }
