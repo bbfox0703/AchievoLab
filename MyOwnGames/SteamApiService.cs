@@ -207,8 +207,8 @@ namespace MyOwnGames
                 await _steamRateLimiter.WaitSteamAsync();
                 cancellationToken.ThrowIfCancellationRequested();
 
-                var ownedGamesUrl = $"https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key={_apiKey}&steamid={steamId64}&format=json&include_appinfo=true";
-                var ownedGamesResponse = await GetStringWithRateLimitCheckAsync(ownedGamesUrl, cancellationToken);
+                var ownedGamesUrl = $"https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?steamid={steamId64}&format=json&include_appinfo=true";
+                var ownedGamesResponse = await GetStringWithRateLimitCheckAsync(ownedGamesUrl, cancellationToken, useApiKey: true);
                 var ownedGamesData = DeserializeOwnedGamesResponse(ownedGamesResponse);
 
                 if (ownedGamesData?.response?.games == null)
@@ -432,9 +432,14 @@ namespace MyOwnGames
         ///
         /// All other HTTP errors are propagated via EnsureSuccessStatusCode().
         /// </remarks>
-        private async Task<string> GetStringWithRateLimitCheckAsync(string url, CancellationToken cancellationToken = default)
+        private async Task<string> GetStringWithRateLimitCheckAsync(string url, CancellationToken cancellationToken = default, bool useApiKey = false)
         {
-            using var response = await _httpClient.GetAsync(url, cancellationToken);
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            if (useApiKey)
+            {
+                request.Headers.Add("x-webapi-key", _apiKey);
+            }
+            using var response = await _httpClient.SendAsync(request, cancellationToken);
 
             if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
             {
