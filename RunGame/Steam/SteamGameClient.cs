@@ -75,7 +75,7 @@ namespace RunGame.Steam
 
         static SteamGameClient()
         {
-            NativeLibrary.SetDllImportResolver(typeof(SteamGameClient).Assembly, SteamPathResolver.ResolveSteamClientDll);
+            SteamDllResolver.EnsureRegistered();
         }
 
         /// <summary>

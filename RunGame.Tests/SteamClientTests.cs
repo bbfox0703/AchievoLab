@@ -350,7 +350,7 @@ namespace RunGame.Tests
             if (!client.Initialized)
             {
                 // All ISteamUserStats methods should return false or safe defaults
-                Assert.True(client.RequestUserStats(400)); // Modern client returns true (auto-sync)
+                Assert.False(client.RequestUserStats(400));
                 Assert.False(client.SetAchievement("test", true));
                 Assert.False(client.GetStatValue("test", out int intValue));
                 Assert.False(client.GetStatValue("test", out float floatValue));
@@ -371,14 +371,17 @@ namespace RunGame.Tests
         #region ModernSteamClient Specific Tests
 
         [Fact]
-        public void ModernSteamClient_RequestUserStats_AlwaysReturnsTrue()
+        public void ModernSteamClient_RequestUserStats_ReturnsTrueWhenInitialized()
         {
             var client = new ModernSteamClient(400);
 
-            // Modern SDK auto-synchronizes stats, so this always returns true
+            // Modern SDK auto-synchronizes stats, returns true only when initialized
             var result = client.RequestUserStats(400);
 
-            Assert.True(result);
+            if (client.Initialized)
+                Assert.True(result);
+            else
+                Assert.False(result);
 
             client.Dispose();
         }
