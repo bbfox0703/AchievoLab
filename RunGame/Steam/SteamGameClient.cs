@@ -140,7 +140,13 @@ namespace RunGame.Steam
                     // Get ISteamClient018 vtable
                     IntPtr vtable = Marshal.ReadIntPtr(_client);
                     AppLogger.LogDebug($"ISteamClient018 vtable: {vtable}");
-                    
+
+                    if (vtable == IntPtr.Zero)
+                    {
+                        AppLogger.LogDebug("ISteamClient018 vtable is null");
+                        return;
+                    }
+
                     _createSteamPipe = Marshal.GetDelegateForFunctionPointer<CreateSteamPipeDelegate>(Marshal.ReadIntPtr(vtable + IntPtr.Size * 0));
                     _releaseSteamPipe = Marshal.GetDelegateForFunctionPointer<ReleaseSteamPipeDelegate>(Marshal.ReadIntPtr(vtable + IntPtr.Size * 1));
                     _connectToGlobalUser = Marshal.GetDelegateForFunctionPointer<ConnectToGlobalUserDelegate>(Marshal.ReadIntPtr(vtable + IntPtr.Size * 2));
@@ -204,47 +210,62 @@ namespace RunGame.Steam
                                 if (_apps008 != IntPtr.Zero)
                                 {
                                     IntPtr appsVTable = Marshal.ReadIntPtr(_apps008);
-                                    _isSubscribedApp = Marshal.GetDelegateForFunctionPointer<IsSubscribedAppDelegate>(Marshal.ReadIntPtr(appsVTable + IntPtr.Size * 6));
-                                    AppLogger.LogDebug($"ISteamApps008 IsSubscribedApp delegate initialized");
+                                    if (appsVTable != IntPtr.Zero)
+                                    {
+                                        _isSubscribedApp = Marshal.GetDelegateForFunctionPointer<IsSubscribedAppDelegate>(Marshal.ReadIntPtr(appsVTable + IntPtr.Size * 6));
+                                        AppLogger.LogDebug($"ISteamApps008 IsSubscribedApp delegate initialized");
+                                    }
                                 }
-                                
+
                                 if (_apps001 != IntPtr.Zero)
                                 {
                                     IntPtr apps1VTable = Marshal.ReadIntPtr(_apps001);
-                                    _getAppData = Marshal.GetDelegateForFunctionPointer<GetAppDataDelegate>(Marshal.ReadIntPtr(apps1VTable));
+                                    if (apps1VTable != IntPtr.Zero)
+                                    {
+                                        _getAppData = Marshal.GetDelegateForFunctionPointer<GetAppDataDelegate>(Marshal.ReadIntPtr(apps1VTable));
+                                    }
                                 }
 
                                 // Initialize ISteamUserStats delegates using correct offsets from ISteamUserStats013
                                 if (_userStats != IntPtr.Zero)
                                 {
                                     IntPtr userStatsVTable = Marshal.ReadIntPtr(_userStats);
-                                    _getStatFloat = Marshal.GetDelegateForFunctionPointer<GetStatFloatDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 0));
-                                    _getStatInt = Marshal.GetDelegateForFunctionPointer<GetStatIntDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 1));
-                                    _setStatFloat = Marshal.GetDelegateForFunctionPointer<SetStatFloatDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 2));
-                                    _setStatInt = Marshal.GetDelegateForFunctionPointer<SetStatIntDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 3));
-                                    _setAchievement = Marshal.GetDelegateForFunctionPointer<SetAchievementDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 6));
-                                    _clearAchievement = Marshal.GetDelegateForFunctionPointer<ClearAchievementDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 7));
-                                    _getAchievementAndUnlockTime = Marshal.GetDelegateForFunctionPointer<GetAchievementAndUnlockTimeDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 8));
-                                    _storeStats = Marshal.GetDelegateForFunctionPointer<StoreStatsDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 9));
-                                    _requestUserStats = Marshal.GetDelegateForFunctionPointer<RequestUserStatsDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 15));
-                                    _resetAllStats = Marshal.GetDelegateForFunctionPointer<ResetAllStatsDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 20));
+                                    if (userStatsVTable != IntPtr.Zero)
+                                    {
+                                        _getStatFloat = Marshal.GetDelegateForFunctionPointer<GetStatFloatDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 0));
+                                        _getStatInt = Marshal.GetDelegateForFunctionPointer<GetStatIntDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 1));
+                                        _setStatFloat = Marshal.GetDelegateForFunctionPointer<SetStatFloatDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 2));
+                                        _setStatInt = Marshal.GetDelegateForFunctionPointer<SetStatIntDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 3));
+                                        _setAchievement = Marshal.GetDelegateForFunctionPointer<SetAchievementDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 6));
+                                        _clearAchievement = Marshal.GetDelegateForFunctionPointer<ClearAchievementDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 7));
+                                        _getAchievementAndUnlockTime = Marshal.GetDelegateForFunctionPointer<GetAchievementAndUnlockTimeDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 8));
+                                        _storeStats = Marshal.GetDelegateForFunctionPointer<StoreStatsDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 9));
+                                        _requestUserStats = Marshal.GetDelegateForFunctionPointer<RequestUserStatsDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 15));
+                                        _resetAllStats = Marshal.GetDelegateForFunctionPointer<ResetAllStatsDelegate>(Marshal.ReadIntPtr(userStatsVTable + IntPtr.Size * 20));
+                                    }
                                 }
 
                                 // Initialize ISteamUser delegates
                                 if (_user006 != IntPtr.Zero)
                                 {
                                     IntPtr userVTable = Marshal.ReadIntPtr(_user006);
-                                    _getSteamId = Marshal.GetDelegateForFunctionPointer<GetSteamIdDelegate>(Marshal.ReadIntPtr(userVTable + IntPtr.Size * 2));
+                                    if (userVTable != IntPtr.Zero)
+                                    {
+                                        _getSteamId = Marshal.GetDelegateForFunctionPointer<GetSteamIdDelegate>(Marshal.ReadIntPtr(userVTable + IntPtr.Size * 2));
+                                    }
                                 }
 
                                 // Initialize ISteamUtils delegates
                                 if (_utils != IntPtr.Zero)
                                 {
                                     IntPtr utilsVTable = Marshal.ReadIntPtr(_utils);
-                                    _getAppId = Marshal.GetDelegateForFunctionPointer<GetAppIdDelegate>(Marshal.ReadIntPtr(utilsVTable + IntPtr.Size * 9));
-                                    _getSteamUILanguage = Marshal.GetDelegateForFunctionPointer<GetSteamUILanguageDelegate>(Marshal.ReadIntPtr(utilsVTable + IntPtr.Size * 22));
-                                    AppLogger.LogDebug($"ISteamUtils005 GetAppId delegate initialized");
-                                    AppLogger.LogDebug($"ISteamUtils005 GetSteamUILanguage delegate initialized");
+                                    if (utilsVTable != IntPtr.Zero)
+                                    {
+                                        _getAppId = Marshal.GetDelegateForFunctionPointer<GetAppIdDelegate>(Marshal.ReadIntPtr(utilsVTable + IntPtr.Size * 9));
+                                        _getSteamUILanguage = Marshal.GetDelegateForFunctionPointer<GetSteamUILanguageDelegate>(Marshal.ReadIntPtr(utilsVTable + IntPtr.Size * 22));
+                                        AppLogger.LogDebug($"ISteamUtils005 GetAppId delegate initialized");
+                                        AppLogger.LogDebug($"ISteamUtils005 GetSteamUILanguage delegate initialized");
+                                    }
                                 }
 
                                 // Check if we can get Steam ID to verify user is logged in
@@ -594,6 +615,7 @@ namespace RunGame.Steam
                 {
                     int len = _getAppData(_apps001, id, key, handle.AddrOfPinnedObject(), bufferSize);
                     if (len <= 0) return null;
+                    if (len > bufferSize) len = bufferSize;
 
                     int terminator = Array.IndexOf<byte>(buffer, 0, 0, len);
                     if (terminator >= 0) len = terminator;
@@ -627,12 +649,12 @@ namespace RunGame.Steam
             // Clear callback list to release managed delegates
             _userStatsCallbacks.Clear();
 
-            // Now safe to release Steam resources
-            if (Initialized)
+            // Release handles if they were acquired, regardless of Initialized state
+            if (_pipe != 0)
             {
                 try
                 {
-                    _releaseUser?.Invoke(_client, _pipe, _user);
+                    if (_user != 0) _releaseUser?.Invoke(_client, _pipe, _user);
                     _releaseSteamPipe?.Invoke(_client, _pipe);
                     AppLogger.LogDebug("Steam client resources released successfully");
                 }

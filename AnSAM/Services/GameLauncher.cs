@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -11,6 +12,34 @@ namespace AnSAM.Services
     /// </summary>
     public static class GameLauncher
     {
+        private static readonly HashSet<string> AllowedSchemes = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "steam", "http", "https", "com.epicgames.launcher", "uplay", "origin", "origin2"
+        };
+
+        private static bool IsAllowedUri(string fileName)
+        {
+            if (Uri.TryCreate(fileName, UriKind.Absolute, out var uri))
+            {
+                return AllowedSchemes.Contains(uri.Scheme);
+            }
+            return false;
+        }
+
+        private static bool IsAllowedExePath(string fileName)
+        {
+            try
+            {
+                var fullPath = Path.GetFullPath(fileName);
+                return File.Exists(fullPath) &&
+                       fullPath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private static string? _runGameFullPath = null;
 
         /// <summary>
@@ -59,22 +88,36 @@ namespace AnSAM.Services
             // Try custom URI scheme first
             if (!string.IsNullOrWhiteSpace(item.UriScheme))
             {
-                AppLogger.LogDebug($"Launch: Trying URI scheme: {item.UriScheme}");
-                if (TryStart(item.UriScheme))
+                if (!IsAllowedUri(item.UriScheme))
                 {
-                    AppLogger.LogDebug($"Launch: Successfully launched via URI scheme");
-                    return;
+                    AppLogger.LogDebug($"Launch: URI scheme not allowed: {item.UriScheme}");
+                }
+                else
+                {
+                    AppLogger.LogDebug($"Launch: Trying URI scheme: {item.UriScheme}");
+                    if (TryStart(item.UriScheme))
+                    {
+                        AppLogger.LogDebug($"Launch: Successfully launched via URI scheme");
+                        return;
+                    }
                 }
             }
 
             // Then try executable path with arguments
             if (!string.IsNullOrWhiteSpace(item.ExePath))
             {
-                AppLogger.LogDebug($"Launch: Trying executable: {item.ExePath}");
-                if (TryStart(item.ExePath, item.Arguments))
+                if (!IsAllowedExePath(item.ExePath))
                 {
-                    AppLogger.LogDebug($"Launch: Successfully launched via executable");
-                    return;
+                    AppLogger.LogDebug($"Launch: Executable path not allowed: {item.ExePath}");
+                }
+                else
+                {
+                    AppLogger.LogDebug($"Launch: Trying executable: {item.ExePath}");
+                    if (TryStart(item.ExePath, item.Arguments))
+                    {
+                        AppLogger.LogDebug($"Launch: Successfully launched via executable");
+                        return;
+                    }
                 }
             }
 

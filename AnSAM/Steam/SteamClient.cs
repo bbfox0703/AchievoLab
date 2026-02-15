@@ -62,6 +62,12 @@ namespace AnSAM.Steam
                 {
                     // Retrieve function pointers from the interface vtable.
                     IntPtr vtable = Marshal.ReadIntPtr(_client);
+                    if (vtable == IntPtr.Zero)
+                    {
+                        AppLogger.LogDebug("ISteamClient018 vtable is null");
+                        return;
+                    }
+
                     _createSteamPipe = Marshal.GetDelegateForFunctionPointer<CreateSteamPipeDelegate>(Marshal.ReadIntPtr(vtable + IntPtr.Size * 0));
                     _releaseSteamPipe = Marshal.GetDelegateForFunctionPointer<ReleaseSteamPipeDelegate>(Marshal.ReadIntPtr(vtable + IntPtr.Size * 1));
                     _connectToGlobalUser = Marshal.GetDelegateForFunctionPointer<ConnectToGlobalUserDelegate>(Marshal.ReadIntPtr(vtable + IntPtr.Size * 2));
@@ -93,12 +99,18 @@ namespace AnSAM.Steam
                                 if (_apps008 != IntPtr.Zero)
                                 {
                                     IntPtr appsVTable = Marshal.ReadIntPtr(_apps008);
-                                    _isSubscribedApp = Marshal.GetDelegateForFunctionPointer<IsSubscribedAppDelegate>(Marshal.ReadIntPtr(appsVTable + IntPtr.Size * 6));
+                                    if (appsVTable != IntPtr.Zero)
+                                    {
+                                        _isSubscribedApp = Marshal.GetDelegateForFunctionPointer<IsSubscribedAppDelegate>(Marshal.ReadIntPtr(appsVTable + IntPtr.Size * 6));
+                                    }
                                 }
                                 if (_apps001 != IntPtr.Zero)
                                 {
                                     IntPtr apps1VTable = Marshal.ReadIntPtr(_apps001);
-                                    _getAppData = Marshal.GetDelegateForFunctionPointer<GetAppDataDelegate>(Marshal.ReadIntPtr(apps1VTable));
+                                    if (apps1VTable != IntPtr.Zero)
+                                    {
+                                        _getAppData = Marshal.GetDelegateForFunctionPointer<GetAppDataDelegate>(Marshal.ReadIntPtr(apps1VTable));
+                                    }
                                 }
                                 Initialized = _apps008 != IntPtr.Zero && _isSubscribedApp != null;
                             }
@@ -191,6 +203,7 @@ namespace AnSAM.Steam
                     {
                         return null;
                     }
+                    if (len > bufferSize) len = bufferSize;
 
                     int terminator = Array.IndexOf<byte>(buffer, 0, 0, len);
                     if (terminator >= 0)
@@ -294,12 +307,12 @@ namespace AnSAM.Steam
                 System.Threading.Thread.Sleep(50);
             }
 
-            // Now safe to release Steam resources
-            if (Initialized)
+            // Release handles if they were acquired, regardless of Initialized state
+            if (_pipe != 0)
             {
                 try
                 {
-                    _releaseUser?.Invoke(_client, _pipe, _user);
+                    if (_user != 0) _releaseUser?.Invoke(_client, _pipe, _user);
                     _releaseSteamPipe?.Invoke(_client, _pipe);
                     AppLogger.LogDebug("Steam client resources released successfully");
                 }
@@ -308,11 +321,9 @@ namespace AnSAM.Steam
                     AppLogger.LogDebug($"Error releasing Steam resources: {ex.Message}");
                 }
             }
-            else
-            {
-                _createLocalUser = null;
-                _setLocalIPBinding = null;
-            }
+
+            _createLocalUser = null;
+            _setLocalIPBinding = null;
         }
 
         [StructLayout(LayoutKind.Sequential)]
