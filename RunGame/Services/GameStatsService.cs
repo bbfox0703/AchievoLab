@@ -256,8 +256,31 @@ namespace RunGame.Services
                 {
                     if (!stat.Valid) continue;
 
-                    var rawType = stat["type_int"].Valid ? stat["type_int"].AsInteger(0) : stat["type"].AsInteger(0);
-                    var type = (UserStatType)rawType;
+                    UserStatType type;
+
+                    // schema in the new format?
+                    var typeNode = stat["type"];
+                    if (typeNode.Valid && typeNode.Type == KeyValueType.String)
+                    {
+                        if (!Enum.TryParse((string)typeNode.Value!, true, out type))
+                        {
+                            type = UserStatType.Invalid;
+                        }
+                    }
+                    else
+                    {
+                        type = UserStatType.Invalid;
+                    }
+
+                    // schema in the old format?
+                    if (type == UserStatType.Invalid)
+                    {
+                        var typeIntNode = stat["type_int"];
+                        var rawType = typeIntNode.Valid
+                            ? typeIntNode.AsInteger(0)
+                            : typeNode.AsInteger(0);
+                        type = (UserStatType)rawType;
+                    }
                     
                     AppLogger.LogDebug($"Processing stat: {stat.Name}, type: {type}");
                     
