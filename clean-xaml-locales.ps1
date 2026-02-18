@@ -8,6 +8,7 @@ param(
 $roots = @(
     Join-Path $PSScriptRoot 'output\Debug'
     Join-Path $PSScriptRoot 'output\Release'
+	Join-Path $PSScriptRoot 'publish\'
 )
 
 # 白名單（大小寫不敏感）
