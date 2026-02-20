@@ -12,7 +12,7 @@ namespace AnSAM.Steam
     /// Minimal Steamworks client wrapper that loads steamclient64.dll directly
     /// and exposes helpers for app ownership and metadata queries.
     /// </summary>
-    public sealed class SteamClient : IDisposable, ISteamClient
+    public sealed partial class SteamClient : IDisposable, ISteamClient
     {
         private readonly Timer? _callbackTimer;
         private readonly IntPtr _client;
@@ -335,9 +335,9 @@ namespace AnSAM.Steam
             public int ParamSize;
         }
 
-        [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl,
-            CharSet = CharSet.Ansi, EntryPoint = "CreateInterface")]
-        private static extern IntPtr Steam_CreateInterface(string version, IntPtr returnCode);
+        [LibraryImport("steamclient64", EntryPoint = "CreateInterface", StringMarshalling = StringMarshalling.Utf8)]
+        [UnmanagedCallConv(CallConvs = [typeof(System.Runtime.CompilerServices.CallConvCdecl)])]
+        private static partial IntPtr Steam_CreateInterface(string version, IntPtr returnCode);
 
         [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
         private delegate int CreateSteamPipeDelegate(IntPtr self);
@@ -360,13 +360,15 @@ namespace AnSAM.Steam
         [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
         private delegate void ReleaseSteamPipeDelegate(IntPtr self, int pipe);
 
-        [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "Steam_BGetCallback")]
-        [return: MarshalAs(UnmanagedType.I1)]
-        private static extern bool Steam_BGetCallback(int pipe, out CallbackMsg message, out int call);
+        [LibraryImport("steamclient64", EntryPoint = "Steam_BGetCallback")]
+        [UnmanagedCallConv(CallConvs = [typeof(System.Runtime.CompilerServices.CallConvCdecl)])]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static partial bool Steam_BGetCallback(int pipe, out CallbackMsg message, out int call);
 
-        [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "Steam_FreeLastCallback")]
-        [return: MarshalAs(UnmanagedType.I1)]
-        private static extern bool Steam_FreeLastCallback(int pipe);
+        [LibraryImport("steamclient64", EntryPoint = "Steam_FreeLastCallback")]
+        [UnmanagedCallConv(CallConvs = [typeof(System.Runtime.CompilerServices.CallConvCdecl)])]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static partial bool Steam_FreeLastCallback(int pipe);
 
         [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
         [return: MarshalAs(UnmanagedType.I1)]

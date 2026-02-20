@@ -1,88 +1,81 @@
-using Microsoft.UI.Dispatching;
+using Avalonia.Threading;
 using System;
 
 namespace CommonUtilities
 {
     /// <summary>
-    /// Provides extension methods and utilities for DispatcherQueue operations.
+    /// Provides utilities for Avalonia Dispatcher operations.
     /// Shared across AnSAM, RunGame, and MyOwnGames for consistent dispatcher handling.
     /// </summary>
-    public static class DispatcherQueueHelper
+    public static class DispatcherHelper
     {
         /// <summary>
-        /// Attempts to enqueue a callback to run on the dispatcher queue with error logging.
+        /// Attempts to post a callback to run on the UI thread with error logging.
+        /// Uses Normal priority.
         /// </summary>
-        /// <param name="dispatcher">The dispatcher queue</param>
-        /// <param name="callback">The callback to execute</param>
-        /// <param name="priority">The priority for the callback (default: Normal)</param>
-        /// <returns>True if the callback was successfully enqueued, false otherwise</returns>
-        public static bool TryEnqueueSafe(
-            this DispatcherQueue dispatcher,
-            DispatcherQueueHandler callback,
-            DispatcherQueuePriority priority = DispatcherQueuePriority.Normal)
+        public static bool TryPostSafe(Action callback)
         {
-            if (dispatcher == null)
-            {
-                AppLogger.LogDebug("DispatcherQueueHelper.TryEnqueueSafe: dispatcher is null");
-                return false;
-            }
+            return TryPostSafe(callback, DispatcherPriority.Normal);
+        }
 
+        /// <summary>
+        /// Attempts to post a callback to run on the UI thread with error logging.
+        /// </summary>
+        public static bool TryPostSafe(Action callback, DispatcherPriority priority)
+        {
             try
             {
-                return dispatcher.TryEnqueue(priority, callback);
+                Dispatcher.UIThread.Post(callback, priority);
+                return true;
             }
             catch (Exception ex)
             {
-                AppLogger.LogDebug($"DispatcherQueueHelper.TryEnqueueSafe: Error enqueuing callback: {ex.Message}");
+                AppLogger.LogDebug($"DispatcherHelper.TryPostSafe: Error posting callback: {ex.Message}");
                 return false;
             }
         }
 
         /// <summary>
-        /// Enqueues a callback and logs a warning if it fails.
+        /// Posts a callback to the UI thread and logs a warning if it fails.
+        /// Uses Normal priority.
         /// </summary>
-        /// <param name="dispatcher">The dispatcher queue</param>
-        /// <param name="callback">The callback to execute</param>
-        /// <param name="warningMessage">Custom warning message if enqueue fails</param>
-        /// <param name="priority">The priority for the callback (default: Normal)</param>
-        public static void EnqueueOrWarn(
-            this DispatcherQueue dispatcher,
-            DispatcherQueueHandler callback,
-            string warningMessage,
-            DispatcherQueuePriority priority = DispatcherQueuePriority.Normal)
+        public static void PostOrWarn(Action callback, string warningMessage)
         {
-            if (!TryEnqueueSafe(dispatcher, callback, priority))
+            PostOrWarn(callback, warningMessage, DispatcherPriority.Normal);
+        }
+
+        /// <summary>
+        /// Posts a callback to the UI thread and logs a warning if it fails.
+        /// </summary>
+        public static void PostOrWarn(Action callback, string warningMessage, DispatcherPriority priority)
+        {
+            if (!TryPostSafe(callback, priority))
             {
-                AppLogger.LogDebug($"DispatcherQueueHelper.EnqueueOrWarn: {warningMessage}");
+                AppLogger.LogDebug($"DispatcherHelper.PostOrWarn: {warningMessage}");
             }
         }
 
         /// <summary>
         /// Executes an action on the UI thread if not already on it, otherwise executes immediately.
-        /// Note: This method is synchronous only if already on the UI thread.
+        /// Uses Normal priority.
         /// </summary>
-        /// <param name="dispatcher">The dispatcher queue</param>
-        /// <param name="action">The action to execute</param>
-        /// <param name="priority">The priority if dispatching is needed (default: Normal)</param>
-        public static void ExecuteOnUIThread(
-            this DispatcherQueue dispatcher,
-            Action action,
-            DispatcherQueuePriority priority = DispatcherQueuePriority.Normal)
+        public static void ExecuteOnUIThread(Action action)
         {
-            if (dispatcher == null)
-            {
-                AppLogger.LogDebug("DispatcherQueueHelper.ExecuteOnUIThread: dispatcher is null, executing synchronously");
-                action();
-                return;
-            }
+            ExecuteOnUIThread(action, DispatcherPriority.Normal);
+        }
 
-            if (dispatcher.HasThreadAccess)
+        /// <summary>
+        /// Executes an action on the UI thread if not already on it, otherwise executes immediately.
+        /// </summary>
+        public static void ExecuteOnUIThread(Action action, DispatcherPriority priority)
+        {
+            if (Dispatcher.UIThread.CheckAccess())
             {
                 action();
             }
             else
             {
-                TryEnqueueSafe(dispatcher, () => action(), priority);
+                TryPostSafe(action, priority);
             }
         }
     }

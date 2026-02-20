@@ -1,7 +1,6 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
-using Microsoft.UI.Dispatching;
 
 namespace CommonUtilities
 {
@@ -17,7 +16,6 @@ namespace CommonUtilities
         /// <param name="imageService">The image service to use.</param>
         /// <param name="appId">The game's AppID.</param>
         /// <param name="targetLanguage">The target language to load.</param>
-        /// <param name="dispatcher">Dispatcher queue for UI updates.</param>
         /// <param name="onEnglishFallbackLoaded">Callback when English fallback is loaded (optional).</param>
         /// <param name="currentLanguageGetter">Function to get current global language (for validation).</param>
         /// <returns>The final image path (target language or fallback).</returns>
@@ -25,7 +23,6 @@ namespace CommonUtilities
             SharedImageService imageService,
             int appId,
             string targetLanguage,
-            DispatcherQueue dispatcher,
             Action<string>? onEnglishFallbackLoaded = null,
             Func<string>? currentLanguageGetter = null)
         {
@@ -47,7 +44,6 @@ namespace CommonUtilities
 #if DEBUG
                             AppLogger.LogDebug($"Skipping English fallback for {appId} - language changed to {globalLanguage}");
 #endif
-                            // Language changed during load, abort
                             return (null, "");
                         }
                     }
@@ -63,7 +59,6 @@ namespace CommonUtilities
                         AppLogger.LogDebug($"Error in English fallback callback for {appId}: {ex.GetType().Name}: {ex.Message}");
                         AppLogger.LogDebug($"Stack trace: {ex.StackTrace}");
 #endif
-                        // Don't rethrow - callback errors shouldn't stop image loading
                     }
 
 #if DEBUG
@@ -77,7 +72,6 @@ namespace CommonUtilities
 
             if (!string.IsNullOrEmpty(targetPath) && File.Exists(targetPath))
             {
-                // Determine actual language from path
                 var loadedLanguage = DetermineLanguageFromPath(targetPath, targetLanguage);
                 return (targetPath, loadedLanguage);
             }
@@ -98,16 +92,11 @@ namespace CommonUtilities
         /// <summary>
         /// Determines the language of an image from its file path.
         /// </summary>
-        /// <param name="imagePath">The full path to the image file.</param>
-        /// <param name="requestedLanguage">The originally requested language.</param>
-        /// <returns>The detected language (e.g., "english", "japanese", etc.).</returns>
         public static string DetermineLanguageFromPath(string imagePath, string requestedLanguage)
         {
             if (string.IsNullOrEmpty(imagePath))
                 return requestedLanguage;
 
-            // Check if path contains language folder
-            // Pattern: .../ImageCache/{language}/...
             var normalizedPath = imagePath.Replace('/', '\\');
             var parts = normalizedPath.Split('\\');
 
@@ -115,7 +104,6 @@ namespace CommonUtilities
             {
                 if (string.Equals(parts[i], "ImageCache", StringComparison.OrdinalIgnoreCase))
                 {
-                    // Next part should be the language
                     if (i + 1 < parts.Length)
                     {
                         return parts[i + 1].ToLowerInvariant();
@@ -123,16 +111,12 @@ namespace CommonUtilities
                 }
             }
 
-            // Fallback: assume requested language
             return requestedLanguage;
         }
 
         /// <summary>
         /// Checks if an image path corresponds to the specified language.
         /// </summary>
-        /// <param name="imagePath">The image path to check.</param>
-        /// <param name="language">The language to check for.</param>
-        /// <returns>True if the path contains the language folder.</returns>
         public static bool IsPathFromLanguage(string? imagePath, string language)
         {
             if (string.IsNullOrEmpty(imagePath))
@@ -146,22 +130,18 @@ namespace CommonUtilities
         /// <summary>
         /// Gets the fallback image path (no_icon.png).
         /// </summary>
-        /// <returns>The URI string for the no_icon asset.</returns>
         public static string GetNoIconPath()
         {
-            return "ms-appx:///Assets/no_icon.png";
+            return Path.Combine(AppContext.BaseDirectory, "Assets", "no_icon.png");
         }
 
         /// <summary>
         /// Checks if an icon URI is the no_icon fallback.
         /// </summary>
-        /// <param name="iconUri">The icon URI to check.</param>
-        /// <returns>True if it's the no_icon fallback.</returns>
         public static bool IsNoIcon(string? iconUri)
         {
             return string.IsNullOrEmpty(iconUri) ||
-                   iconUri.Contains("no_icon.png", StringComparison.OrdinalIgnoreCase) ||
-                   iconUri.Contains("ms-appx://", StringComparison.OrdinalIgnoreCase);
+                   iconUri.Contains("no_icon.png", StringComparison.OrdinalIgnoreCase);
         }
     }
 }

@@ -5,24 +5,21 @@ using CommonUtilities;
 
 namespace RunGame.Services
 {
-    /// <summary>
-    /// Prevents system idle detection by periodically moving the mouse cursor.
-    /// Only activates when the application window is in the foreground and the mouse hasn't moved manually.
-    /// Moves the cursor 5 pixels left and right every 30 seconds to simulate user activity.
-    /// </summary>
-    public class MouseMoverService : IDisposable
+    public partial class MouseMoverService : IDisposable
     {
-        [DllImport("user32.dll")]
-        private static extern bool GetCursorPos(out POINT lpPoint);
+        [LibraryImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static partial bool GetCursorPos(out POINT lpPoint);
 
-        [DllImport("user32.dll")]
-        private static extern bool SetCursorPos(int x, int y);
+        [LibraryImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static partial bool SetCursorPos(int x, int y);
 
-        [DllImport("user32.dll")]
-        private static extern IntPtr GetForegroundWindow();
+        [LibraryImport("user32.dll")]
+        private static partial IntPtr GetForegroundWindow();
 
-        [DllImport("user32.dll")]
-        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+        [LibraryImport("user32.dll")]
+        private static partial uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
 
         [StructLayout(LayoutKind.Sequential)]
         private struct POINT
@@ -38,11 +35,6 @@ namespace RunGame.Services
         private bool _moveRight = true;
         private readonly IntPtr _windowHandle;
 
-        /// <summary>
-        /// Initializes a new instance of the <see cref="MouseMoverService"/> class.
-        /// The timer is created but not started until IsEnabled is set to true.
-        /// </summary>
-        /// <param name="windowHandle">The handle of the application window to monitor for foreground status.</param>
         public MouseMoverService(IntPtr windowHandle)
         {
             _windowHandle = windowHandle;
@@ -54,10 +46,6 @@ namespace RunGame.Services
             AppLogger.LogDebug("MouseMoverService initialized");
         }
 
-        /// <summary>
-        /// Gets or sets a value indicating whether automatic mouse movement is enabled.
-        /// When enabled, the mouse will move every 30 seconds if the window is in the foreground.
-        /// </summary>
         public bool IsEnabled
         {
             get => _isEnabled;
@@ -66,16 +54,16 @@ namespace RunGame.Services
                 if (_isEnabled != value)
                 {
                     _isEnabled = value;
-                    
+
                     if (_isEnabled)
                     {
                         // Get current mouse position as starting point
                         GetCursorPos(out _lastMousePos);
-                        
+
                         // Start the timer
                         _timer.Change(TimeSpan.FromSeconds(30),
                                      TimeSpan.FromSeconds(30));
-                        
+
                         AppLogger.LogDebug("Mouse auto-movement enabled");
                     }
                     else
@@ -88,12 +76,6 @@ namespace RunGame.Services
             }
         }
 
-        /// <summary>
-        /// Timer callback that performs the actual mouse movement.
-        /// Checks if the window is in the foreground and if the cursor hasn't moved manually.
-        /// Moves the cursor 5 pixels in alternating directions (left/right) gradually to avoid detection.
-        /// </summary>
-        /// <param name="state">Timer state (unused).</param>
         private void MoveMouse(object? state)
         {
             try
@@ -142,9 +124,6 @@ namespace RunGame.Services
             }
         }
 
-        /// <summary>
-        /// Releases resources used by the service, disabling mouse movement and disposing the timer.
-        /// </summary>
         public void Dispose()
         {
             if (!_disposed)

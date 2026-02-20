@@ -1,10 +1,9 @@
-using Microsoft.UI;
-using Microsoft.UI.Dispatching;
-using Microsoft.UI.Windowing;
-using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Data;
-using Microsoft.UI.Xaml.Media.Imaging;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Interactivity;
+using Avalonia.Media;
+using Avalonia.Media.Imaging;
+using Avalonia.Threading;
 using RunGame.Models;
 using RunGame.Services;
 using RunGame.Steam;
@@ -17,16 +16,11 @@ using System.Globalization;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
-using Windows.Storage;
-using Windows.UI;
-using Windows.UI.ViewManagement;
-using Windows.UI.WindowManagement;
-using WinRT.Interop;
 using CommonUtilities;
 
 namespace RunGame
 {
-    public sealed partial class MainWindow : Window
+    public partial class MainWindow : Window
     {
         private readonly long _gameId;
         private readonly ISteamUserStats _steamClient;
@@ -35,7 +29,7 @@ namespace RunGame
         private readonly DispatcherTimer _timeTimer;
         private readonly DispatcherTimer _achievementTimer;
         private readonly DispatcherTimer _mouseTimer;
-        
+
         private readonly ObservableCollection<AchievementInfo> _achievements = new();
         private readonly ObservableCollection<StatInfo> _statistics = new();
         private readonly Dictionary<string, int> _achievementCounters = new();
@@ -45,54 +39,45 @@ namespace RunGame
         private bool _isLoadingStats = false;
         private bool _lastMouseMoveRight = true;
 
-        private readonly Microsoft.UI.Windowing.AppWindow _appWindow;
-
-        // Theme and Settings
-        private readonly UISettings _uiSettings = new();
-        private readonly ThemeManagementService _themeService = new();
-
         // New services
         private AchievementTimerService? _achievementTimerService;
         private MouseMoverService? _mouseMoverService;
         private AchievementIconService? _achievementIconService;
 
+        public MainWindow() : this(0) { }
+
         public MainWindow(long gameId)
         {
-            this.InitializeComponent();
-            
+            InitializeComponent();
+
             _gameId = gameId;
 
-            // ?? AppWindow
-            var hwnd = WindowNative.GetWindowHandle(this);
-            var winId = Win32Interop.GetWindowIdFromWindow(hwnd);
-            _appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(winId);
-            // 設定 Icon：指向打包後的實體檔案路徑
+            // Set window icon
             var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "RunGame.ico");
             if (File.Exists(iconPath))
-                _appWindow.SetIcon(iconPath);
+                Icon = new WindowIcon(iconPath);
 
             // Set Steam AppID environment variable - some games require this
             Environment.SetEnvironmentVariable("SteamAppId", gameId.ToString());
             AppLogger.LogDebug($"Set SteamAppId environment variable to {gameId}");
-            
+
             // Try modern Steam client first, fallback to legacy if needed
             _steamClient = CreateSteamClient(gameId);
-            
+
             _gameStatsService = new GameStatsService(_steamClient, gameId);
-            
+
             // Initialize timers
             _callbackTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
-            _callbackTimer.Tick += (_, _) => 
+            _callbackTimer.Tick += (_, _) =>
             {
-                // Run callbacks for both legacy and modern Steam clients
                 _steamClient.RunCallbacks();
             };
             _callbackTimer.Start();
-            
+
             _timeTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
             _timeTimer.Tick += OnTimeTimerTick;
             _timeTimer.Start();
-            
+
             _achievementTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
             _achievementTimer.Tick += OnAchievementTimerTick;
 
@@ -118,94 +103,75 @@ namespace RunGame
             // Set up event handlers
             _gameStatsService.UserStatsReceived += OnUserStatsReceived;
 
-            if (Content is FrameworkElement root)
-            {
-                _themeService.Initialize(this, root);
-
-                // Clear any old theme settings to ensure we follow system theme
-                var settings = TryGetLocalSettings();
-                if (settings != null)
-                {
-                    try
-                    {
-                        settings.Values.Remove("AppTheme");
-                        AppLogger.LogDebug("Cleared old AppTheme setting");
-                    }
-                    catch (InvalidOperationException)
-                    {
-                        // Ignore inability to clear settings
-                    }
-                }
-
-                // Always use system theme (Default = follow system)
-                ElementTheme themeToApply = ElementTheme.Default;
-                _themeService.ApplyTheme(themeToApply);
-
-                root.ActualThemeChanged += (_, _) =>
-                {
-                    _themeService.ApplyAccentBrush();
-                    _themeService.UpdateTitleBar(root.ActualTheme);
-                };
-            }
-            _uiSettings.ColorValuesChanged += UiSettings_ColorValuesChanged;
-            
             // Set window title
             string gameName = _steamClient.GetAppData((uint)gameId, "name") ?? gameId.ToString();
             string debugMode = AppLogger.IsDebugMode ? " [DEBUG MODE]" : "";
             this.Title = $"AchievoLab:RunGame | {gameName}{debugMode}";
-            
+
             // Initialize language options
             InitializeLanguageComboBox();
-            
+
             // Initialize column layout options
             InitializeColumnLayoutComboBox();
-            
-            // Set up list views - simplified approach
+
+            // Set up list views
             AchievementListView.ItemsSource = _achievements;
             StatisticsListView.ItemsSource = _statistics;
 
-            // 設置 Debug 模式標籤
+            // Subscribe to search text changed
+            SearchTextBox.TextChanged += OnSearchTextChanged;
+
+            // Setup Debug mode label
             if (AppLogger.IsDebugMode)
             {
                 DebugModeLabel.Text = "DEBUG MODE";
-                ClearLogButton.Visibility = Visibility.Visible;
+                ClearLogButton.IsVisible = true;
             }
             else
             {
-                ClearLogButton.Visibility = Visibility.Collapsed;
+                ClearLogButton.IsVisible = false;
             }
 
-            // 初始化日誌
             AppLogger.LogDebug($"RunGame started for game {gameId} in {(AppLogger.IsDebugMode ? "DEBUG" : "RELEASE")} mode");
-            
+
             // Initialize new services
             _achievementTimerService = new AchievementTimerService(_gameStatsService);
             _achievementTimerService.StatusUpdated += OnTimerStatusUpdated;
             _achievementTimerService.AchievementUnlocked += OnTimerAchievementUnlocked;
 
             // Get window handle for mouse service
-            var windowHandle = WinRT.Interop.WindowNative.GetWindowHandle(this);
-            _mouseMoverService = new MouseMoverService(windowHandle);
-            
+            _mouseMoverService = new MouseMoverService(IntPtr.Zero); // Will be updated when window is shown
+
             // Initialize icon service
             _achievementIconService = new AchievementIconService(gameId);
-            
+
             // Test game ownership before loading stats
             TestGameOwnership();
-            
+
             // Start loading stats
             _ = LoadStatsAsync();
-            
-            // Subscribe to window closing event for cleanup
-            this.Closed += OnWindowClosed;
+
+            // Subscribe to window events
+            this.Closing += OnWindowClosing;
+            this.Opened += OnWindowOpened;
         }
-        
-        private void OnWindowClosed(object sender, WindowEventArgs args)
+
+        private void OnWindowOpened(object? sender, EventArgs e)
+        {
+            // Update mouse mover service with actual window handle
+            var handle = this.TryGetPlatformHandle();
+            if (handle != null && _mouseMoverService != null)
+            {
+                _mouseMoverService.Dispose();
+                _mouseMoverService = new MouseMoverService(handle.Handle);
+            }
+        }
+
+        private void OnWindowClosing(object? sender, WindowClosingEventArgs e)
         {
             try
             {
                 // Unsubscribe event handlers to prevent leaks
-                _uiSettings.ColorValuesChanged -= UiSettings_ColorValuesChanged;
                 _gameStatsService.UserStatsReceived -= OnUserStatsReceived;
                 if (_achievementTimerService != null)
                 {
@@ -218,12 +184,12 @@ namespace RunGame
                 _mouseMoverService?.Dispose();
                 _achievementIconService?.Dispose();
 
-                // Stop timers and remove tick handlers
-                if (_callbackTimer != null) { _callbackTimer.Stop(); }
-                if (_timeTimer != null) { _timeTimer.Stop(); _timeTimer.Tick -= OnTimeTimerTick; }
-                if (_achievementTimer != null) { _achievementTimer.Stop(); _achievementTimer.Tick -= OnAchievementTimerTick; }
-                if (_mouseTimer != null) { _mouseTimer.Stop(); _mouseTimer.Tick -= OnMouseTimerTick; }
-                if (_searchDebounceTimer != null) { _searchDebounceTimer.Stop(); }
+                // Stop timers
+                _callbackTimer.Stop();
+                _timeTimer.Stop(); _timeTimer.Tick -= OnTimeTimerTick;
+                _achievementTimer.Stop(); _achievementTimer.Tick -= OnAchievementTimerTick;
+                _mouseTimer.Stop(); _mouseTimer.Tick -= OnMouseTimerTick;
+                _searchDebounceTimer.Stop();
 
                 // Dispose Steam client to release Steam pipe and user handles
                 if (_steamClient is IDisposable disposableSteamClient)
@@ -238,31 +204,6 @@ namespace RunGame
             {
                 AppLogger.LogDebug($"Error during cleanup: {ex.Message}");
             }
-        }
-
-        private void UiSettings_ColorValuesChanged(UISettings sender, object args)
-        {
-            DispatcherQueue.TryEnqueue(() =>
-            {
-                _themeService.ApplyAccentBrush();
-                if (_themeService.Root != null)
-                {
-                    _themeService.UpdateTitleBar(_themeService.Root.ActualTheme);
-                }
-            });
-        }
-
-        private void SetTheme(ElementTheme theme)
-        {
-            AppLogger.LogDebug($"SetTheme() called with {theme}");
-            _themeService.ApplyTheme(theme);
-            // Note: No longer saving theme settings - always follow system theme
-        }
-
-        private static ApplicationDataContainer? TryGetLocalSettings()
-        {
-            AppLogger.LogDebug("TryGetLocalSettings() Start");
-            return App.LocalSettings;
         }
 
         private void InitializeLanguageComboBox()
@@ -291,25 +232,25 @@ namespace RunGame
 
         private void InitializeColumnLayoutComboBox()
         {
-            var layouts = new[] 
-            { 
-                "Compact", "Normal", "Wide", "Extra Wide" 
+            var layouts = new[]
+            {
+                "Compact", "Normal", "Wide", "Extra Wide"
             };
-            
+
             foreach (var layout in layouts)
             {
                 ColumnLayoutComboBox.Items.Add(layout);
             }
-            
+
             ColumnLayoutComboBox.SelectedItem = "Normal";
         }
 
         private async Task LoadStatsAsync()
         {
             if (_isLoadingStats) return;
-            
+
             _isLoadingStats = true;
-            LoadingRing.IsActive = true;
+            LoadingBar.IsVisible = true;
             StatusLabel.Text = "Loading game statistics...";
 
             try
@@ -321,13 +262,13 @@ namespace RunGame
                 {
                     StatusLabel.Text = "Failed to request user stats from Steam";
                     AppLogger.LogDebug("LoadStatsAsync: Failed to request user stats from Steam");
-                    LoadingRing.IsActive = false;
+                    LoadingBar.IsVisible = false;
                 }
             }
             catch (Exception ex)
             {
                 StatusLabel.Text = $"Error loading stats: {ex.Message}";
-                LoadingRing.IsActive = false;
+                LoadingBar.IsVisible = false;
             }
             finally
             {
@@ -339,7 +280,7 @@ namespace RunGame
         {
             AppLogger.LogDebug($"MainWindow.OnUserStatsReceived - GameId: {e.GameId}, Result: {e.Result}, UserId: {e.UserId}");
 
-            this.DispatcherQueue.TryEnqueue(async () =>
+            Dispatcher.UIThread.Post(async () =>
             {
                 try
                 {
@@ -362,7 +303,7 @@ namespace RunGame
                     }
 
                     AppLogger.LogDebug("Loading achievements and statistics...");
-                    LoadingRing.IsActive = true;
+                    LoadingBar.IsVisible = true;
 
                     foreach (var achievement in _allAchievements)
                     {
@@ -396,14 +337,14 @@ namespace RunGame
                     // Notify timer service that stats have been reloaded
                     _achievementTimerService?.NotifyStatsReloaded();
 
-                    LoadingRing.IsActive = false;
+                    LoadingBar.IsVisible = false;
                 }
                 catch (Exception ex)
                 {
                     AppLogger.LogDebug($"Error in OnUserStatsReceived: {ex.GetType().Name}: {ex.Message}");
                     AppLogger.LogDebug($"Stack trace: {ex.StackTrace}");
                     StatusLabel.Text = $"Error loading stats: {ex.Message}";
-                    LoadingRing.IsActive = false;
+                    LoadingBar.IsVisible = false;
                 }
             });
         }
@@ -424,7 +365,6 @@ namespace RunGame
                 int processed = 0;
                 foreach (var achievement in _allAchievements)
                 {
-                    // Search in localized name/description AND English name/description
                     bool matchesSearch = string.IsNullOrEmpty(searchText) ||
                         achievement.Name.IndexOf(searchText, StringComparison.OrdinalIgnoreCase) >= 0 ||
                         achievement.Description.IndexOf(searchText, StringComparison.OrdinalIgnoreCase) >= 0 ||
@@ -447,7 +387,7 @@ namespace RunGame
                     if (processed % 50 == 0)
                     {
                         int progress = processed;
-                        this.DispatcherQueue.TryEnqueue(() =>
+                        Dispatcher.UIThread.Post(() =>
                         {
                             StatusLabel.Text = $"Filtering achievements... {progress}/{total}";
                         });
@@ -469,13 +409,12 @@ namespace RunGame
         {
             _statistics.Clear();
             var stats = _gameStatsService.GetStatistics();
-            
+
             foreach (var stat in stats)
             {
                 _statistics.Add(stat);
             }
 
-            // Enable/disable the stats editing checkbox based on whether there are any statistics
             bool hasStatistics = _statistics.Count > 0;
             EnableStatsEditingCheckBox.IsEnabled = hasStatistics;
             if (!hasStatistics)
@@ -500,7 +439,7 @@ namespace RunGame
                 AppLogger.LogDebug($"Error in OnRefresh: {ex.GetType().Name}: {ex.Message}");
                 AppLogger.LogDebug($"Stack trace: {ex.StackTrace}");
                 StatusLabel.Text = $"Refresh failed: {ex.Message}";
-                LoadingRing.IsActive = false;
+                LoadingBar.IsVisible = false;
             }
         }
 
@@ -533,13 +472,12 @@ namespace RunGame
             var achievedCount = selectedAchievements.Count(a => a.IsAchieved);
             var unachievedCount = selectedAchievements.Count - achievedCount;
 
-            // Show detailed confirmation dialog
             string confirmMessage;
             if (achievedCount > 0 && unachievedCount > 0)
             {
                 confirmMessage = $"You are about to toggle {selectedAchievements.Count} achievement(s):\n\n" +
-                               $"??{unachievedCount} locked achievement(s) will be UNLOCKED\n" +
-                               $"??{achievedCount} unlocked achievement(s) will be LOCKED\n\n" +
+                               $"• {unachievedCount} locked achievement(s) will be UNLOCKED\n" +
+                               $"• {achievedCount} unlocked achievement(s) will be LOCKED\n\n" +
                                $"Are you sure you want to continue?";
             }
             else if (achievedCount > 0)
@@ -555,13 +493,13 @@ namespace RunGame
 
             var result = await ShowConfirmationDialog("Confirm Achievement Toggle", confirmMessage);
 
-            if (result != Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary)
+            if (!result)
             {
                 return;
             }
 
             // Show loading indicator and disable Store button to prevent multiple clicks
-            LoadingRing.IsActive = true;
+            LoadingBar.IsVisible = true;
             StoreButton.IsEnabled = false;
             StatusLabel.Text = "Storing changes...";
 
@@ -577,7 +515,7 @@ namespace RunGame
             }
             finally
             {
-                LoadingRing.IsActive = false;
+                LoadingBar.IsVisible = false;
                 StoreButton.IsEnabled = true;
             }
         }
@@ -592,20 +530,18 @@ namespace RunGame
                 int achievementCount = 0;
                 foreach (var achievement in selectedAchievements)
                 {
-                    // Safety check: Skip protected achievements (double-check even though UI should filter)
                     if (achievement.IsProtected)
                     {
                         AppLogger.LogDebug($"Skipping protected achievement {achievement.Id}");
                         continue;
                     }
 
-                    // Toggle the achievement state
                     bool newState = !achievement.IsAchieved;
                     AppLogger.LogDebug($"Achievement {achievement.Id} toggle: {achievement.IsAchieved} -> {newState}");
 
                     if (!_gameStatsService.SetAchievement(achievement.Id, newState))
                     {
-                        this.DispatcherQueue.TryEnqueue(() =>
+                        Dispatcher.UIThread.Post(() =>
                         {
                             if (achievement.IsProtected)
                             {
@@ -622,19 +558,16 @@ namespace RunGame
                         return;
                     }
 
-                    // Update UI model immediately to trigger icon update via OnAchievementPropertyChanged
-                    this.DispatcherQueue.TryEnqueue(() =>
+                    Dispatcher.UIThread.Post(() =>
                     {
                         achievement.IsAchieved = newState;
                     });
 
                     achievementCount++;
                 }
-                
-                // Store statistics (if any were modified)
+
                 int statCount = StoreStatistics(true);
 
-                // If statistics store failed, refresh and return
                 if (statCount < 0)
                 {
                     AppLogger.LogDebug("Statistics store failed in PerformStoreToggle - refreshing");
@@ -642,89 +575,55 @@ namespace RunGame
                     return;
                 }
 
-                // Store changes to Steam
                 bool success = _gameStatsService.StoreStats();
                 AppLogger.LogDebug($"StoreStats result: {success}");
 
-                // If commit failed, refresh to resync
                 if (!success)
                 {
                     AppLogger.LogDebug("StoreStats failed in PerformStoreToggle - refreshing");
-                    this.DispatcherQueue.TryEnqueue(() =>
+                    Dispatcher.UIThread.Post(() =>
                     {
                         StatusLabel.Text = "Failed to commit changes to Steam. Refreshing...";
                     });
                     RefreshAfterFailure(false);
                     return;
                 }
-                
-                // Update UI on main thread
-                this.DispatcherQueue.TryEnqueue(() =>
+
+                int finalAchievementCount = achievementCount;
+                int finalStatCount = statCount;
+                Dispatcher.UIThread.Post(() =>
                 {
-                    if (AppLogger.IsDebugMode)
-                    {
-                        StatusLabel.Text = $"[DEBUG MODE] Fake toggled {achievementCount} achievements and {Math.Max(0, statCount)} statistics (not written to Steam). Refreshing to show actual state...";
+                    string prefix = AppLogger.IsDebugMode ? "[DEBUG MODE] Fake toggled" : "Successfully toggled";
+                    StatusLabel.Text = $"{prefix} {finalAchievementCount} achievements and {Math.Max(0, finalStatCount)} statistics. Refreshing...";
 
-                        // Even in debug mode, reload to show Steam's actual state
-                        _ = Task.Run(async () =>
-                        {
-                            try
-                            {
-                                await Task.Delay(500);
-                                this.DispatcherQueue.TryEnqueue(async () =>
-                                {
-                                    try
-                                    {
-                                        await LoadStatsAsync();
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        AppLogger.LogDebug($"Error reloading stats (debug mode): {ex.GetType().Name}: {ex.Message}");
-                                        AppLogger.LogDebug($"Stack trace: {ex.StackTrace}");
-                                    }
-                                });
-                            }
-                            catch (Exception ex)
-                            {
-                                AppLogger.LogDebug($"Error in delayed reload task (debug mode): {ex.GetType().Name}: {ex.Message}");
-                            }
-                        });
-                    }
-                    else
+                    _ = Task.Run(async () =>
                     {
-                        StatusLabel.Text = $"Successfully toggled {achievementCount} achievements and {Math.Max(0, statCount)} statistics to Steam. Refreshing...";
-
-                        // Reload data from Steam after successful store
-                        _ = Task.Run(async () =>
+                        try
                         {
-                            try
+                            await Task.Delay(500);
+                            Dispatcher.UIThread.Post(async () =>
                             {
-                                await Task.Delay(500);
-                                this.DispatcherQueue.TryEnqueue(async () =>
+                                try
                                 {
-                                    try
-                                    {
-                                        await LoadStatsAsync();
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        AppLogger.LogDebug($"Error reloading stats: {ex.GetType().Name}: {ex.Message}");
-                                        AppLogger.LogDebug($"Stack trace: {ex.StackTrace}");
-                                    }
-                                });
-                            }
-                            catch (Exception ex)
-                            {
-                                AppLogger.LogDebug($"Error in delayed reload task: {ex.GetType().Name}: {ex.Message}");
-                            }
-                        });
-                    }
+                                    await LoadStatsAsync();
+                                }
+                                catch (Exception ex)
+                                {
+                                    AppLogger.LogDebug($"Error reloading stats: {ex.GetType().Name}: {ex.Message}");
+                                }
+                            });
+                        }
+                        catch (Exception ex)
+                        {
+                            AppLogger.LogDebug($"Error in delayed reload task: {ex.GetType().Name}: {ex.Message}");
+                        }
+                    });
                 });
             }
             catch (Exception ex)
             {
                 AppLogger.LogDebug($"Error in PerformStoreToggle: {ex.Message}");
-                this.DispatcherQueue.TryEnqueue(() =>
+                Dispatcher.UIThread.Post(() =>
                 {
                     StatusLabel.Text = $"Error: {ex.Message}";
                 });
@@ -740,7 +639,6 @@ namespace RunGame
                 int achievementCount = StoreAchievements(silent);
                 if (achievementCount < 0)
                 {
-                    // Refresh on achievement store failure to resync UI with Steam
                     RefreshAfterFailure(silent);
                     return;
                 }
@@ -748,7 +646,6 @@ namespace RunGame
                 int statCount = StoreStatistics(silent);
                 if (statCount < 0)
                 {
-                    // Refresh on statistics store failure to resync UI with Steam
                     RefreshAfterFailure(silent);
                     return;
                 }
@@ -760,77 +657,45 @@ namespace RunGame
                         ShowErrorDialog("Failed to commit changes to Steam. Refreshing to restore correct state...");
                     }
                     AppLogger.LogDebug("StoreStats failed - refreshing to resync with Steam");
-                    // Refresh to resync UI with actual Steam state
                     RefreshAfterFailure(silent);
                     return;
                 }
 
                 if (!silent)
                 {
-                    // Ensure UI updates happen on the UI thread
-                    this.DispatcherQueue.TryEnqueue(() =>
+                    int finalAchievementCount = achievementCount;
+                    int finalStatCount = statCount;
+                    Dispatcher.UIThread.Post(() =>
                     {
-                        if (AppLogger.IsDebugMode)
+                        string prefix = AppLogger.IsDebugMode ? "[DEBUG MODE] Fake stored" : "Successfully stored";
+                        StatusLabel.Text = $"{prefix} {finalAchievementCount} achievements and {finalStatCount} statistics. Refreshing...";
+
+                        _ = Task.Run(async () =>
                         {
-                            StatusLabel.Text = $"[DEBUG MODE] Fake stored {achievementCount} achievements and {statCount} statistics (not written to Steam). Refreshing to show actual state...";
-                            // Refresh in debug mode to show that changes weren't actually applied
-                            _ = Task.Run(async () =>
+                            try
                             {
-                                try
+                                await Task.Delay(500);
+                                Dispatcher.UIThread.Post(async () =>
                                 {
-                                    await Task.Delay(500); // Brief delay to show status message
-                                    this.DispatcherQueue.TryEnqueue(async () =>
+                                    try
                                     {
-                                        try
-                                        {
-                                            await LoadStatsAsync();
-                                        }
-                                        catch (Exception ex)
-                                        {
-                                            AppLogger.LogDebug($"Error reloading stats (debug mode, PerformStore): {ex.GetType().Name}: {ex.Message}");
-                                            AppLogger.LogDebug($"Stack trace: {ex.StackTrace}");
-                                        }
-                                    });
-                                }
-                                catch (Exception ex)
-                                {
-                                    AppLogger.LogDebug($"Error in delayed reload task (debug mode, PerformStore): {ex.GetType().Name}: {ex.Message}");
-                                }
-                            });
-                        }
-                        else
-                        {
-                            StatusLabel.Text = $"Successfully stored {achievementCount} achievements and {statCount} statistics to Steam. Refreshing...";
-                            // Reload data from Steam after successful store
-                            _ = Task.Run(async () =>
+                                        await LoadStatsAsync();
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        AppLogger.LogDebug($"Error reloading stats: {ex.GetType().Name}: {ex.Message}");
+                                    }
+                                });
+                            }
+                            catch (Exception ex)
                             {
-                                try
-                                {
-                                    await Task.Delay(500); // Brief delay to allow Steam to update
-                                    this.DispatcherQueue.TryEnqueue(async () =>
-                                    {
-                                        try
-                                        {
-                                            await LoadStatsAsync();
-                                        }
-                                        catch (Exception ex)
-                                        {
-                                            AppLogger.LogDebug($"Error reloading stats (PerformStore): {ex.GetType().Name}: {ex.Message}");
-                                            AppLogger.LogDebug($"Stack trace: {ex.StackTrace}");
-                                        }
-                                    });
-                                }
-                                catch (Exception ex)
-                                {
-                                    AppLogger.LogDebug($"Error in delayed reload task (PerformStore): {ex.GetType().Name}: {ex.Message}");
-                                }
-                            });
-                        }
+                                AppLogger.LogDebug($"Error in delayed reload task: {ex.GetType().Name}: {ex.Message}");
+                            }
+                        });
                     });
                 }
                 else
                 {
-                    // Silent mode: always refresh after store
                     _ = LoadStatsAsync();
                 }
             }
@@ -839,7 +704,7 @@ namespace RunGame
                 AppLogger.LogDebug($"Error in PerformStore: {ex.Message}");
                 if (!silent)
                 {
-                    this.DispatcherQueue.TryEnqueue(() =>
+                    Dispatcher.UIThread.Post(() =>
                     {
                         ShowErrorDialog($"Error storing stats: {ex.Message}");
                     });
@@ -851,13 +716,11 @@ namespace RunGame
         {
             int count = 0;
 
-            // Get all modified achievements
             var modifiedAchievements = _achievements.Where(a => a.IsModified).ToList();
 
             if (modifiedAchievements.Count == 0)
                 return 0;
 
-            // Filter out protected achievements (safety check - should already be filtered)
             var protectedAchievements = modifiedAchievements.Where(a => a.IsProtected).ToList();
             if (protectedAchievements.Count > 0)
             {
@@ -871,7 +734,6 @@ namespace RunGame
                 return -1;
             }
 
-            // Sort achievements by their statistic requirements to ensure proper ordering
             var sortedAchievements = SortAchievementsByStatisticDependency(modifiedAchievements);
 
             foreach (var achievement in sortedAchievements)
@@ -897,17 +759,15 @@ namespace RunGame
                     return -1;
                 }
 
-                // Update original state after successful write
                 achievement.OriginalIsAchieved = achievement.IsAchieved;
                 count++;
             }
 
             return count;
         }
-        
+
         private List<AchievementInfo> SortAchievementsByStatisticDependency(List<AchievementInfo> achievements)
         {
-            // Define the same mapping as in GameStatsService for consistency
             var achievementStatMap = new Dictionary<string, (string statId, int requiredValue)>
             {
                 { "DestroyXUnits", ("DestroyXUnits_Stat", 5000) },
@@ -923,16 +783,13 @@ namespace RunGame
                 { "FinishCampaignOnHardDifficulty", ("FinishCampaignOnHardDifficulty_Stat", 1) },
                 { "UnlockXLexicanumEntries", ("UnlockXLexicanumEntries_Stat", 999) }
             };
-            
-            // Sort achievements: those with lower stat requirements first
+
             return achievements.OrderBy(a =>
             {
                 if (achievementStatMap.TryGetValue(a.Id, out var statInfo))
                 {
-                    // Return the required value for sorting (lower values first)
                     return statInfo.requiredValue;
                 }
-                // Achievements without stat requirements go first
                 return 0;
             }).ToList();
         }
@@ -941,15 +798,13 @@ namespace RunGame
         {
             AppLogger.LogDebug("RefreshAfterFailure called - reloading stats from Steam");
 
-            // Schedule refresh on UI thread
             _ = Task.Run(async () =>
             {
                 try
                 {
-                    // Small delay to allow Steam to stabilize
                     await Task.Delay(300);
 
-                    this.DispatcherQueue.TryEnqueue(async () =>
+                    Dispatcher.UIThread.Post(async () =>
                     {
                         try
                         {
@@ -1005,7 +860,6 @@ namespace RunGame
         {
             if (stat is IntStatInfo intStat)
             {
-                // Check IncrementOnly violation
                 if (intStat.IsIncrementOnly && intStat.IntValue < intStat.OriginalValue)
                 {
                     return $"Cannot decrease IncrementOnly statistic '{stat.DisplayName}' ({stat.Id})\n" +
@@ -1013,7 +867,6 @@ namespace RunGame
                            $"This statistic can only be increased, never decreased.";
                 }
 
-                // Check Min/Max violation
                 if (intStat.IntValue < intStat.MinValue || intStat.IntValue > intStat.MaxValue)
                 {
                     return $"Statistic '{stat.DisplayName}' ({stat.Id}) value out of range\n" +
@@ -1022,7 +875,6 @@ namespace RunGame
                            $"Please enter a value within the allowed range.";
                 }
 
-                // Check MaxChange violation
                 if (intStat.MaxChange > 0)
                 {
                     int change = Math.Abs(intStat.IntValue - intStat.OriginalValue);
@@ -1037,7 +889,6 @@ namespace RunGame
             }
             else if (stat is FloatStatInfo floatStat)
             {
-                // Check IncrementOnly violation
                 if (floatStat.IsIncrementOnly && floatStat.FloatValue < floatStat.OriginalValue)
                 {
                     return $"Cannot decrease IncrementOnly statistic '{stat.DisplayName}' ({stat.Id})\n" +
@@ -1045,7 +896,6 @@ namespace RunGame
                            $"This statistic can only be increased, never decreased.";
                 }
 
-                // Check Min/Max violation
                 if (floatStat.FloatValue < floatStat.MinValue || floatStat.FloatValue > floatStat.MaxValue)
                 {
                     return $"Statistic '{stat.DisplayName}' ({stat.Id}) value out of range\n" +
@@ -1054,7 +904,6 @@ namespace RunGame
                            $"Please enter a value within the allowed range.";
                 }
 
-                // Check MaxChange violation
                 if (floatStat.MaxChange > float.Epsilon)
                 {
                     float change = Math.Abs(floatStat.FloatValue - floatStat.OriginalValue);
@@ -1068,7 +917,6 @@ namespace RunGame
                 }
             }
 
-            // Generic error message
             return $"Failed to set statistic '{stat.DisplayName}' ({stat.Id})\n\n" +
                    $"The value may violate Steam API constraints.";
         }
@@ -1076,65 +924,58 @@ namespace RunGame
         private void OnLockAll(object sender, RoutedEventArgs e)
         {
             AppLogger.LogDebug("Select all unlocked button clicked");
-            
-            // Clear current selection
+
             AchievementListView.SelectedItems.Clear();
-            
-            // Select all unlocked achievements that are not protected
+
             var unlockedAchievements = _achievements
                 .Where(a => !a.IsProtected && a.IsAchieved)
                 .ToList();
-            
+
             foreach (var achievement in unlockedAchievements)
             {
                 AchievementListView.SelectedItems.Add(achievement);
             }
-            
+
             AppLogger.LogDebug($"Selected {unlockedAchievements.Count} unlocked achievements");
         }
 
         private void OnUnlockAll(object sender, RoutedEventArgs e)
         {
             AppLogger.LogDebug("Select all locked button clicked");
-            
-            // Clear current selection
+
             AchievementListView.SelectedItems.Clear();
-            
-            // Select all locked achievements that are not protected
+
             var lockedAchievements = _achievements
                 .Where(a => !a.IsProtected && !a.IsAchieved)
                 .ToList();
-            
+
             foreach (var achievement in lockedAchievements)
             {
                 AchievementListView.SelectedItems.Add(achievement);
             }
-            
+
             AppLogger.LogDebug($"Selected {lockedAchievements.Count} locked achievements");
         }
 
         private void OnInvertAll(object sender, RoutedEventArgs e)
         {
             AppLogger.LogDebug("Select All button clicked");
-            
-            // Clear current selection
+
             AchievementListView.SelectedItems.Clear();
-            
-            // Select all achievements that are not protected
+
             var selectableAchievements = _achievements
                 .Where(a => !a.IsProtected)
                 .ToList();
-            
+
             foreach (var achievement in selectableAchievements)
             {
                 AchievementListView.SelectedItems.Add(achievement);
             }
-            
+
             AppLogger.LogDebug($"Selected {selectableAchievements.Count} achievements");
         }
 
-
-        private void OnSearchTextChanged(object sender, TextChangedEventArgs e)
+        private void OnSearchTextChanged(object? sender, TextChangedEventArgs e)
         {
             _searchDebounceTimer.Stop();
             _searchDebounceTimer.Start();
@@ -1158,14 +999,14 @@ namespace RunGame
             await LoadAchievements();
         }
 
-        private async void OnLanguageChanged(object sender, SelectionChangedEventArgs e)
+        private async void OnLanguageChanged(object? sender, SelectionChangedEventArgs e)
         {
             if (_gameStatsService == null)
                 return;
 
             string currentLanguage = LanguageComboBox.SelectedItem as string ?? "english";
 
-            LoadingRing.IsActive = true;
+            LoadingBar.IsVisible = true;
 
             foreach (var achievement in _allAchievements)
             {
@@ -1175,7 +1016,7 @@ namespace RunGame
             if (!_gameStatsService.LoadUserGameStatsSchema(currentLanguage))
             {
                 StatusLabel.Text = "Failed to load game schema";
-                LoadingRing.IsActive = false;
+                LoadingBar.IsVisible = false;
                 return;
             }
 
@@ -1197,10 +1038,10 @@ namespace RunGame
             await LoadAchievementIconsAsync();
             _achievementTimerService?.NotifyStatsReloaded();
 
-            LoadingRing.IsActive = false;
+            LoadingBar.IsVisible = false;
         }
 
-        private void OnColumnLayoutChanged(object sender, SelectionChangedEventArgs e)
+        private void OnColumnLayoutChanged(object? sender, SelectionChangedEventArgs e)
         {
             if (ColumnLayoutComboBox.SelectedItem is string layout)
             {
@@ -1211,18 +1052,8 @@ namespace RunGame
         private void ApplyColumnLayout(string layout)
         {
             AppLogger.LogDebug($"Column layout changed to: {layout}");
-            
-            // For WinUI 3 limitations, we'll implement a practical solution
-            // Show user feedback and provide information about the column layout feature
             StatusLabel.Text = $"Column layout set to: {layout}. Use scroll and zoom for better viewing.";
-            
-            // In a production implementation, you could:
-            // 1. Save the preference to user settings
-            // 2. Create multiple XAML DataTemplate resources and switch between them
-            // 3. Use a third-party DataGrid control that supports resizable columns
-            // 4. Implement a custom ListView with resizable column headers
-            
-            // For now, provide users with information about the current limitations
+
             if (layout == "Compact")
             {
                 StatusLabel.Text = "Compact view selected. Tip: Use Ctrl+Mouse wheel to zoom for better readability.";
@@ -1233,20 +1064,13 @@ namespace RunGame
             }
         }
 
-        private void OnStatsEditingToggle(object sender, RoutedEventArgs e)
-        {
-            // Enable/disable statistics editing
-        }
-
         private async void OnSetTimer(object sender, RoutedEventArgs e)
         {
-            // Set timer for selected achievements (only allow unachieved -> achieved)
             var selectedAchievements = AchievementListView.SelectedItems
                 .OfType<AchievementInfo>()
                 .Where(a => !a.IsAchieved && !a.IsProtected)
                 .ToList();
 
-            // Check if user tried to select achieved achievements
             var achievedSelected = AchievementListView.SelectedItems
                 .OfType<AchievementInfo>()
                 .Where(a => a.IsAchieved)
@@ -1266,34 +1090,11 @@ namespace RunGame
 
             try
             {
-                // Create the dialog content
-                var dialogContent = CreateTimerDialogContent(selectedAchievements);
-                
-                // Show a content dialog to set the unlock time
-                var dialog = new ContentDialog
-                {
-                    Title = "Set Achievement Unlock Time",
-                    Content = dialogContent,
-                    PrimaryButtonText = "Set Timer",
-                    CloseButtonText = "Cancel",
-                    XamlRoot = this.Content.XamlRoot
-                };
+                var dialogResult = await ShowTimerDialog(selectedAchievements);
 
-                var result = await dialog.ShowAsync();
-                
-                if (result == ContentDialogResult.Primary)
+                if (dialogResult.HasValue)
                 {
-                    // Extract the controls from our dialog content
-                    var datePicker = (DatePicker)dialogContent.Children[3];
-                    var timePicker = (TimePicker)dialogContent.Children[5];
-                    var secondsBox = (NumberBox)dialogContent.Children[7];
-
-                    var selectedDate = datePicker.Date.Date;
-                    var selectedTime = timePicker.Time;
-                    
-                    // Add seconds from NumberBox
-                    int seconds = (int)(secondsBox.Value);
-                    var unlockTime = selectedDate.Add(selectedTime).AddSeconds(seconds);
+                    var unlockTime = dialogResult.Value;
 
                     if (unlockTime <= DateTime.Now)
                     {
@@ -1322,6 +1123,86 @@ namespace RunGame
             }
         }
 
+        private async Task<DateTime?> ShowTimerDialog(List<AchievementInfo> achievements)
+        {
+            var dialog = new Window
+            {
+                Title = "Set Achievement Unlock Time",
+                Width = 450,
+                Height = 450,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                CanResize = false
+            };
+
+            var defaultTime = DateTime.Now.AddHours(1);
+            var tcs = new TaskCompletionSource<DateTime?>();
+
+            var stack = new StackPanel { Margin = new Thickness(20), Spacing = 10 };
+
+            stack.Children.Add(new TextBlock
+            {
+                Text = "Select the date and time when the achievement should be unlocked:",
+                TextWrapping = TextWrapping.Wrap
+            });
+
+            stack.Children.Add(new TextBlock
+            {
+                Text = $"Achievements to be scheduled ({achievements.Count}):",
+                FontWeight = FontWeight.SemiBold
+            });
+
+            stack.Children.Add(new TextBlock
+            {
+                Text = string.Join("\n", achievements.Take(5).Select(a => $"• {a.Id}: {a.Name}")) +
+                       (achievements.Count > 5 ? $"\n... and {achievements.Count - 5} more" : ""),
+                FontFamily = new FontFamily("Consolas"),
+                FontSize = 12,
+                TextWrapping = TextWrapping.Wrap,
+                MaxHeight = 120
+            });
+
+            var datePicker = new DatePicker { SelectedDate = new DateTimeOffset(defaultTime.Date) };
+            stack.Children.Add(datePicker);
+
+            stack.Children.Add(new TextBlock { Text = "Time:" });
+            var timePicker = new TimePicker { SelectedTime = defaultTime.TimeOfDay };
+            stack.Children.Add(timePicker);
+
+            stack.Children.Add(new TextBlock { Text = "Seconds (0-59):" });
+            var secondsBox = new NumericUpDown { Value = 0, Minimum = 0, Maximum = 59 };
+            stack.Children.Add(secondsBox);
+
+            var buttonPanel = new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, Spacing = 10, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right, Margin = new Thickness(0, 10, 0, 0) };
+
+            var okButton = new Button { Content = "Set Timer" };
+            okButton.Click += (_, _) =>
+            {
+                var selectedDate = datePicker.SelectedDate?.Date ?? defaultTime.Date;
+                var selectedTime = timePicker.SelectedTime ?? defaultTime.TimeOfDay;
+                int seconds = (int)(secondsBox.Value ?? 0);
+                var unlockTime = selectedDate.Add(selectedTime).AddSeconds(seconds);
+                tcs.TrySetResult(unlockTime);
+                dialog.Close();
+            };
+
+            var cancelButton = new Button { Content = "Cancel" };
+            cancelButton.Click += (_, _) =>
+            {
+                tcs.TrySetResult(null);
+                dialog.Close();
+            };
+
+            buttonPanel.Children.Add(okButton);
+            buttonPanel.Children.Add(cancelButton);
+            stack.Children.Add(buttonPanel);
+
+            dialog.Content = stack;
+            dialog.Closed += (_, _) => tcs.TrySetResult(null);
+
+            await dialog.ShowDialog(this);
+            return await tcs.Task;
+        }
+
         private void OnResetAllTimers(object sender, RoutedEventArgs e)
         {
             try
@@ -1347,7 +1228,6 @@ namespace RunGame
                 StatusLabel.Text = $"Reset {scheduledAchievements.Count} active timer(s)";
                 AppLogger.LogDebug($"Reset all timers - {scheduledAchievements.Count} timers cancelled");
 
-                // Update UI to reflect timer status
                 UpdateScheduledTimesDisplay();
             }
             catch (Exception ex)
@@ -1397,7 +1277,6 @@ namespace RunGame
                 StatusLabel.Text = $"Reset {resetCount} timer(s) for selected achievements";
                 AppLogger.LogDebug($"Reset selected timers - {resetCount} timers cancelled");
 
-                // Update UI to reflect timer status
                 UpdateScheduledTimesDisplay();
             }
             catch (Exception ex)
@@ -1412,9 +1291,6 @@ namespace RunGame
 
             var scheduledAchievements = _achievementTimerService.GetAllScheduledAchievements();
 
-            // Update _allAchievements to ensure timer state is preserved across filter changes
-            // Since _achievements contains references to objects in _allAchievements,
-            // updating _allAchievements will also update the filtered view
             foreach (var achievement in _allAchievements)
             {
                 if (scheduledAchievements.TryGetValue(achievement.Id, out var scheduledTime))
@@ -1428,107 +1304,14 @@ namespace RunGame
             }
         }
 
-        private Grid CreateTimerDialogContent(List<AchievementInfo> achievements)
-        {
-            var grid = new Grid();
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-
-            var instructions = new TextBlock
-            {
-                Text = "Select the date and time when the achievement should be unlocked:",
-                Margin = new Thickness(0, 0, 0, 10),
-                TextWrapping = TextWrapping.Wrap
-            };
-            Grid.SetRow(instructions, 0);
-
-            // Add achievement information display
-            var achievementHeader = new TextBlock
-            {
-                Text = $"Achievements to be scheduled ({achievements.Count}):",
-                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-                Margin = new Thickness(0, 0, 0, 5)
-            };
-            Grid.SetRow(achievementHeader, 1);
-
-            var achievementList = new TextBlock
-            {
-                Text = string.Join("\n", achievements.Take(5).Select(a => $"??{a.Id}: {a.Name}")) + 
-                       (achievements.Count > 5 ? $"\n... and {achievements.Count - 5} more" : ""),
-                FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
-                FontSize = 12,
-                Margin = new Thickness(0, 0, 0, 15),
-                TextWrapping = TextWrapping.Wrap,
-                MaxHeight = 120,
-                IsTextSelectionEnabled = true
-            };
-            Grid.SetRow(achievementList, 2);
-
-            var defaultTime = DateTime.Now.AddHours(1);
-            var datePicker = new DatePicker
-            {
-                Date = defaultTime.Date,
-                Margin = new Thickness(0, 0, 0, 10)
-            };
-            Grid.SetRow(datePicker, 3);
-
-            var timeLabel = new TextBlock
-            {
-                Text = "Time:",
-                Margin = new Thickness(0, 0, 0, 5)
-            };
-            Grid.SetRow(timeLabel, 4);
-
-            var timePicker = new TimePicker
-            {
-                Time = defaultTime.TimeOfDay,
-                Margin = new Thickness(0, 0, 0, 10)
-            };
-            Grid.SetRow(timePicker, 5);
-
-            var secondsLabel = new TextBlock
-            {
-                Text = "Seconds (0-59):",
-                Margin = new Thickness(0, 0, 0, 5)
-            };
-            Grid.SetRow(secondsLabel, 6);
-
-            var secondsBox = new NumberBox
-            {
-                Value = 0,
-                Minimum = 0,
-                Maximum = 59,
-                SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline
-            };
-            Grid.SetRow(secondsBox, 7);
-
-            grid.Children.Add(instructions);
-            grid.Children.Add(achievementHeader);
-            grid.Children.Add(achievementList);
-            grid.Children.Add(datePicker);
-            grid.Children.Add(timeLabel);
-            grid.Children.Add(timePicker);
-            grid.Children.Add(secondsLabel);
-            grid.Children.Add(secondsBox);
-
-            return grid;
-        }
-
         private void OnAutoMouseMove(object sender, RoutedEventArgs e)
         {
             if (_mouseMoverService != null)
             {
                 bool enabled = AutoMouseMoveButton.IsChecked == true;
                 _mouseMoverService.IsEnabled = enabled;
-                AutoMouseMoveButton.Label = enabled ? "Stop Auto Mouse" : "Auto Mouse";
-                AutoMouseMoveButton.Icon = enabled ? new SymbolIcon(Symbol.Pause) : new SymbolIcon(Symbol.Target);
-                ToolTipService.SetToolTip(AutoMouseMoveButton, enabled ? "Stop Auto Mouse" : "Auto Mouse");
+                AutoMouseMoveButton.Content = enabled ? "Stop Auto Mouse" : "Auto Mouse";
+                ToolTip.SetTip(AutoMouseMoveButton, enabled ? "Stop Auto Mouse" : "Auto Mouse");
                 AppLogger.LogDebug($"Auto mouse movement {(enabled ? "enabled" : "disabled")}");
             }
         }
@@ -1538,23 +1321,23 @@ namespace RunGame
             if (TimerToggleButton.IsChecked == true)
             {
                 _achievementTimer.Start();
-                TimerToggleButton.Label = "Disable Timer";
+                TimerToggleButton.Content = "Disable Timer";
                 UpdateTimerStatusIndicator(true);
             }
             else
             {
                 _achievementTimer.Stop();
-                TimerToggleButton.Label = "Enable Timer";
+                TimerToggleButton.Content = "Enable Timer";
                 UpdateTimerStatusIndicator(false);
             }
         }
 
-        private void OnTimeTimerTick(object? sender, object e)
+        private void OnTimeTimerTick(object? sender, EventArgs e)
         {
             CurrentTimeLabel.Text = $"Current Time: {DateTime.Now:yyyy/MM/dd HH:mm:ss}";
         }
 
-        private void OnAchievementTimerTick(object? sender, object e)
+        private void OnAchievementTimerTick(object? sender, EventArgs e)
         {
             bool shouldStore = false;
             TimerStatusLabel.Text = DateTime.Now.Second % 2 == 0 ? "*" : "-";
@@ -1579,48 +1362,70 @@ namespace RunGame
             }
         }
 
-        private void OnMouseTimerTick(object? sender, object e)
+        private void OnMouseTimerTick(object? sender, EventArgs e)
         {
-            // Simple mouse jiggle to prevent idle using Win32 API
-            GetCursorPos(out var currentPos);
-            var newX = _lastMouseMoveRight ? currentPos.X + 1 : currentPos.X - 1;
-            SetCursorPos(newX, currentPos.Y);
-            _lastMouseMoveRight = !_lastMouseMoveRight;
+            // Mouse jiggle handled by MouseMoverService
         }
 
-        [DllImport("user32.dll")]
-        private static extern bool SetCursorPos(int X, int Y);
-
-        [DllImport("user32.dll")]
-        private static extern bool GetCursorPos(out POINT lpPoint);
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct POINT
+        private async Task<bool> ShowConfirmationDialog(string title, string message)
         {
-            public int X;
-            public int Y;
-        }
-
-        private async Task<Microsoft.UI.Xaml.Controls.ContentDialogResult> ShowConfirmationDialog(string title, string message)
-        {
-            var dialog = new Microsoft.UI.Xaml.Controls.ContentDialog
+            var dialog = new Window
             {
                 Title = title,
-                Content = message,
-                PrimaryButtonText = "Yes",
-                SecondaryButtonText = "No",
-                DefaultButton = Microsoft.UI.Xaml.Controls.ContentDialogButton.Secondary,
-                XamlRoot = this.Content.XamlRoot
+                Width = 450,
+                Height = 280,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                CanResize = false
             };
 
-            return await dialog.ShowAsync();
+            var tcs = new TaskCompletionSource<bool>();
+
+            var stack = new StackPanel { Margin = new Thickness(20), Spacing = 15 };
+
+            stack.Children.Add(new TextBlock
+            {
+                Text = message,
+                TextWrapping = TextWrapping.Wrap
+            });
+
+            var buttonPanel = new StackPanel
+            {
+                Orientation = Avalonia.Layout.Orientation.Horizontal,
+                Spacing = 10,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
+                Margin = new Thickness(0, 10, 0, 0)
+            };
+
+            var yesButton = new Button { Content = "Yes" };
+            yesButton.Click += (_, _) =>
+            {
+                tcs.TrySetResult(true);
+                dialog.Close();
+            };
+
+            var noButton = new Button { Content = "No" };
+            noButton.Click += (_, _) =>
+            {
+                tcs.TrySetResult(false);
+                dialog.Close();
+            };
+
+            buttonPanel.Children.Add(yesButton);
+            buttonPanel.Children.Add(noButton);
+            stack.Children.Add(buttonPanel);
+
+            dialog.Content = stack;
+            dialog.Closed += (_, _) => tcs.TrySetResult(false);
+
+            await dialog.ShowDialog(this);
+            return await tcs.Task;
         }
 
         private void ShowErrorDialog(string message)
         {
             try
             {
-                this.DispatcherQueue.TryEnqueue(() =>
+                Dispatcher.UIThread.Post(() =>
                 {
                     StatusLabel.Text = $"Error: {message}";
                     AppLogger.LogDebug($"Error dialog: {message}");
@@ -1654,21 +1459,18 @@ namespace RunGame
         {
             try
             {
-                // Check if user owns the game
                 bool ownsGame = _steamClient.IsSubscribedApp((uint)_gameId);
                 AppLogger.LogDebug($"Game ownership check for {_gameId}: {ownsGame}");
-                
-                // Check if we can get game name
+
                 string? gameName = _steamClient.GetAppData((uint)_gameId, "name");
                 AppLogger.LogDebug($"Game name: {gameName ?? "Unknown"}");
-                
-                // Check if we can get other game data
+
                 string? gameType = _steamClient.GetAppData((uint)_gameId, "type");
                 AppLogger.LogDebug($"Game type: {gameType ?? "Unknown"}");
-                
+
                 string? gameState = _steamClient.GetAppData((uint)_gameId, "state");
                 AppLogger.LogDebug($"Game state: {gameState ?? "Unknown"}");
-                
+
                 if (!ownsGame)
                 {
                     StatusLabel.Text = "Warning: Steam reports you don't own this game";
@@ -1715,15 +1517,15 @@ namespace RunGame
 
                             if (!string.IsNullOrEmpty(iconPath))
                             {
-                                this.DispatcherQueue?.TryEnqueue(() =>
+                                Dispatcher.UIThread.Post(() =>
                                 {
                                     try
                                     {
-                                        achievement.IconImage = new BitmapImage(new Uri(iconPath));
+                                        achievement.IconImage = new Bitmap(iconPath);
                                     }
                                     catch (Exception ex)
                                     {
-                                        AppLogger.LogDebug($"Error creating BitmapImage for {achievement.Id}: {ex.Message}");
+                                        AppLogger.LogDebug($"Error creating Bitmap for {achievement.Id}: {ex.Message}");
                                     }
                                 });
                             }
@@ -1738,12 +1540,9 @@ namespace RunGame
                     processed += batch.Length;
 
                     int progress = processed;
-                    this.DispatcherQueue?.TryEnqueue(() =>
+                    Dispatcher.UIThread.Post(() =>
                     {
-                        if (StatusLabel != null)
-                        {
-                            StatusLabel.Text = $"Loading icons... {progress}/{total}";
-                        }
+                        StatusLabel.Text = $"Loading icons... {progress}/{total}";
                     });
 
                     await Task.Delay(1);
@@ -1775,15 +1574,15 @@ namespace RunGame
 
                 if (!string.IsNullOrEmpty(iconPath))
                 {
-                    this.DispatcherQueue?.TryEnqueue(() =>
+                    Dispatcher.UIThread.Post(() =>
                     {
                         try
                         {
-                            achievement.IconImage = new BitmapImage(new Uri(iconPath));
+                            achievement.IconImage = new Bitmap(iconPath);
                         }
                         catch (Exception ex)
                         {
-                            AppLogger.LogDebug($"Error creating BitmapImage for {achievement.Id}: {ex.Message}");
+                            AppLogger.LogDebug($"Error creating Bitmap for {achievement.Id}: {ex.Message}");
                         }
                     });
                 }
@@ -1799,19 +1598,18 @@ namespace RunGame
             if (isActive)
             {
                 TimerStatusText.Text = "\U0001F7E2 Timer On";
-                TimerStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Green);
+                TimerStatusText.Foreground = new SolidColorBrush(Colors.Green);
             }
             else
             {
                 TimerStatusText.Text = "\u26AA Timer Off";
-                TimerStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Gray);
+                TimerStatusText.Foreground = new SolidColorBrush(Colors.Gray);
             }
         }
 
         private void OnTimerStatusUpdated(string status)
         {
-            // Update status on UI thread
-            DispatcherQueue.TryEnqueue(() =>
+            Dispatcher.UIThread.Post(() =>
             {
                 StatusLabel.Text = status;
             });
@@ -1819,8 +1617,7 @@ namespace RunGame
 
         private void OnTimerAchievementUnlocked(string achievementId)
         {
-            // Update UI on dispatcher thread - this will trigger OnAchievementPropertyChanged to update the icon
-            DispatcherQueue.TryEnqueue(() =>
+            Dispatcher.UIThread.Post(() =>
             {
                 var achievement = _allAchievements.FirstOrDefault(a => a.Id == achievementId);
                 if (achievement != null && !achievement.IsAchieved)
@@ -1832,20 +1629,13 @@ namespace RunGame
             });
         }
 
-        /// <summary>
-        /// Creates a Steam client, prioritizing Legacy SteamGameClient for game execution simulation
-        /// </summary>
         private ISteamUserStats CreateSteamClient(long gameId)
         {
-            // Legacy SteamGameClient is required for core functionality:
-            // - Simulates game execution to Steam client
-            // - Enables achievement data retrieval 
-            // - Works without game installation
             try
             {
                 AppLogger.LogDebug("Using Legacy SteamGameClient for Steam execution simulation...");
                 var legacyClient = new SteamGameClient(gameId);
-                
+
                 if (legacyClient.Initialized)
                 {
                     AppLogger.LogDebug("Legacy SteamGameClient initialized successfully - can simulate game execution");
@@ -1860,13 +1650,12 @@ namespace RunGame
             {
                 AppLogger.LogDebug($"Legacy SteamGameClient creation failed: {ex.Message}");
             }
-            
-            // Fallback to Modern client (for future use when Steam API supports execution simulation)
+
             try
             {
                 AppLogger.LogDebug("Falling back to ModernSteamClient (limited functionality)...");
                 var modernClient = new ModernSteamClient(gameId);
-                
+
                 if (modernClient.Initialized)
                 {
                     AppLogger.LogDebug("ModernSteamClient initialized successfully (but cannot simulate game execution)");
@@ -1882,68 +1671,9 @@ namespace RunGame
             {
                 AppLogger.LogDebug($"ModernSteamClient creation failed: {ex.Message}");
             }
-            
-            // If both fail, create a non-functional modern client for interface compatibility
+
             AppLogger.LogDebug("Both Steam clients failed, creating non-functional ModernSteamClient for compatibility");
             return new ModernSteamClient(gameId);
-        }
-    }
-
-    // Value converters for XAML binding
-    public class InverseBooleanConverter : IValueConverter
-    {
-        public object Convert(object value, Type targetType, object parameter, string language)
-        {
-            return !(bool)value;
-        }
-
-        public object ConvertBack(object value, Type targetType, object parameter, string language)
-        {
-            return !(bool)value;
-        }
-    }
-
-    public class NullToVisibilityConverter : IValueConverter
-    {
-        public object Convert(object value, Type targetType, object parameter, string language)
-        {
-            return value != null ? Visibility.Visible : Visibility.Collapsed;
-        }
-
-        public object ConvertBack(object value, Type targetType, object parameter, string language)
-        {
-            throw new NotImplementedException();
-        }
-    }
-    
-    public class InverseNullToVisibilityConverter : IValueConverter
-    {
-        public object Convert(object value, Type targetType, object parameter, string language)
-        {
-            return value == null ? Visibility.Visible : Visibility.Collapsed;
-        }
-
-        public object ConvertBack(object value, Type targetType, object parameter, string language)
-        {
-            throw new NotImplementedException();
-        }
-    }
-    
-    public class ProtectionLockConverter : IValueConverter
-    {
-        public object Convert(object value, Type targetType, object parameter, string language)
-        {
-            if (value is AchievementInfo achievement)
-            {
-                // Show lock only if achievement is protected AND not achieved
-                return achievement.IsProtected && !achievement.IsAchieved ? Visibility.Visible : Visibility.Collapsed;
-            }
-            return Visibility.Collapsed;
-        }
-
-        public object ConvertBack(object value, Type targetType, object parameter, string language)
-        {
-            throw new NotImplementedException();
         }
     }
 }

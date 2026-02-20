@@ -1,55 +1,60 @@
 using System;
-using Windows.Storage;
+using System.Collections.Generic;
+using System.IO;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace CommonUtilities
 {
     /// <summary>
     /// Provides a centralized, error-tolerant interface for application settings storage.
-    /// Wraps Windows.Storage.ApplicationData.Current.LocalSettings with proper error handling.
+    /// Uses a JSON file in LocalApplicationData for persistence.
     /// Shared across AnSAM, RunGame, and MyOwnGames for consistent settings management.
     /// </summary>
     public class ApplicationSettingsService
     {
-        private ApplicationDataContainer? _settings;
-        private bool _initializationFailed = false;
-        private static readonly object _initLock = new object();
+        private Dictionary<string, string>? _settings;
+        private string? _settingsFilePath;
+        private bool _initializationFailed;
+        private static readonly object _initLock = new();
 
         /// <summary>
-        /// Initializes the service and attempts to access LocalSettings.
+        /// Initializes the service and loads settings from the JSON file.
         /// Safe to call multiple times - will only initialize once.
-        /// If initialization fails, stops retrying to avoid repeated exceptions.
         /// </summary>
-        public void Initialize()
+        /// <param name="appName">Optional application name for the settings folder. Defaults to "AchievoLab".</param>
+        public void Initialize(string appName = "AchievoLab")
         {
-            // Skip if already initialized or if previous initialization failed
             if (_settings != null || _initializationFailed)
                 return;
 
             lock (_initLock)
             {
-                // Double-check after acquiring lock
                 if (_settings != null || _initializationFailed)
                     return;
 
                 try
                 {
-                    _settings = ApplicationData.Current.LocalSettings;
-                }
-                catch (InvalidOperationException ex)
-                {
-                    AppLogger.LogDebug($"ApplicationSettingsService: InvalidOperationException accessing LocalSettings: {ex.Message}");
-                    _initializationFailed = true;
-                    _settings = null;
-                }
-                catch (System.IO.IOException ex)
-                {
-                    AppLogger.LogDebug($"ApplicationSettingsService: IOException accessing LocalSettings: {ex.Message}");
-                    _initializationFailed = true;
-                    _settings = null;
+                    var folder = Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                        appName);
+                    Directory.CreateDirectory(folder);
+                    _settingsFilePath = Path.Combine(folder, "settings.json");
+
+                    if (File.Exists(_settingsFilePath))
+                    {
+                        var json = File.ReadAllText(_settingsFilePath);
+                        _settings = JsonSerializer.Deserialize(json, SettingsJsonContext.Default.DictionaryStringString)
+                                    ?? new Dictionary<string, string>();
+                    }
+                    else
+                    {
+                        _settings = new Dictionary<string, string>();
+                    }
                 }
                 catch (Exception ex)
                 {
-                    AppLogger.LogDebug($"ApplicationSettingsService: Exception accessing LocalSettings: {ex.Message}");
+                    AppLogger.LogDebug($"ApplicationSettingsService: Exception loading settings: {ex.Message}");
                     _initializationFailed = true;
                     _settings = null;
                 }
@@ -57,7 +62,7 @@ namespace CommonUtilities
         }
 
         /// <summary>
-        /// Gets whether LocalSettings is available.
+        /// Gets whether the settings storage is available.
         /// </summary>
         public bool IsAvailable
         {
@@ -71,9 +76,6 @@ namespace CommonUtilities
         /// <summary>
         /// Attempts to read a string value from settings.
         /// </summary>
-        /// <param name="key">The setting key</param>
-        /// <param name="value">The value if found, null otherwise</param>
-        /// <returns>True if the value was successfully read, false otherwise</returns>
         public bool TryGetString(string key, out string? value)
         {
             Initialize();
@@ -84,10 +86,10 @@ namespace CommonUtilities
 
             try
             {
-                if (_settings.Values.TryGetValue(key, out var obj))
+                if (_settings.TryGetValue(key, out var str))
                 {
-                    value = obj as string;
-                    return value != null;
+                    value = str;
+                    return true;
                 }
             }
             catch (Exception ex)
@@ -101,10 +103,6 @@ namespace CommonUtilities
         /// <summary>
         /// Attempts to read an enum value from settings.
         /// </summary>
-        /// <typeparam name="TEnum">The enum type</typeparam>
-        /// <param name="key">The setting key</param>
-        /// <param name="value">The parsed enum value if found, default(TEnum) otherwise</param>
-        /// <returns>True if the value was successfully read and parsed, false otherwise</returns>
         public bool TryGetEnum<TEnum>(string key, out TEnum value) where TEnum : struct, Enum
         {
             Initialize();
@@ -115,7 +113,7 @@ namespace CommonUtilities
 
             try
             {
-                if (_settings.Values.TryGetValue(key, out var obj) && obj is string str)
+                if (_settings.TryGetValue(key, out var str))
                 {
                     return Enum.TryParse<TEnum>(str, out value);
                 }
@@ -131,9 +129,6 @@ namespace CommonUtilities
         /// <summary>
         /// Attempts to read an integer value from settings.
         /// </summary>
-        /// <param name="key">The setting key</param>
-        /// <param name="value">The value if found, 0 otherwise</param>
-        /// <returns>True if the value was successfully read, false otherwise</returns>
         public bool TryGetInt(string key, out int value)
         {
             Initialize();
@@ -144,19 +139,10 @@ namespace CommonUtilities
 
             try
             {
-                if (_settings.Values.TryGetValue(key, out var obj))
+                if (_settings.TryGetValue(key, out var str) && int.TryParse(str, out var intVal))
                 {
-                    if (obj is int intVal)
-                    {
-                        value = intVal;
-                        return true;
-                    }
-                    // Try parsing if it's stored as string
-                    if (obj is string str && int.TryParse(str, out intVal))
-                    {
-                        value = intVal;
-                        return true;
-                    }
+                    value = intVal;
+                    return true;
                 }
             }
             catch (Exception ex)
@@ -170,9 +156,6 @@ namespace CommonUtilities
         /// <summary>
         /// Attempts to read a boolean value from settings.
         /// </summary>
-        /// <param name="key">The setting key</param>
-        /// <param name="value">The value if found, false otherwise</param>
-        /// <returns>True if the value was successfully read, false otherwise</returns>
         public bool TryGetBool(string key, out bool value)
         {
             Initialize();
@@ -183,19 +166,10 @@ namespace CommonUtilities
 
             try
             {
-                if (_settings.Values.TryGetValue(key, out var obj))
+                if (_settings.TryGetValue(key, out var str) && bool.TryParse(str, out var boolVal))
                 {
-                    if (obj is bool boolVal)
-                    {
-                        value = boolVal;
-                        return true;
-                    }
-                    // Try parsing if it's stored as string
-                    if (obj is string str && bool.TryParse(str, out boolVal))
-                    {
-                        value = boolVal;
-                        return true;
-                    }
+                    value = boolVal;
+                    return true;
                 }
             }
             catch (Exception ex)
@@ -209,9 +183,6 @@ namespace CommonUtilities
         /// <summary>
         /// Attempts to write a string value to settings.
         /// </summary>
-        /// <param name="key">The setting key</param>
-        /// <param name="value">The value to write</param>
-        /// <returns>True if the value was successfully written, false otherwise</returns>
         public bool TrySetString(string key, string value)
         {
             Initialize();
@@ -221,7 +192,8 @@ namespace CommonUtilities
 
             try
             {
-                _settings.Values[key] = value;
+                _settings[key] = value;
+                Save();
                 return true;
             }
             catch (Exception ex)
@@ -234,10 +206,6 @@ namespace CommonUtilities
         /// <summary>
         /// Attempts to write an enum value to settings (stored as string).
         /// </summary>
-        /// <typeparam name="TEnum">The enum type</typeparam>
-        /// <param name="key">The setting key</param>
-        /// <param name="value">The enum value to write</param>
-        /// <returns>True if the value was successfully written, false otherwise</returns>
         public bool TrySetEnum<TEnum>(string key, TEnum value) where TEnum : struct, Enum
         {
             return TrySetString(key, value.ToString());
@@ -246,58 +214,22 @@ namespace CommonUtilities
         /// <summary>
         /// Attempts to write an integer value to settings.
         /// </summary>
-        /// <param name="key">The setting key</param>
-        /// <param name="value">The value to write</param>
-        /// <returns>True if the value was successfully written, false otherwise</returns>
         public bool TrySetInt(string key, int value)
         {
-            Initialize();
-
-            if (_settings == null)
-                return false;
-
-            try
-            {
-                _settings.Values[key] = value;
-                return true;
-            }
-            catch (Exception ex)
-            {
-                AppLogger.LogDebug($"ApplicationSettingsService: Error writing int key '{key}': {ex.Message}");
-                return false;
-            }
+            return TrySetString(key, value.ToString());
         }
 
         /// <summary>
         /// Attempts to write a boolean value to settings.
         /// </summary>
-        /// <param name="key">The setting key</param>
-        /// <param name="value">The value to write</param>
-        /// <returns>True if the value was successfully written, false otherwise</returns>
         public bool TrySetBool(string key, bool value)
         {
-            Initialize();
-
-            if (_settings == null)
-                return false;
-
-            try
-            {
-                _settings.Values[key] = value;
-                return true;
-            }
-            catch (Exception ex)
-            {
-                AppLogger.LogDebug($"ApplicationSettingsService: Error writing bool key '{key}': {ex.Message}");
-                return false;
-            }
+            return TrySetString(key, value.ToString());
         }
 
         /// <summary>
         /// Attempts to remove a value from settings.
         /// </summary>
-        /// <param name="key">The setting key to remove</param>
-        /// <returns>True if the value was successfully removed or didn't exist, false on error</returns>
         public bool TryRemove(string key)
         {
             Initialize();
@@ -307,7 +239,8 @@ namespace CommonUtilities
 
             try
             {
-                _settings.Values.Remove(key);
+                _settings.Remove(key);
+                Save();
                 return true;
             }
             catch (Exception ex)
@@ -320,8 +253,6 @@ namespace CommonUtilities
         /// <summary>
         /// Attempts to check if a key exists in settings.
         /// </summary>
-        /// <param name="key">The setting key</param>
-        /// <returns>True if the key exists, false otherwise or on error</returns>
         public bool ContainsKey(string key)
         {
             Initialize();
@@ -331,7 +262,7 @@ namespace CommonUtilities
 
             try
             {
-                return _settings.Values.ContainsKey(key);
+                return _settings.ContainsKey(key);
             }
             catch (Exception ex)
             {
@@ -339,5 +270,26 @@ namespace CommonUtilities
                 return false;
             }
         }
+
+        private void Save()
+        {
+            if (_settings == null || _settingsFilePath == null)
+                return;
+
+            try
+            {
+                var json = JsonSerializer.Serialize(_settings, SettingsJsonContext.Default.DictionaryStringString);
+                File.WriteAllText(_settingsFilePath, json);
+            }
+            catch (Exception ex)
+            {
+                AppLogger.LogDebug($"ApplicationSettingsService: Error saving settings: {ex.Message}");
+            }
+        }
+    }
+
+    [JsonSerializable(typeof(Dictionary<string, string>))]
+    internal partial class SettingsJsonContext : JsonSerializerContext
+    {
     }
 }

@@ -11,7 +11,7 @@ namespace CommonUtilities
     /// Provides Steam installation path resolution and DLL loading utilities.
     /// Shared across AnSAM and RunGame for consistent Steam client initialization.
     /// </summary>
-    public static class SteamPathResolver
+    public static partial class SteamPathResolver
     {
         /// <summary>
         /// Gets the Steam installation path from the Windows registry.
@@ -67,10 +67,6 @@ namespace CommonUtilities
         /// Resolves the steamclient64.dll path and loads it using Windows API.
         /// This method is designed to be used as a NativeLibrary.SetDllImportResolver callback.
         /// </summary>
-        /// <param name="libraryName">The name of the library being resolved.</param>
-        /// <param name="assembly">The assembly requesting the library.</param>
-        /// <param name="searchPath">The DLL import search path.</param>
-        /// <returns>A handle to the loaded library, or IntPtr.Zero if loading failed.</returns>
         public static IntPtr ResolveSteamClientDll(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
         {
             try
@@ -106,7 +102,6 @@ namespace CommonUtilities
         /// <summary>
         /// Checks whether the Steam client process is currently running.
         /// </summary>
-        /// <returns>True if Steam is running; otherwise, false.</returns>
         public static bool IsSteamRunning()
         {
             try
@@ -123,13 +118,13 @@ namespace CommonUtilities
         /// <summary>
         /// Native Windows API methods for DLL loading.
         /// </summary>
-        private static class Native
+        private static partial class Native
         {
-            [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-            internal static extern IntPtr LoadLibraryEx(string lpFileName, IntPtr hFile, uint dwFlags);
+            [LibraryImport("kernel32.dll", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+            internal static partial IntPtr LoadLibraryEx(string lpFileName, IntPtr hFile, uint dwFlags);
 
-            [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-            internal static extern IntPtr AddDllDirectory(string lpPathName);
+            [LibraryImport("kernel32.dll", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+            internal static partial IntPtr AddDllDirectory(string lpPathName);
 
             internal const uint LoadLibrarySearchDefaultDirs = 0x00001000;
             internal const uint LoadLibrarySearchUserDirs = 0x00000400;

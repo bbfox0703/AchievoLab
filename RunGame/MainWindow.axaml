@@ -1,0 +1,192 @@
+<Window x:Class="RunGame.MainWindow"
+        xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:RunGame"
+        xmlns:models="clr-namespace:RunGame.Models"
+        x:Name="Root"
+        Title="AchievoLab:RunGame"
+        Width="1400" Height="800">
+
+    <Grid RowDefinitions="Auto,*,Auto">
+
+        <!-- Top: Toolbar -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="4" Margin="8,4">
+            <Button x:Name="RefreshButton" Content="Refresh" Click="OnRefresh" ToolTip.Tip="Refresh"/>
+            <Button x:Name="StoreButton" Content="Store" Click="OnStore" ToolTip.Tip="Store"/>
+            <Separator Width="1" Margin="4,4"/>
+            <Button x:Name="LockAllButton" Content="Select all unlocked" Click="OnUnlockAll" ToolTip.Tip="Select all unlocked"/>
+            <Button x:Name="UnlockAllButton" Content="Select all locked" Click="OnLockAll" ToolTip.Tip="Select all locked"/>
+            <Button x:Name="InvertAllButton" Content="Select All" Click="OnInvertAll" ToolTip.Tip="Select All"/>
+            <Separator Width="1" Margin="4,4"/>
+            <ToggleButton x:Name="AutoMouseMoveButton" Content="Auto Mouse"
+                          Checked="OnAutoMouseMove" Unchecked="OnAutoMouseMove"
+                          ToolTip.Tip="Auto Mouse"/>
+            <ToggleButton x:Name="TimerToggleButton" Content="Timer"
+                          Click="OnTimerToggle" ToolTip.Tip="Timer"/>
+        </StackPanel>
+
+        <!-- Main Content: TabControl -->
+        <TabControl Grid.Row="1" x:Name="MainTabView">
+            <!-- Achievements Tab -->
+            <TabItem Header="Achievements">
+                <Grid RowDefinitions="Auto,*">
+                    <!-- Achievement Filters -->
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="10" Margin="10">
+                        <TextBox x:Name="SearchTextBox" Watermark="Search achievements..." Width="200"/>
+                        <ToggleButton x:Name="ShowLockedButton" Content="Show Locked Only" Click="OnShowLockedToggle"/>
+                        <ToggleButton x:Name="ShowUnlockedButton" Content="Show Unlocked Only" Click="OnShowUnlockedToggle"/>
+                        <ComboBox x:Name="LanguageComboBox" PlaceholderText="Language" Width="120" SelectionChanged="OnLanguageChanged"/>
+                        <ComboBox x:Name="ColumnLayoutComboBox" PlaceholderText="Column Layout" Width="150" SelectionChanged="OnColumnLayoutChanged"/>
+                        <Button x:Name="SetTimerButton" Content="Set Timer" Click="OnSetTimer"/>
+                        <Button x:Name="ResetAllTimersButton" Content="Reset All Timers" Click="OnResetAllTimers"/>
+                        <Button x:Name="ResetSelectedTimersButton" Content="Reset Selected Timers" Click="OnResetSelectedTimers"/>
+                        <TextBlock Text="⚪ Timer Off" x:Name="TimerStatusText" VerticalAlignment="Center" Margin="10,0,0,0" FontWeight="Bold"/>
+                    </StackPanel>
+
+                    <!-- Achievement List -->
+                    <ListBox Grid.Row="1" x:Name="AchievementListView"
+                             SelectionMode="Multiple"
+                             Margin="10,0,10,10">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="models:AchievementInfo">
+                                <Border Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+                                        BorderBrush="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                                        BorderThickness="1" CornerRadius="8" Margin="2" Padding="10">
+                                    <Grid ColumnDefinitions="60,60,220,250,300,180,180,80">
+                                        <!-- Checkbox (Read-only status indicator) -->
+                                        <CheckBox Grid.Column="0"
+                                                  IsChecked="{Binding IsAchieved, Mode=OneWay}"
+                                                  IsEnabled="False"
+                                                  Content="✓"
+                                                  Margin="0,0,10,0"/>
+
+                                        <!-- Protection Indicator (only show for protected, unachieved) -->
+                                        <TextBlock Grid.Column="0"
+                                                   Text="🔒"
+                                                   FontSize="12"
+                                                   HorizontalAlignment="Right"
+                                                   VerticalAlignment="Top"
+                                                   Margin="0,-5,-5,0"
+                                                   IsVisible="{Binding IsLockVisible, Mode=OneWay}"/>
+
+                                        <!-- Achievement Icon -->
+                                        <Border Grid.Column="1"
+                                                Width="48" Height="48"
+                                                CornerRadius="4"
+                                                Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+                                                Margin="0,0,10,0">
+                                            <Grid>
+                                                <Image Source="{Binding IconImage, Mode=OneWay}"
+                                                       Stretch="Uniform"
+                                                       HorizontalAlignment="Center"
+                                                       VerticalAlignment="Center"/>
+                                                <TextBlock Text="🏆"
+                                                           FontSize="20"
+                                                           HorizontalAlignment="Center"
+                                                           VerticalAlignment="Center"
+                                                           Opacity="0.7"/>
+                                            </Grid>
+                                        </Border>
+
+                                        <!-- ID -->
+                                        <TextBlock Grid.Column="2"
+                                                   Text="{Binding Id}"
+                                                   FontFamily="Consolas"
+                                                   FontSize="12"
+                                                   VerticalAlignment="Center"
+                                                   Margin="0,0,10,0"/>
+
+                                        <!-- Name -->
+                                        <TextBlock Grid.Column="3"
+                                                   Text="{Binding Name}"
+                                                   FontWeight="SemiBold"
+                                                   TextWrapping="Wrap"
+                                                   VerticalAlignment="Center"
+                                                   Margin="0,0,10,0"/>
+
+                                        <!-- Description -->
+                                        <TextBlock Grid.Column="4"
+                                                   Text="{Binding Description}"
+                                                   TextWrapping="Wrap"
+                                                   Opacity="0.8"
+                                                   VerticalAlignment="Center"
+                                                   Margin="0,0,10,0"/>
+
+                                        <!-- Unlock Time -->
+                                        <TextBlock Grid.Column="5"
+                                                   Text="{Binding UnlockTime}"
+                                                   FontFamily="Consolas"
+                                                   FontSize="12"
+                                                   VerticalAlignment="Center"
+                                                   Margin="0,0,10,0"/>
+
+                                        <!-- Scheduled Time -->
+                                        <TextBlock Grid.Column="6"
+                                                   Text="{Binding ScheduledUnlockTime, Mode=OneWay}"
+                                                   FontFamily="Consolas"
+                                                   FontSize="12"
+                                                   VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource SystemControlForegroundAccentBrush}"
+                                                   Margin="0,0,10,0"/>
+
+                                        <!-- Permission -->
+                                        <TextBlock Grid.Column="7"
+                                                   Text="{Binding Permission}"
+                                                   FontFamily="Consolas"
+                                                   FontSize="12"
+                                                   VerticalAlignment="Center"/>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </TabItem>
+
+            <!-- Statistics Tab -->
+            <TabItem Header="Statistics">
+                <Grid Margin="10" RowDefinitions="Auto,*">
+                    <CheckBox Grid.Row="0" x:Name="EnableStatsEditingCheckBox"
+                              Content="I understand that modifying stats can cause issues"
+                              Margin="0,0,0,10"/>
+
+                    <ListBox Grid.Row="1" x:Name="StatisticsListView"
+                             IsEnabled="{Binding #EnableStatsEditingCheckBox.IsChecked}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="models:StatInfo">
+                                <Border Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+                                        CornerRadius="8"
+                                        BorderBrush="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                                        BorderThickness="1"
+                                        Margin="2" Padding="10">
+                                    <Grid ColumnDefinitions="150,250,150,150,120,100">
+                                        <TextBlock Grid.Column="0" Text="{Binding Id}" FontFamily="Consolas" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding DisplayName}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                        <TextBox Grid.Column="2" Text="{Binding Value, Mode=TwoWay}" FontFamily="Consolas" VerticalAlignment="Center" Margin="0,0,10,0" IsEnabled="{Binding IsNotProtected}"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding OriginalValueDisplay}" FontFamily="Consolas" FontSize="12" Opacity="0.7" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                        <CheckBox Grid.Column="4" IsChecked="{Binding IsIncrementOnly}" IsEnabled="False" Content="Increment Only" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                        <TextBlock Grid.Column="5" Text="{Binding Permission}" FontFamily="Consolas" FontSize="12" VerticalAlignment="Center"/>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </TabItem>
+        </TabControl>
+
+        <!-- Status Bar -->
+        <Border Grid.Row="2" Background="{DynamicResource SystemControlBackgroundAltHighBrush}" Padding="10,6">
+            <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto,Auto">
+                <TextBlock Grid.Column="0" x:Name="StatusLabel" Text="Ready" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="1" x:Name="DebugModeLabel" Text="" VerticalAlignment="Center"
+                           Margin="10,0" FontWeight="Bold" Foreground="{DynamicResource SystemControlForegroundAccentBrush}"/>
+                <TextBlock Grid.Column="2" x:Name="TimerStatusLabel" Text="*" VerticalAlignment="Center" Margin="10,0" FontFamily="Consolas"/>
+                <TextBlock Grid.Column="3" x:Name="CurrentTimeLabel" Text="" VerticalAlignment="Center" Margin="10,0" FontFamily="Consolas"/>
+                <Button Grid.Column="4" x:Name="ClearLogButton" Content="Clear Log" Height="24" Margin="5,0" VerticalAlignment="Center" Click="OnClearLog" IsVisible="False"/>
+                <ProgressBar Grid.Column="5" x:Name="LoadingBar" IsIndeterminate="True" Width="80" Height="16" Margin="10,0" IsVisible="False"/>
+            </Grid>
+        </Border>
+
+    </Grid>
+</Window>

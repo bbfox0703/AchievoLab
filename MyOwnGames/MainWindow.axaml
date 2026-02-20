@@ -1,0 +1,172 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:MyOwnGames"
+        x:Class="MyOwnGames.MainWindow"
+        x:DataType="local:MainWindow"
+        Title="AchievoLab:My Owned Steam Games"
+        Width="1200" Height="800">
+
+    <Grid RowDefinitions="Auto,*,Auto">
+
+        <!-- Top: Toolbar -->
+        <StackPanel Orientation="Horizontal" Spacing="4" Margin="8,4">
+            <!-- Search -->
+            <AutoCompleteBox x:Name="KeywordBox"
+                             Width="240"
+                             Watermark="Keyword search"
+                             FilterMode="Contains" />
+
+            <Separator Width="1" Margin="4,4"/>
+
+            <!-- Steam API Key -->
+            <TextBlock Text="Steam API Key" VerticalAlignment="Center" Margin="4,0"/>
+            <TextBox x:Name="ApiKeyBox"
+                     Width="240"
+                     PasswordChar="*"
+                     Watermark="Your Steam Web API Key"
+                     RevealPassword="False" />
+
+            <Separator Width="1" Margin="4,4"/>
+
+            <!-- SteamID_64 -->
+            <TextBlock Text="SteamID_64" VerticalAlignment="Center" Margin="4,0"/>
+            <TextBox x:Name="SteamIdBox"
+                     Width="180"
+                     PasswordChar="*"
+                     Watermark="7656119xxxxxxxxxx"
+                     RevealPassword="False" />
+
+            <Separator Width="1" Margin="4,4"/>
+
+            <!-- Language Selection -->
+            <TextBlock Text="Language" VerticalAlignment="Center" Margin="4,0"/>
+            <ComboBox x:Name="LanguageComboBox"
+                      Width="120"
+                      SelectionChanged="LanguageComboBox_SelectionChanged">
+                <ComboBoxItem Content="english"/>
+                <ComboBoxItem Content="tchinese"/>
+                <ComboBoxItem Content="japanese"/>
+                <ComboBoxItem Content="arabic"/>
+                <ComboBoxItem Content="brazilian"/>
+                <ComboBoxItem Content="bulgarian"/>
+                <ComboBoxItem Content="czech"/>
+                <ComboBoxItem Content="danish"/>
+                <ComboBoxItem Content="dutch"/>
+                <ComboBoxItem Content="finnish"/>
+                <ComboBoxItem Content="french"/>
+                <ComboBoxItem Content="german"/>
+                <ComboBoxItem Content="greek"/>
+                <ComboBoxItem Content="hungarian"/>
+                <ComboBoxItem Content="indonesian"/>
+                <ComboBoxItem Content="italian"/>
+                <ComboBoxItem Content="korean"/>
+                <ComboBoxItem Content="latam"/>
+                <ComboBoxItem Content="norwegian"/>
+                <ComboBoxItem Content="polish"/>
+                <ComboBoxItem Content="portuguese"/>
+                <ComboBoxItem Content="romanian"/>
+                <ComboBoxItem Content="russian"/>
+                <ComboBoxItem Content="schinese"/>
+                <ComboBoxItem Content="spanish"/>
+                <ComboBoxItem Content="swedish"/>
+                <ComboBoxItem Content="thai"/>
+                <ComboBoxItem Content="turkish"/>
+                <ComboBoxItem Content="ukrainian"/>
+                <ComboBoxItem Content="vietnamese"/>
+            </ComboBox>
+
+            <Separator Width="1" Margin="4,4"/>
+
+            <!-- Get Game list -->
+            <Button x:Name="GetGamesButton"
+                    Content="Get Game list"
+                    Click="GetGamesButton_Click"
+                    IsEnabled="False"/>
+
+            <!-- Stop Button -->
+            <Button x:Name="StopButton"
+                    Content="Stop"
+                    Click="StopButton_Click"
+                    IsEnabled="False"/>
+        </StackPanel>
+
+        <!-- Center: Game Grid -->
+        <ScrollViewer x:Name="GamesScrollViewer" Grid.Row="1"
+                      HorizontalScrollBarVisibility="Disabled"
+                      VerticalScrollBarVisibility="Auto">
+            <ItemsControl x:Name="GamesGridView" ItemsSource="{Binding GameItems}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <WrapPanel />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="local:GameEntry">
+                        <Border Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+                                BorderThickness="1"
+                                CornerRadius="4"
+                                Padding="8"
+                                Width="180"
+                                Height="180"
+                                Margin="4"
+                                DoubleTapped="GameTile_DoubleTapped">
+                            <ToolTip.Tip>
+                                <TextBlock Text="{Binding NameEn, Mode=OneWay}" TextWrapping="Wrap"/>
+                            </ToolTip.Tip>
+
+                            <Grid RowDefinitions="80,*">
+                                <!-- Game image -->
+                                <Border Grid.Row="0" CornerRadius="2">
+                                    <Image Source="{Binding IconUri, Mode=OneWay}"
+                                           Stretch="UniformToFill"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"/>
+                                </Border>
+
+                                <!-- Game info -->
+                                <StackPanel Grid.Row="1" Margin="0,4,0,0" Spacing="2">
+                                    <!-- Game ID -->
+                                    <TextBlock Text="{Binding AppId}"
+                                               FontSize="10"
+                                               Opacity="0.6"
+                                               HorizontalAlignment="Left"/>
+
+                                    <!-- Game name -->
+                                    <TextBlock Text="{Binding DisplayName, Mode=OneWay}"
+                                               FontSize="12"
+                                               FontWeight="Medium"
+                                               TextWrapping="Wrap"
+                                               MaxLines="3"
+                                               TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+
+        <!-- Bottom: Status Bar -->
+        <Border Grid.Row="2" Padding="10,6">
+            <Grid ColumnDefinitions="*,Auto,Auto">
+                <TextBlock Text="{Binding StatusText}" VerticalAlignment="Center"/>
+
+                <TextBlock x:Name="StatusCdn" Grid.Column="1"
+                           Text="" VerticalAlignment="Center"
+                           Margin="0,0,12,0" FontSize="11" Opacity="0.8"/>
+
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Center"
+                            IsVisible="{Binding IsProgressVisible}">
+                    <ProgressBar Width="200"
+                                 IsIndeterminate="{Binding IsLoading}"
+                                 Minimum="0" Maximum="100"
+                                 Value="{Binding ProgressValue}"/>
+                    <TextBlock Text="{Binding ProgressPercentText}" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+    </Grid>
+</Window>

@@ -2,6 +2,7 @@ using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -25,7 +26,7 @@ namespace RunGame.Steam
     /// - Debug builds log operations without writing to Steam (safety feature)
     /// - Validates Steam is running, user is logged in, and AppID matches
     /// </remarks>
-    public sealed class SteamGameClient : IDisposable, ISteamUserStats
+    public sealed partial class SteamGameClient : IDisposable, ISteamUserStats
     {
         private readonly Timer? _callbackTimer;
         private readonly IntPtr _client;
@@ -683,17 +684,19 @@ namespace RunGame.Steam
             public ulong UserId;
         }
 
-        [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl,
-            CharSet = CharSet.Ansi, EntryPoint = "CreateInterface")]
-        private static extern IntPtr Steam_CreateInterface(string version, IntPtr returnCode);
+        [LibraryImport("steamclient64", StringMarshalling = StringMarshalling.Utf8, EntryPoint = "CreateInterface")]
+        [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+        private static partial IntPtr Steam_CreateInterface(string version, IntPtr returnCode);
 
-        [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "Steam_BGetCallback")]
+        [LibraryImport("steamclient64", EntryPoint = "Steam_BGetCallback")]
+        [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
         [return: MarshalAs(UnmanagedType.I1)]
-        private static extern bool Steam_BGetCallback(int pipe, out CallbackMsg message, out int call);
+        private static partial bool Steam_BGetCallback(int pipe, out CallbackMsg message, out int call);
 
-        [DllImport("steamclient64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "Steam_FreeLastCallback")]
+        [LibraryImport("steamclient64", EntryPoint = "Steam_FreeLastCallback")]
+        [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
         [return: MarshalAs(UnmanagedType.I1)]
-        private static extern bool Steam_FreeLastCallback(int pipe);
+        private static partial bool Steam_FreeLastCallback(int pipe);
 
         // ISteamClient018 delegates
         [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
