@@ -2,153 +2,86 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using Microsoft.UI.Dispatching;
-using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media;
+using Avalonia.Controls;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
 
 namespace CommonUtilities
 {
     /// <summary>
-    /// Provides CLEAN SLATE language switching logic for GridView-based game lists.
+    /// Provides CLEAN SLATE language switching logic for ItemsControl-based game lists.
     /// This approach prevents container recycling issues by completely resetting the UI.
     /// </summary>
     public static class CleanSlateLanguageSwitcher
     {
         /// <summary>
-        /// Performs a CLEAN SLATE language switch for a GridView containing IImageLoadableItem items.
+        /// Performs a CLEAN SLATE language switch for an ItemsControl containing IImageLoadableItem items.
         /// </summary>
         /// <typeparam name="T">The type of items in the collection (must implement IImageLoadableItem).</typeparam>
-        /// <param name="gridView">The GridView control to reset.</param>
+        /// <param name="itemsControl">The ItemsControl to reset.</param>
         /// <param name="items">The collection of items.</param>
         /// <param name="newLanguage">The new language to switch to.</param>
-        /// <param name="dispatcher">The DispatcherQueue for UI thread operations.</param>
         /// <returns>A task representing the asynchronous operation.</returns>
         public static async Task SwitchLanguageAsync<T>(
-            GridView gridView,
+            ItemsControl itemsControl,
             IEnumerable<T> items,
-            string newLanguage,
-            DispatcherQueue dispatcher) where T : IImageLoadableItem
+            string newLanguage) where T : IImageLoadableItem
         {
             try
             {
                 AppLogger.LogDebug($"Starting CLEAN SLATE language switch to {newLanguage}");
 
-                // Validate parameters
-                if (gridView == null)
+                if (itemsControl == null)
                 {
-                    AppLogger.LogDebug("ERROR: gridView is null");
-                    throw new ArgumentNullException(nameof(gridView));
-                }
-                if (dispatcher == null)
-                {
-                    AppLogger.LogDebug("ERROR: dispatcher is null");
-                    throw new ArgumentNullException(nameof(dispatcher));
+                    AppLogger.LogDebug("ERROR: itemsControl is null");
+                    throw new ArgumentNullException(nameof(itemsControl));
                 }
 
                 AppLogger.LogDebug("Parameters validated, finding ScrollViewer...");
 
                 // STEP 1: Scroll to top (prevents crash when unbinding at bottom of list)
-                // Must find ScrollViewer on UI thread
-                ScrollViewer? scrollViewer = null;
-                var tcsFindScroll = new TaskCompletionSource<bool>();
-                dispatcher.TryEnqueue(() =>
+                await Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    try
+                    var scrollViewer = itemsControl.GetVisualDescendants()
+                        .OfType<ScrollViewer>()
+                        .FirstOrDefault();
+
+                    if (scrollViewer != null)
                     {
-                        scrollViewer = FindScrollViewer(gridView);
-                        AppLogger.LogDebug($"ScrollViewer found: {scrollViewer != null}");
-                        tcsFindScroll.SetResult(true);
-                    }
-                    catch (Exception ex)
-                    {
-                        tcsFindScroll.SetException(ex);
+                        scrollViewer.Offset = new Avalonia.Vector(0, 0);
+                        AppLogger.LogDebug("Scrolled to top");
                     }
                 });
-                await tcsFindScroll.Task;
+                await Task.Delay(100);
 
-                if (scrollViewer != null)
+                // STEP 2: Unbind ItemsControl from collection (prevents crashes during reset)
+                await Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    var tcsScroll = new TaskCompletionSource<bool>();
-                    dispatcher.TryEnqueue(() =>
-                    {
-                        try
-                        {
-                            scrollViewer.ChangeView(null, 0, null, true); // Instant scroll to top
-                            AppLogger.LogDebug("Scrolled to top");
-                            tcsScroll.SetResult(true);
-                        }
-                        catch (Exception ex)
-                        {
-                            tcsScroll.SetException(ex);
-                        }
-                    });
-                    await tcsScroll.Task;
-                    await Task.Delay(100); // Wait for scroll to complete
-                }
-
-                // STEP 2: Unbind GridView from collection (prevents crashes during reset)
-                var tcsUnbind = new TaskCompletionSource<bool>();
-                dispatcher.TryEnqueue(() =>
-                {
-                    try
-                    {
-                        gridView.ItemsSource = null;
-                        AppLogger.LogDebug("Unbound GridView ItemsSource");
-                        tcsUnbind.SetResult(true);
-                    }
-                    catch (Exception ex)
-                    {
-                        tcsUnbind.SetException(ex);
-                    }
+                    itemsControl.ItemsSource = null;
+                    AppLogger.LogDebug("Unbound ItemsControl ItemsSource");
                 });
-                await tcsUnbind.Task;
-                await Task.Delay(100); // Wait for unbind to take effect
+                await Task.Delay(100);
 
                 // STEP 3: Reset all items to clean state
-                // CRITICAL: This must run on UI thread since items may be bound to UI
-                AppLogger.LogDebug($"Resetting items for {newLanguage}");
-                var tcsReset = new TaskCompletionSource<bool>();
-                dispatcher.TryEnqueue(() =>
+                await Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    try
+                    foreach (var item in items)
                     {
-                        foreach (var item in items)
-                        {
-                            item.IconUri = ImageLoadingHelper.GetNoIconPath();
-                            item.ClearLoadingState();
-                        }
-                        AppLogger.LogDebug($"Reset {items.Count()} items to no_icon");
-                        tcsReset.SetResult(true);
+                        item.IconUri = ImageLoadingHelper.GetNoIconPath();
+                        item.ClearLoadingState();
                     }
-                    catch (Exception ex)
-                    {
-                        AppLogger.LogDebug($"Error during item reset: {ex.Message}");
-                        tcsReset.SetException(ex);
-                    }
+                    AppLogger.LogDebug($"Reset {items.Count()} items to no_icon");
                 });
-                await tcsReset.Task;
-                await Task.Delay(100); // Wait for reset to propagate
+                await Task.Delay(100);
 
-                // STEP 4: Rebind GridView (forces container recreation)
-                // CRITICAL: Rebind to original collection, NOT a copy, to maintain ObservableCollection binding
-                var tcsRebind = new TaskCompletionSource<bool>();
-                dispatcher.TryEnqueue(() =>
+                // STEP 4: Rebind ItemsControl (forces container recreation)
+                await Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    try
-                    {
-                        gridView.ItemsSource = items;
-                        AppLogger.LogDebug("Rebound GridView ItemsSource - containers will recreate");
-                        tcsRebind.SetResult(true);
-                    }
-                    catch (Exception ex)
-                    {
-                        tcsRebind.SetException(ex);
-                    }
+                    itemsControl.ItemsSource = items;
+                    AppLogger.LogDebug("Rebound ItemsControl ItemsSource - containers will recreate");
                 });
-                await tcsRebind.Task;
 
-                AppLogger.LogDebug($"CLEAN SLATE language switch complete. ContainerContentChanging will load images on-demand.");
+                AppLogger.LogDebug($"CLEAN SLATE language switch complete.");
             }
             catch (Exception ex)
             {
@@ -160,26 +93,6 @@ namespace CommonUtilities
                 }
                 throw;
             }
-        }
-
-        /// <summary>
-        /// Finds the ScrollViewer within a DependencyObject hierarchy.
-        /// </summary>
-        /// <param name="root">The root object to search from.</param>
-        /// <returns>The ScrollViewer if found, null otherwise.</returns>
-        private static ScrollViewer? FindScrollViewer(DependencyObject root)
-        {
-            if (root is ScrollViewer sv)
-                return sv;
-
-            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
-            {
-                var child = VisualTreeHelper.GetChild(root, i);
-                if (FindScrollViewer(child) is ScrollViewer result)
-                    return result;
-            }
-
-            return null;
         }
     }
 }

@@ -1,5 +1,4 @@
 using System.Threading.Tasks;
-using Microsoft.UI.Dispatching;
 
 namespace CommonUtilities
 {
@@ -17,11 +16,6 @@ namespace CommonUtilities
         /// URI of the current icon/cover image.
         /// </summary>
         string IconUri { get; set; }
-
-        /// <summary>
-        /// Dispatcher queue for UI thread operations.
-        /// </summary>
-        DispatcherQueue Dispatcher { get; }
 
         /// <summary>
         /// Asynchronously loads the game's cover image using the shared image service.

@@ -365,7 +365,7 @@ namespace RunGame.Tests
         }
 
         [Fact]
-        public void AchievementInfo_LockVisibility_ShowsForProtectedUnachieved()
+        public void AchievementInfo_IsLockVisible_ShowsForProtectedUnachieved()
         {
             var achievement = new AchievementInfo
             {
@@ -373,11 +373,11 @@ namespace RunGame.Tests
                 IsAchieved = false
             };
 
-            Assert.Equal(Microsoft.UI.Xaml.Visibility.Visible, achievement.LockVisibility);
+            Assert.True(achievement.IsLockVisible);
         }
 
         [Fact]
-        public void AchievementInfo_LockVisibility_HidesForProtectedAchieved()
+        public void AchievementInfo_IsLockVisible_HidesForProtectedAchieved()
         {
             var achievement = new AchievementInfo
             {
@@ -385,11 +385,11 @@ namespace RunGame.Tests
                 IsAchieved = true
             };
 
-            Assert.Equal(Microsoft.UI.Xaml.Visibility.Collapsed, achievement.LockVisibility);
+            Assert.False(achievement.IsLockVisible);
         }
 
         [Fact]
-        public void AchievementInfo_LockVisibility_HidesForNonProtected()
+        public void AchievementInfo_IsLockVisible_HidesForNonProtected()
         {
             var achievement = new AchievementInfo
             {
@@ -397,7 +397,7 @@ namespace RunGame.Tests
                 IsAchieved = false
             };
 
-            Assert.Equal(Microsoft.UI.Xaml.Visibility.Collapsed, achievement.LockVisibility);
+            Assert.False(achievement.IsLockVisible);
         }
     }
 }

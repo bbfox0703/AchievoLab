@@ -1,14 +1,3 @@
-using Microsoft.UI;
-using Microsoft.UI.Dispatching;
-using Microsoft.UI.Windowing;
-using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Controls.Primitives;
-using Microsoft.UI.Xaml.Data;
-using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Media.Imaging;
-using Microsoft.UI.Xaml.Navigation;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -16,47 +5,36 @@ using System.ComponentModel;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Net.Http;
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices.WindowsRuntime;
 using System.Threading;
 using System.Threading.Tasks;
-using Windows.Foundation;
-using Windows.Foundation.Collections;
-using Windows.UI;
-using Windows.UI.ViewManagement;
-using WinRT.Interop;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Interactivity;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
 using CommonUtilities;
-
-// To learn more about WinUI, the WinUI project structure,
-// and more about our project templates, see: http://aka.ms/winui-project-info.
 using MyOwnGames.Services;
 
 namespace MyOwnGames
 {
-    /// <summary>
-    /// An empty window that can be used on its own or navigated to within a Frame.
-    /// </summary>
-    public sealed partial class MainWindow : Window, INotifyPropertyChanged
+    public partial class MainWindow : Window, INotifyPropertyChanged
     {
         public ObservableCollection<GameEntry> GameItems { get; } = new();
         private List<GameEntry> AllGameItems { get; } = new();
-        // REMOVED: LogEntries - all logs now go to Debug log only
         private readonly SharedImageService _imageService;
         private readonly GameDataService _dataService = new();
         private readonly Action<string> _logHandler;
         private SteamApiService? _steamService;
         private bool _isShuttingDown = false;
         private CancellationTokenSource? _cancellationTokenSource;
-        private CancellationTokenSource _sequentialLoadCts = new(); // Cancel sequential image loading
-        private ScrollViewer? _gamesScrollViewer;
-        private DispatcherQueueTimer? _searchDebounceTimer;
-        private DispatcherQueueTimer? _cdnStatsTimer;
+        private CancellationTokenSource _sequentialLoadCts = new();
+        private DispatcherTimer? _searchDebounceTimer;
+        private DispatcherTimer? _cdnStatsTimer;
 
         private readonly string _detectedLanguage = GetDefaultLanguage();
-        private readonly string _defaultLanguage = "english"; // Always default to English for selection
-
-        private readonly AppWindow _appWindow;
+        private readonly string _defaultLanguage = "english";
 
         private string _statusText = "Ready.";
         public string StatusText
@@ -75,9 +53,8 @@ namespace MyOwnGames
                 {
                     _isLoading = value;
                     OnPropertyChanged();
-                    // Toggle progress visibility
-                    ProgressVisibility = value ? Visibility.Visible : Visibility.Collapsed;
-                    if (value) ProgressPercentText = ""; // when indeterminate
+                    IsProgressVisible = value;
+                    if (value) ProgressPercentText = "";
                 }
             }
         }
@@ -89,11 +66,11 @@ namespace MyOwnGames
             set { if (Math.Abs(_progressValue - value) > double.Epsilon) { _progressValue = value; OnPropertyChanged(); ProgressPercentText = $"{(int)_progressValue}%"; } }
         }
 
-        private Visibility _progressVisibility = Visibility.Collapsed;
-        public Visibility ProgressVisibility
+        private bool _isProgressVisible;
+        public bool IsProgressVisible
         {
-            get => _progressVisibility;
-            set { if (_progressVisibility != value) { _progressVisibility = value; OnPropertyChanged(); } }
+            get => _isProgressVisible;
+            set { if (_isProgressVisible != value) { _isProgressVisible = value; OnPropertyChanged(); } }
         }
 
         private string _progressPercentText = "";
@@ -103,7 +80,7 @@ namespace MyOwnGames
             set { if (_progressPercentText != value) { _progressPercentText = value; OnPropertyChanged(); } }
         }
 
-        public event PropertyChangedEventHandler? PropertyChanged;
+        public new event PropertyChangedEventHandler? PropertyChanged;
         private void OnPropertyChanged([CallerMemberName] string? name = null)
         {
             try
@@ -113,26 +90,15 @@ namespace MyOwnGames
                     PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
                 }
             }
-            catch (System.Runtime.InteropServices.COMException)
-            {
-                // Ignore COM exceptions during shutdown
-            }
             catch (Exception ex) when (_isShuttingDown)
             {
-                // Ignore all exceptions during shutdown
                 AppLogger.LogDebug($"Ignored exception during shutdown in OnPropertyChanged: {ex.Message}");
             }
         }
 
-        /// <summary>
-        /// AppendLog now does nothing (UI log removed).
-        /// All logging already happens through AppLogger.LogDebug() at source.
-        /// Kept as no-op method to avoid changing 52 call sites.
-        /// </summary>
         public void AppendLog(string message)
         {
-            // NO-OP: UI log removed, and AppLogger already handles all logging at source
-            // Removing this avoids infinite loop with AppLogger.OnLog subscription
+            // NO-OP: UI log removed, AppLogger handles all logging at source
         }
 
         private static string GetDefaultLanguage()
@@ -151,30 +117,31 @@ namespace MyOwnGames
 
         private void ReorderLanguageOptions()
         {
-            // Skip reordering if detected language is already "english" (already first in XAML)
             if (_detectedLanguage == "english")
                 return;
 
-            // Find the detected language item
             var detectedItem = LanguageComboBox.Items
                 .OfType<ComboBoxItem>()
                 .FirstOrDefault(i => string.Equals(i.Content?.ToString(), _detectedLanguage, StringComparison.OrdinalIgnoreCase));
 
             if (detectedItem != null)
             {
-                // Remove it from current position
                 LanguageComboBox.Items.Remove(detectedItem);
-                // Insert at the beginning (position 0)
                 LanguageComboBox.Items.Insert(0, detectedItem);
                 AppendLog($"Moved detected language '{_detectedLanguage}' to first position, but defaulting to English");
             }
         }
+
         public MainWindow()
         {
             _imageService = new SharedImageService(HttpClientProvider.Shared);
             InitializeComponent();
-            this.ExtendsContentIntoTitleBar = true;
-            this.AppWindow.Title = "My Own Steam Games";
+            DataContext = this;
+
+            // Set window icon
+            var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "MyOwnGames.ico");
+            if (File.Exists(iconPath))
+                Icon = new WindowIcon(iconPath);
 
             // Rearrange language options: move detected OS language to first position
             ReorderLanguageOptions();
@@ -188,106 +155,77 @@ namespace MyOwnGames
                 LanguageComboBox.SelectedItem = defaultItem;
             }
 
-            // REMOVED: Log handler subscription (UI log removed, would cause infinite loop)
-            // _logHandler previously fed AppLogger output to UI ListView
-            _logHandler = msg => { }; // Keep field for disposal, but do nothing
-            
+            _logHandler = msg => { };
+
             // Subscribe to image download completion events
             _imageService.ImageDownloadCompleted += OnImageDownloadCompleted;
 
-            // Initialize image service with default language.
-            // Fire-and-forget is safe here since the initial language is "english" (the default).
+            // Initialize image service with default language
             var initialLanguage = GetCurrentLanguage();
             _ = _imageService.SetLanguage(initialLanguage);
             AppendLog($"Initialized with language: {initialLanguage}");
 
             // Initialize CDN statistics timer (updates every 2 seconds)
-            _cdnStatsTimer = DispatcherQueue.CreateTimer();
-            _cdnStatsTimer.Interval = TimeSpan.FromSeconds(2);
+            _cdnStatsTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
             _cdnStatsTimer.Tick += CdnStatsTimer_Tick;
             _cdnStatsTimer.Start();
 
-            // ?? AppWindow
-            var hwnd = WindowNative.GetWindowHandle(this);
-            var winId = Win32Interop.GetWindowIdFromWindow(hwnd);
-            _appWindow = AppWindow.GetFromWindowId(winId);
-            _appWindow.Closing += OnAppWindowClosing;
-            // 設定 Icon：指向打包後的實體檔案路徑
-            var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "MyOwnGames.ico");
-            if (File.Exists(iconPath))
-                _appWindow.SetIcon(iconPath);
+            // Subscribe to keyboard events
+            KeyDown += OnWindowKeyDown;
 
+            // Subscribe to text changes for search debounce
+            KeywordBox.TextChanged += KeywordBox_TextChanged;
 
-            // Set DataContext for binding
-            RootGrid.DataContext = this;
-            RootGrid.KeyDown += OnWindowKeyDown;
+            // Subscribe to password field changes
+            ApiKeyBox.TextChanged += InputFields_TextChanged;
+            SteamIdBox.TextChanged += InputFields_TextChanged;
 
             // Initialize search debounce timer
-            _searchDebounceTimer = DispatcherQueue.CreateTimer();
-            _searchDebounceTimer.Interval = TimeSpan.FromMilliseconds(300);
-            _searchDebounceTimer.IsRepeating = false;
+            _searchDebounceTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(300)
+            };
+            _searchDebounceTimer.Tick += OnSearchDebounceTimerTick;
 
             // Load saved games after window is displayed
-            RootGrid.Loaded += MainWindow_Loaded;
+            Opened += MainWindow_Opened;
 
             // Clean up old failed download records on startup
             _ = CleanupOldFailedRecordsAsync();
 
+            // Closing event
+            Closing += OnWindowClosing;
+
             UpdateGetGamesButtonState();
         }
 
-        private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
+        private async void MainWindow_Opened(object? sender, EventArgs e)
         {
-            RootGrid.Loaded -= MainWindow_Loaded;
+            Opened -= MainWindow_Opened;
             await LoadSavedGamesAsync();
         }
 
         private void OnImageDownloadCompleted(int appId, string? imagePath)
         {
-            if (_isShuttingDown) return; // Don't update UI during shutdown
-            
-            // Find the corresponding game entry and update its image
-            this.DispatcherQueue?.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+            if (_isShuttingDown) return;
+
+            Dispatcher.UIThread.Post(() =>
             {
-                if (_isShuttingDown) return; // Double check during async execution
-                
+                if (_isShuttingDown) return;
+
                 try
                 {
                     var gameEntry = AllGameItems.FirstOrDefault(g => g.AppId == appId);
                     if (gameEntry != null && !string.IsNullOrEmpty(imagePath) && File.Exists(imagePath))
                     {
-                        // Check if the current IconUri is already pointing to this image
                         var fileUri = new Uri(imagePath).AbsoluteUri;
-                        if (gameEntry.IconUri == fileUri)
-                        {
-                            // Already updated, no need to update again
-                            return;
-                        }
+                        if (gameEntry.IconUri == fileUri) return;
 
-                        // Only update if different
                         gameEntry.IconUri = fileUri;
-                        
                         AppLogger.LogDebug($"Updated UI for downloaded image {appId}: {fileUri}");
-                        AppendLog($"Image updated for {appId}");
                     }
                 }
-                catch (System.Runtime.InteropServices.COMException) when (_isShuttingDown)
-                {
-                    // Ignore COM exceptions during shutdown
-                }
-                catch (System.Runtime.InteropServices.COMException comEx)
-                {
-                    // COM exception during normal operation - try to handle gracefully
-                    AppLogger.LogDebug($"COM exception updating UI for {appId}: {comEx.Message}");
-                }
-                catch (ObjectDisposedException) when (_isShuttingDown)
-                {
-                    // Ignore object disposed exceptions during shutdown
-                }
-                catch (Exception) when (_isShuttingDown)
-                {
-                    // Ignore all exceptions during shutdown
-                }
+                catch (Exception ex) when (_isShuttingDown) { }
                 catch (Exception ex)
                 {
                     AppLogger.LogDebug($"Error updating UI for downloaded image {appId}: {ex.Message}");
@@ -301,8 +239,7 @@ namespace MyOwnGames
             {
                 await Task.Run(() =>
                 {
-                    var imageFailureService = new CommonUtilities.ImageFailureTrackingService();
-                    // Cleanup happens automatically when the service is created
+                    var imageFailureService = new ImageFailureTrackingService();
                 });
             }
             catch (Exception ex)
@@ -318,14 +255,12 @@ namespace MyOwnGames
             {
                 AppendLog("Loading saved games...");
                 StatusText = "Loading saved games...";
-                var enteredId = SteamIdBox.Password?.Trim() ?? string.Empty;
+                var enteredId = SteamIdBox.Text?.Trim() ?? string.Empty;
                 await EnsureSteamIdHashConsistencyAsync(enteredId);
 
-                // Load games with multi-language support
                 var savedGamesWithLanguages = await _dataService.LoadGamesWithLanguagesAsync();
                 var currentLanguage = GetCurrentLanguage();
 
-                // Update image service language
                 await _imageService.SetLanguage(currentLanguage);
 
                 GameItems.Clear();
@@ -341,10 +276,10 @@ namespace MyOwnGames
                             NameEn = game.NameEn,
                             LocalizedNames = new Dictionary<string, string>(game.LocalizedNames),
                             CurrentLanguage = currentLanguage,
-                            IconUri = "ms-appx:///Assets/no_icon.png" // Will be updated async
+                            IconUri = ImageLoadingHelper.GetNoIconPath()
                         };
 
-                        DispatcherQueue?.TryEnqueue(() =>
+                        Dispatcher.UIThread.Post(() =>
                         {
                             GameItems.Add(entry);
                             AllGameItems.Add(entry);
@@ -352,7 +287,6 @@ namespace MyOwnGames
                     }
                 });
 
-                // CRITICAL: Start sequential image loading after games are loaded
                 StartSequentialImageLoading();
 
                 var exportInfo = await _dataService.GetExportInfoAsync();
@@ -398,10 +332,10 @@ namespace MyOwnGames
             }
         }
 
-        private async void GetGamesButton_Click(object sender, RoutedEventArgs e)
+        private async void GetGamesButton_Click(object? sender, RoutedEventArgs e)
         {
-            var apiKey = ApiKeyBox.Password?.Trim();
-            var steamId64 = SteamIdBox.Password?.Trim();
+            var apiKey = ApiKeyBox.Text?.Trim();
+            var steamId64 = SteamIdBox.Text?.Trim();
 
             if (!InputValidator.IsValidApiKey(apiKey))
             {
@@ -415,22 +349,18 @@ namespace MyOwnGames
                 return;
             }
 
-            // Disable controls during operation
             SetControlsEnabledState(false);
-
             await EnsureSteamIdHashConsistencyAsync(steamId64!);
 
             string? xmlPath = null;
-            
-            // Create cancellation token source for this operation
+
             _cancellationTokenSource?.Cancel();
             _cancellationTokenSource?.Dispose();
             _cancellationTokenSource = new CancellationTokenSource();
             var cancellationToken = _cancellationTokenSource.Token;
-            
+
             try
             {
-                // Get selected language from ComboBox first
                 var selectedLanguage = _defaultLanguage;
                 if (LanguageComboBox.SelectedItem is ComboBoxItem selectedItem)
                 {
@@ -442,28 +372,23 @@ namespace MyOwnGames
                 StatusText = $"Scanning all games for {selectedLanguage} language data...";
                 ProgressValue = 0;
 
-                // Don't clear existing items - we'll update them with current language
                 AppendLog($"Current games in list: {GameItems.Count}. Checking all games for {selectedLanguage} data.");
 
-                // Create progress reporter
-                var progress = new Progress<double>(value => 
+                var progress = new Progress<double>(value =>
                 {
                     ProgressValue = value;
                 });
 
-                // Load existing games to check current language data status
                 var existingGamesData = await _dataService.LoadGamesWithLanguagesAsync();
                 var existingLocalizedNames = new Dictionary<int, string>();
                 var skipAppIds = new HashSet<int>();
                 var gamesMissingEnglishNames = new HashSet<int>();
 
-                // Process existing games on a background thread to avoid UI blocking
                 StatusText = $"Preparing existing game data ({existingGamesData.Count} entries)...";
                 await Task.Run(() =>
                 {
                     foreach (var game in existingGamesData)
                     {
-                        // Check if game is missing English name
                         if (string.IsNullOrEmpty(game.NameEn))
                         {
                             gamesMissingEnglishNames.Add(game.AppId);
@@ -474,18 +399,14 @@ namespace MyOwnGames
                             !string.IsNullOrEmpty(name))
                         {
                             existingLocalizedNames[game.AppId] = name;
-                            // Always skip API call for games with existing localized names
                             skipAppIds.Add(game.AppId);
                         }
                     }
                 }, cancellationToken);
 
-                // If we're selecting non-English language but have games missing English names,
-                // we need to force English data update first
                 bool needsEnglishUpdate = selectedLanguage != "english" &&
                                         (existingGamesData.Count == 0 || gamesMissingEnglishNames.Count > 0);
 
-                // Create Steam API service early so it's available for both English update and main scan
                 _steamService = new SteamApiService(apiKey!);
 
                 if (needsEnglishUpdate)
@@ -493,17 +414,15 @@ namespace MyOwnGames
                     AppendLog($"Found {gamesMissingEnglishNames.Count} games missing English names. Forcing English data update first...");
                     StatusText = "First updating English game names (required for localization)...";
                     var englishBatchBuffer = new List<SteamGame>();
-                    const int batchSize = 100; // Write every 100 games to reduce lock contention
+                    const int batchSize = 100;
 
                     var englishTotal = await _steamService.GetOwnedGamesAsync(steamId64!, "english", async englishGame =>
                     {
-                        // Always update English data for games missing it
                         if (gamesMissingEnglishNames.Contains(englishGame.AppId) || existingGamesData.Count == 0)
                         {
                             englishBatchBuffer.Add(englishGame);
                             AppendLog($"Queued English data for {englishGame.AppId} - {englishGame.NameEn}");
 
-                            // Write batch when buffer is full
                             if (englishBatchBuffer.Count >= batchSize)
                             {
                                 await _dataService.AppendGamesAsync(englishBatchBuffer, steamId64!, apiKey!, "english");
@@ -513,20 +432,17 @@ namespace MyOwnGames
                         }
                     }, progress, existingAppIds: null, existingLocalizedNames: null, cancellationToken);
 
-                    // Write remaining games in buffer
                     if (englishBatchBuffer.Count > 0)
                     {
                         await _dataService.AppendGamesAsync(englishBatchBuffer, steamId64!, apiKey!, "english");
                         AppendLog($"Saved final batch of {englishBatchBuffer.Count} English games");
                         englishBatchBuffer.Clear();
                     }
-                    
-                    // Reload the games data after English update
+
                     existingGamesData = await _dataService.LoadGamesWithLanguagesAsync();
                     existingLocalizedNames.Clear();
                     gamesMissingEnglishNames.Clear();
-                    
-                    // Reprocess the updated data
+
                     await Task.Run(() =>
                     {
                         foreach (var game in existingGamesData)
@@ -535,55 +451,47 @@ namespace MyOwnGames
                                 !string.IsNullOrEmpty(name))
                             {
                                 existingLocalizedNames[game.AppId] = name;
-                                // Always skip API call for games with existing localized names (after English update)
                                 skipAppIds.Add(game.AppId);
                             }
                         }
                     }, cancellationToken);
                 }
+
                 StatusText = selectedLanguage == "english"
                     ? "Scanning all games..."
                     : $"Scanning all games for {selectedLanguage} language data (this will be slower to avoid Steam API rate limits)...";
 
-                // Use the Steam API service created earlier with batch writing
                 var languageBatchBuffer = new List<SteamGame>();
-                const int languageBatchSize = 100; // Write every 100 games to reduce lock contention
+                const int languageBatchSize = 100;
 
                 var total = await _steamService.GetOwnedGamesAsync(steamId64!, selectedLanguage, async game =>
                 {
                     var shouldSkip = skipAppIds.Contains(game.AppId);
-                    // Check if this game has data for the current language
                     var existingGameData = existingGamesData.FirstOrDefault(g => g.AppId == game.AppId);
                     var hasLanguageData = existingGameData?.LocalizedNames?.ContainsKey(selectedLanguage) == true &&
                                          !string.IsNullOrEmpty(existingGameData.LocalizedNames[selectedLanguage]);
 
-                    // Always process the game to ensure XML consistency for current language
                     AppendLog($"Processing game {game.AppId} - {game.NameEn} ({selectedLanguage}){(hasLanguageData ? " [updating]" : " [new data]")}");
 
-                    // Check if game already exists in the UI list
                     var existingEntry = AllGameItems.FirstOrDefault(g => g.AppId == game.AppId);
 
                     if (existingEntry != null)
                     {
-                        // Update existing UI entry
                         existingEntry.NameEn = game.NameEn;
                         existingEntry.SetLocalizedName(selectedLanguage, game.NameLocalized);
-                        existingEntry.CurrentLanguage = selectedLanguage; // Update display language
-
+                        existingEntry.CurrentLanguage = selectedLanguage;
                         AppendLog($"Updated UI entry: {game.AppId} - {game.NameEn}");
                     }
                     else
                     {
-                        // Create new UI entry
                         var newEntry = new GameEntry
                         {
                             AppId = game.AppId,
                             NameEn = game.NameEn,
                             CurrentLanguage = selectedLanguage,
-                            IconUri = "ms-appx:///Assets/no_icon.png" // Will be updated async
+                            IconUri = ImageLoadingHelper.GetNoIconPath()
                         };
 
-                        // Set localized name for current language
                         newEntry.SetLocalizedName(selectedLanguage, game.NameLocalized);
 
                         GameItems.Add(newEntry);
@@ -593,10 +501,8 @@ namespace MyOwnGames
 
                     if (!shouldSkip)
                     {
-                        // Queue game for batch writing
                         languageBatchBuffer.Add(game);
 
-                        // Write batch when buffer is full
                         if (languageBatchBuffer.Count >= languageBatchSize)
                         {
                             await _dataService.AppendGamesAsync(languageBatchBuffer, steamId64!, apiKey!, selectedLanguage);
@@ -606,7 +512,6 @@ namespace MyOwnGames
                     }
                 }, progress, skipAppIds, existingLocalizedNames, cancellationToken);
 
-                // Write remaining games in buffer
                 if (languageBatchBuffer.Count > 0)
                 {
                     await _dataService.AppendGamesAsync(languageBatchBuffer, steamId64!, apiKey!, selectedLanguage);
@@ -615,8 +520,7 @@ namespace MyOwnGames
                 }
 
                 xmlPath = _dataService.GetXmlFilePath();
-                
-                // Process skipped games (those with existing localized data) to ensure UI and images are updated
+
                 AppendLog($"Processing {skipAppIds.Count} games with existing {selectedLanguage} data...");
                 foreach (var skippedAppId in skipAppIds)
                 {
@@ -626,27 +530,24 @@ namespace MyOwnGames
                         if (existingGameData != null && existingGameData.LocalizedNames != null &&
                             existingGameData.LocalizedNames.TryGetValue(selectedLanguage, out var localizedName))
                         {
-                            // Check if game already exists in the UI list
                             var existingEntry = AllGameItems.FirstOrDefault(g => g.AppId == skippedAppId);
 
                             if (existingEntry != null)
                             {
-                                // Update existing UI entry for current language
                                 existingEntry.SetLocalizedName(selectedLanguage, localizedName);
                                 existingEntry.CurrentLanguage = selectedLanguage;
                                 AppendLog($"Updated existing UI entry for game {skippedAppId} ({selectedLanguage})");
                             }
                             else
                             {
-                                // Create new UI entry for skipped game
                                 var newEntry = new GameEntry
                                 {
                                     AppId = skippedAppId,
                                     NameEn = existingGameData.NameEn ?? skippedAppId.ToString(),
                                     CurrentLanguage = selectedLanguage,
-                                    IconUri = "ms-appx:///Assets/no_icon.png"
+                                    IconUri = ImageLoadingHelper.GetNoIconPath()
                                 };
-                                
+
                                 newEntry.SetLocalizedName(selectedLanguage, localizedName);
 
                                 GameItems.Add(newEntry);
@@ -662,7 +563,6 @@ namespace MyOwnGames
                     }
                 }
 
-                // Update remaining count based on actual total vs current items
                 var currentTotalCount = GameItems.Count;
                 if (currentTotalCount < total)
                 {
@@ -676,7 +576,6 @@ namespace MyOwnGames
                 StatusText = $"Completed full scan: {total} games processed with {selectedLanguage} data. Current list: {GameItems.Count} games. Saved to {xmlPath}";
                 AppendLog($"Full language scan complete - Total games: {total}, All games now have {selectedLanguage} data, Current display: {GameItems.Count} games, saved to {xmlPath}");
 
-                // CRITICAL: Start sequential image loading after games are loaded
                 StartSequentialImageLoading();
             }
             catch (OperationCanceledException)
@@ -703,16 +602,14 @@ namespace MyOwnGames
                 }
                 catch (Exception ex) when (_isShuttingDown)
                 {
-                    // Ignore exceptions during shutdown
                     AppLogger.LogDebug($"Ignored exception during shutdown: {ex.Message}");
                 }
-                
+
                 IsLoading = false;
                 ProgressValue = 100;
-                
-                // Re-enable controls after operation completes
+
                 SetControlsEnabledState(true);
-                
+
                 if (!_isShuttingDown)
                 {
                     AppendLog("Finished retrieving games.");
@@ -720,15 +617,15 @@ namespace MyOwnGames
             }
         }
 
-        private void InputFields_PasswordChanged(object sender, RoutedEventArgs e)
+        private void InputFields_TextChanged(object? sender, TextChangedEventArgs e)
         {
             UpdateGetGamesButtonState();
         }
 
         private void UpdateGetGamesButtonState()
         {
-            var apiKey = ApiKeyBox.Password?.Trim();
-            var steamId64 = SteamIdBox.Password?.Trim();
+            var apiKey = ApiKeyBox.Text?.Trim();
+            var steamId64 = SteamIdBox.Text?.Trim();
             GetGamesButton.IsEnabled = InputValidator.IsValidApiKey(apiKey) && InputValidator.IsValidSteamId64(steamId64);
         }
 
@@ -737,57 +634,39 @@ namespace MyOwnGames
             ApiKeyBox.IsEnabled = enabled;
             SteamIdBox.IsEnabled = enabled;
             LanguageComboBox.IsEnabled = enabled;
-            GetGamesButton.IsEnabled = enabled && InputValidator.IsValidApiKey(ApiKeyBox.Password?.Trim()) && InputValidator.IsValidSteamId64(SteamIdBox.Password?.Trim());
+            GetGamesButton.IsEnabled = enabled && InputValidator.IsValidApiKey(ApiKeyBox.Text?.Trim()) && InputValidator.IsValidSteamId64(SteamIdBox.Text?.Trim());
             StopButton.IsEnabled = !enabled;
         }
 
-        private void StopButton_Click(object sender, RoutedEventArgs e)
+        private void StopButton_Click(object? sender, RoutedEventArgs e)
         {
-            // Cancel the current operation
             _cancellationTokenSource?.Cancel();
             StatusText = "Operation cancelled by user.";
             AppendLog("Get Game List operation cancelled by user.");
-            
-            // Re-enable controls
+
             SetControlsEnabledState(true);
             IsLoading = false;
         }
 
-        private void KeywordBox_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
+        private void KeywordBox_TextChanged(object? sender, TextChangedEventArgs e)
         {
-            var keyword = args.QueryText?.Trim();
-            FilterGameItems(keyword);
-        }
-
-        private void KeywordBox_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
-        {
-            if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput)
+            if (_searchDebounceTimer != null)
             {
-                // Debounce search: restart timer on each keystroke
-                if (_searchDebounceTimer != null)
-                {
-                    _searchDebounceTimer.Stop();
-                    _searchDebounceTimer.Tick -= OnSearchDebounceTimerTick;
-                    _searchDebounceTimer.Tick += OnSearchDebounceTimerTick;
-                    _searchDebounceTimer.Start();
-                }
+                _searchDebounceTimer.Stop();
+                _searchDebounceTimer.Start();
             }
         }
 
-        private void OnSearchDebounceTimerTick(DispatcherQueueTimer sender, object args)
+        private void OnSearchDebounceTimerTick(object? sender, EventArgs args)
         {
-            sender.Stop();
+            _searchDebounceTimer?.Stop();
             FilterGameItems(KeywordBox.Text?.Trim());
         }
 
-        /// <summary>
-        /// Updates CDN statistics display
-        /// </summary>
-        private void CdnStatsTimer_Tick(DispatcherQueueTimer sender, object args)
+        private void CdnStatsTimer_Tick(object? sender, EventArgs args)
         {
             try
             {
-                // Defensive checks to prevent crashes during shutdown or disposal
                 if (_imageService == null || StatusCdn == null || _isShuttingDown)
                 {
                     return;
@@ -797,7 +676,6 @@ namespace MyOwnGames
                 var pendingCount = _imageService.GetPendingRequestsCount();
                 var hasActiveDownloads = pendingCount > 0 || stats.Values.Any(s => s.Active > 0);
 
-                // Reset status when no active downloads
                 if (!hasActiveDownloads)
                 {
                     StatusCdn.Text = string.Empty;
@@ -806,10 +684,7 @@ namespace MyOwnGames
 
                 StatusCdn.Text = CdnStatsFormatter.FormatCdnStats(stats);
             }
-            catch (ObjectDisposedException)
-            {
-                // Ignore if objects are disposed (during shutdown)
-            }
+            catch (ObjectDisposedException) { }
             catch (Exception ex)
             {
                 AppLogger.LogDebug($"CDN stats update error: {ex.Message}");
@@ -843,287 +718,235 @@ namespace MyOwnGames
                 : $"No results found for \"{keyword}\".";
         }
 
-        private void OnWindowKeyDown(object sender, KeyRoutedEventArgs e)
+        private void OnWindowKeyDown(object? sender, KeyEventArgs e)
         {
-            if (e.Key != Windows.System.VirtualKey.PageDown &&
-                e.Key != Windows.System.VirtualKey.PageUp &&
-                e.Key != Windows.System.VirtualKey.Down &&
-                e.Key != Windows.System.VirtualKey.Up)
+            if (e.Key != Key.PageDown &&
+                e.Key != Key.PageUp &&
+                e.Key != Key.Down &&
+                e.Key != Key.Up)
                 return;
 
-            var sv = _gamesScrollViewer ??= FindScrollViewer(GamesGridView);
+            var sv = GamesScrollViewer;
             if (sv == null)
                 return;
 
-            double offset = sv.VerticalOffset;
+            double offset = sv.Offset.Y;
             double delta = e.Key switch
             {
-                Windows.System.VirtualKey.PageDown => sv.ViewportHeight,
-                Windows.System.VirtualKey.PageUp => -sv.ViewportHeight,
-                Windows.System.VirtualKey.Down => 100,
-                Windows.System.VirtualKey.Up => -100,
+                Key.PageDown => sv.Viewport.Height,
+                Key.PageUp => -sv.Viewport.Height,
+                Key.Down => 100,
+                Key.Up => -100,
                 _ => 0
             };
 
-            var target = Math.Max(0, Math.Min(offset + delta, sv.ScrollableHeight));
-            sv.ChangeView(null, target, null);
+            var target = Math.Max(0, Math.Min(offset + delta, sv.Extent.Height - sv.Viewport.Height));
+            sv.Offset = new Vector(sv.Offset.X, target);
             e.Handled = true;
         }
 
-        private void GamesGridView_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+        private void GameTile_DoubleTapped(object? sender, TappedEventArgs e)
         {
-            // Find the GameEntry from the double-tapped element
-            if (e.OriginalSource is FrameworkElement element)
+            if (sender is Border border && border.DataContext is GameEntry gameEntry)
             {
-                var gameEntry = FindGameEntryFromElement(element);
-                if (gameEntry != null)
-                {
-                    // Launch RunGame with the selected game ID
-                    LaunchRunGame(gameEntry.AppId);
-                }
+                LaunchRunGame(gameEntry.AppId);
             }
         }
 
-        private void GamesGridView_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs e)
-        {
-            // SIMPLIFIED: ContainerContentChanging now does NOTHING
-            // Images are loaded sequentially from top to bottom via StartSequentialImageLoading()
-            // This avoids WinUI 3 native crash from thundering herd of UI updates during fast scrolling
-            // Trade-off: User may see lower games before their images load, but stability > UX
-            e.Handled = true;
-        }
-
-        /// <summary>
-        /// Loads game images sequentially from top to bottom (like old SAM).
-        /// TWO-PHASE LOADING STRATEGY:
-        /// Phase 1 (Fast): Load all cached images (target language or English fallback)
-        /// Phase 2 (Slow): Download uncached target language images in background
-        /// This ensures users see cached images immediately (~600 games in <1 second),
-        /// then missing images download slowly in background without blocking UI.
-        /// </summary>
         private async void StartSequentialImageLoading()
         {
             try
             {
-            // Cancel any previous sequential loading
-            var oldCts = _sequentialLoadCts;
-            _sequentialLoadCts = new CancellationTokenSource();
-            oldCts.Cancel();
-            oldCts.Dispose();
+                var oldCts = _sequentialLoadCts;
+                _sequentialLoadCts = new CancellationTokenSource();
+                oldCts.Cancel();
+                oldCts.Dispose();
 
-            var ct = _sequentialLoadCts.Token;
-            var currentLanguage = GetCurrentLanguage();
+                var ct = _sequentialLoadCts.Token;
+                var currentLanguage = GetCurrentLanguage();
 
 #if DEBUG
-            AppLogger.LogDebug($"StartSequentialImageLoading: TWO-PHASE loading for {AllGameItems.Count} games in {currentLanguage}");
+                AppLogger.LogDebug($"StartSequentialImageLoading: TWO-PHASE loading for {AllGameItems.Count} games in {currentLanguage}");
 #endif
 
-            // PHASE 1: Instant load of cached images only (no downloads, no LoadCoverAsync)
-            var gamesNeedingEnglish = new List<GameEntry>();
-            var gamesNeedingTarget = new List<GameEntry>();
-            bool isEnglish = string.Equals(currentLanguage, "english", StringComparison.OrdinalIgnoreCase);
-            const int phase1BatchSize = 50; // Larger batch since we're directly reading cache
+                // PHASE 1: Instant load of cached images only
+                var gamesNeedingEnglish = new List<GameEntry>();
+                var gamesNeedingTarget = new List<GameEntry>();
+                bool isEnglish = string.Equals(currentLanguage, "english", StringComparison.OrdinalIgnoreCase);
+                const int phase1BatchSize = 50;
 
-            for (int i = 0; i < AllGameItems.Count; i += phase1BatchSize)
-            {
-                try
+                for (int i = 0; i < AllGameItems.Count; i += phase1BatchSize)
                 {
-                    if (ct.IsCancellationRequested)
-                        break;
-
-                    for (int j = 0; j < phase1BatchSize && (i + j) < AllGameItems.Count; j++)
+                    try
                     {
-                        var entry = AllGameItems[i + j];
-                        if (ImageLoadingHelper.IsNoIcon(entry.IconUri))
-                        {
-                            // Try target language cache first
-                            string? cachedPath = _imageService.TryGetCachedPath(entry.AppId, currentLanguage, checkEnglishFallback: false);
+                        if (ct.IsCancellationRequested)
+                            break;
 
-                            if (!string.IsNullOrEmpty(cachedPath) && File.Exists(cachedPath))
+                        for (int j = 0; j < phase1BatchSize && (i + j) < AllGameItems.Count; j++)
+                        {
+                            var entry = AllGameItems[i + j];
+                            if (ImageLoadingHelper.IsNoIcon(entry.IconUri))
                             {
-                                // Target language cached - show it immediately
-                                var uri = new Uri(cachedPath).AbsoluteUri;
-                                DispatcherQueue.TryEnqueue(() => entry.IconUri = uri);
-                            }
-                            else if (!isEnglish)
-                            {
-                                // Try English fallback cache
-                                cachedPath = _imageService.TryGetCachedPath(entry.AppId, "english", checkEnglishFallback: false);
+                                string? cachedPath = _imageService.TryGetCachedPath(entry.AppId, currentLanguage, checkEnglishFallback: false);
 
                                 if (!string.IsNullOrEmpty(cachedPath) && File.Exists(cachedPath))
                                 {
-                                    // English cached - show it immediately
                                     var uri = new Uri(cachedPath).AbsoluteUri;
-                                    DispatcherQueue.TryEnqueue(() => entry.IconUri = uri);
+                                    Dispatcher.UIThread.Post(() => entry.IconUri = uri);
+                                }
+                                else if (!isEnglish)
+                                {
+                                    cachedPath = _imageService.TryGetCachedPath(entry.AppId, "english", checkEnglishFallback: false);
 
-                                    // Will need target language in Phase 3
-                                    gamesNeedingTarget.Add(entry);
+                                    if (!string.IsNullOrEmpty(cachedPath) && File.Exists(cachedPath))
+                                    {
+                                        var uri = new Uri(cachedPath).AbsoluteUri;
+                                        Dispatcher.UIThread.Post(() => entry.IconUri = uri);
+                                        gamesNeedingTarget.Add(entry);
+                                    }
+                                    else
+                                    {
+                                        gamesNeedingEnglish.Add(entry);
+                                    }
                                 }
                                 else
                                 {
-                                    // No cache at all - need English download in Phase 2
                                     gamesNeedingEnglish.Add(entry);
                                 }
                             }
-                            else
-                            {
-                                // English mode, no cache - need download in Phase 2
-                                gamesNeedingEnglish.Add(entry);
-                            }
                         }
+
+                        await Task.Delay(1, ct);
                     }
-
-                    // No async waiting in Phase 1 - just direct cache reads!
-                    await Task.Delay(1, ct); // Minimal delay
-                }
-                catch (OperationCanceledException)
-                {
-                    break;
-                }
-                catch (Exception ex)
-                {
-#if DEBUG
-                    AppLogger.LogDebug($"Phase 1 error at {i}: {ex.Message}");
-#endif
-                }
-            }
-
-#if DEBUG
-            AppLogger.LogDebug($"Phase 1 complete. Need English: {gamesNeedingEnglish.Count}, Need target: {gamesNeedingTarget.Count}");
-#endif
-
-            // PHASE 2: Fast download of English fallback (larger batch, English usually exists)
-            const int phase2BatchSize = 5;
-
-            for (int i = 0; i < gamesNeedingEnglish.Count; i += phase2BatchSize)
-            {
-                try
-                {
-                    if (ct.IsCancellationRequested)
+                    catch (OperationCanceledException) { break; }
+                    catch (Exception ex)
                     {
 #if DEBUG
-                        AppLogger.LogDebug($"Phase 2 cancelled at {i}/{gamesNeedingEnglish.Count}");
+                        AppLogger.LogDebug($"Phase 1 error at {i}: {ex.Message}");
 #endif
-                        break;
                     }
-
-                    var phase2Tasks = new List<Task>();
-                    for (int j = 0; j < phase2BatchSize && (i + j) < gamesNeedingEnglish.Count; j++)
-                    {
-                        var entry = gamesNeedingEnglish[i + j];
-                        if (entry.Dispatcher == null)
-                            entry.Dispatcher = this.DispatcherQueue;
-
-                        var tcs = new TaskCompletionSource<bool>();
-                        DispatcherQueue.TryEnqueue(async () =>
-                        {
-                            try
-                            {
-                                await entry.LoadCoverAsync(_imageService);
-                                tcs.SetResult(true);
-                            }
-                            catch (Exception ex)
-                            {
-                                tcs.SetException(ex);
-                            }
-                        });
-                        phase2Tasks.Add(tcs.Task);
-
-                        // If not English mode, will need target language in Phase 3
-                        if (!isEnglish)
-                        {
-                            gamesNeedingTarget.Add(entry);
-                        }
-                    }
-
-                    if (phase2Tasks.Count > 0)
-                    {
-                        await Task.WhenAll(phase2Tasks);
-                    }
-
-                    // Shorter delay for English (usually exists and fast)
-                    await Task.Delay(50, ct);
                 }
-                catch (OperationCanceledException)
-                {
-                    break;
-                }
-                catch (Exception ex)
-                {
-#if DEBUG
-                    AppLogger.LogDebug($"Phase 2 error at {i}: {ex.Message}");
-#endif
-                }
-            }
 
 #if DEBUG
-            AppLogger.LogDebug($"Phase 2 complete. Now downloading target language for {gamesNeedingTarget.Count} games.");
+                AppLogger.LogDebug($"Phase 1 complete. Need English: {gamesNeedingEnglish.Count}, Need target: {gamesNeedingTarget.Count}");
 #endif
 
-            // PHASE 3: Slow download of target language (smallest batch, may not exist)
-            if (!isEnglish)
-            {
-                const int phase3BatchSize = 3;
+                // PHASE 2: Fast download of English fallback
+                const int phase2BatchSize = 5;
 
-                for (int i = 0; i < gamesNeedingTarget.Count; i += phase3BatchSize)
+                for (int i = 0; i < gamesNeedingEnglish.Count; i += phase2BatchSize)
                 {
                     try
                     {
                         if (ct.IsCancellationRequested)
                         {
 #if DEBUG
-                            AppLogger.LogDebug($"Phase 3 cancelled at {i}/{gamesNeedingTarget.Count}");
+                            AppLogger.LogDebug($"Phase 2 cancelled at {i}/{gamesNeedingEnglish.Count}");
 #endif
                             break;
                         }
 
-                        var phase3Tasks = new List<Task>();
-                        for (int j = 0; j < phase3BatchSize && (i + j) < gamesNeedingTarget.Count; j++)
+                        var phase2Tasks = new List<Task>();
+                        for (int j = 0; j < phase2BatchSize && (i + j) < gamesNeedingEnglish.Count; j++)
                         {
-                            var entry = gamesNeedingTarget[i + j];
-                            if (entry.Dispatcher == null)
-                                entry.Dispatcher = this.DispatcherQueue;
-
+                            var entry = gamesNeedingEnglish[i + j];
                             var tcs = new TaskCompletionSource<bool>();
-                            DispatcherQueue.TryEnqueue(async () =>
+                            Dispatcher.UIThread.Post(async () =>
                             {
                                 try
                                 {
-                                    // Force reload to upgrade from English to target language
-                                    await entry.LoadCoverAsync(_imageService, languageOverride: null, forceReload: true);
-                                    tcs.SetResult(true);
+                                    await entry.LoadCoverAsync(_imageService);
+                                    tcs.TrySetResult(true);
                                 }
                                 catch (Exception ex)
                                 {
-                                    tcs.SetException(ex);
+                                    tcs.TrySetException(ex);
                                 }
                             });
-                            phase3Tasks.Add(tcs.Task);
+                            phase2Tasks.Add(tcs.Task);
+
+                            if (!isEnglish)
+                            {
+                                gamesNeedingTarget.Add(entry);
+                            }
                         }
 
-                        if (phase3Tasks.Count > 0)
+                        if (phase2Tasks.Count > 0)
                         {
-                            await Task.WhenAll(phase3Tasks);
+                            await Task.WhenAll(phase2Tasks);
                         }
 
-                        // Longer delay for target language (may not exist, respects rate limits)
-                        await Task.Delay(100, ct);
+                        await Task.Delay(50, ct);
                     }
-                    catch (OperationCanceledException)
-                    {
-                        break;
-                    }
+                    catch (OperationCanceledException) { break; }
                     catch (Exception ex)
                     {
 #if DEBUG
-                        AppLogger.LogDebug($"Phase 3 error at {i}: {ex.Message}");
+                        AppLogger.LogDebug($"Phase 2 error at {i}: {ex.Message}");
 #endif
                     }
                 }
-            }
 
 #if DEBUG
-            AppLogger.LogDebug("Sequential image loading completed");
+                AppLogger.LogDebug($"Phase 2 complete. Now downloading target language for {gamesNeedingTarget.Count} games.");
+#endif
+
+                // PHASE 3: Slow download of target language
+                if (!isEnglish)
+                {
+                    const int phase3BatchSize = 3;
+
+                    for (int i = 0; i < gamesNeedingTarget.Count; i += phase3BatchSize)
+                    {
+                        try
+                        {
+                            if (ct.IsCancellationRequested)
+                            {
+#if DEBUG
+                                AppLogger.LogDebug($"Phase 3 cancelled at {i}/{gamesNeedingTarget.Count}");
+#endif
+                                break;
+                            }
+
+                            var phase3Tasks = new List<Task>();
+                            for (int j = 0; j < phase3BatchSize && (i + j) < gamesNeedingTarget.Count; j++)
+                            {
+                                var entry = gamesNeedingTarget[i + j];
+                                var tcs = new TaskCompletionSource<bool>();
+                                Dispatcher.UIThread.Post(async () =>
+                                {
+                                    try
+                                    {
+                                        await entry.LoadCoverAsync(_imageService, languageOverride: null, forceReload: true);
+                                        tcs.TrySetResult(true);
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        tcs.TrySetException(ex);
+                                    }
+                                });
+                                phase3Tasks.Add(tcs.Task);
+                            }
+
+                            if (phase3Tasks.Count > 0)
+                            {
+                                await Task.WhenAll(phase3Tasks);
+                            }
+
+                            await Task.Delay(100, ct);
+                        }
+                        catch (OperationCanceledException) { break; }
+                        catch (Exception ex)
+                        {
+#if DEBUG
+                            AppLogger.LogDebug($"Phase 3 error at {i}: {ex.Message}");
+#endif
+                        }
+                    }
+                }
+
+#if DEBUG
+                AppLogger.LogDebug("Sequential image loading completed");
 #endif
             }
             catch (Exception ex)
@@ -1132,42 +955,21 @@ namespace MyOwnGames
             }
         }
 
-        private GameEntry? FindGameEntryFromElement(FrameworkElement element)
-        {
-            // Walk up the visual tree to find the DataContext
-            var current = element;
-            while (current != null)
-            {
-                if (current.DataContext is GameEntry gameEntry)
-                {
-                    return gameEntry;
-                }
-                current = current.Parent as FrameworkElement;
-            }
-            return null;
-        }
-
         private void LaunchRunGame(int appId)
         {
             try
             {
-                // Try multiple possible paths for RunGame.exe
                 var possiblePaths = new[]
                 {
-                    // Same directory as MyOwnGames
                     Path.Combine(
                         Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) ?? "",
                         "RunGame.exe"),
-                    
-                    // Relative path from build output
                     Path.Combine(
                         Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) ?? "",
                         "..", "RunGame", "RunGame.exe"),
-                    
-                    // Full relative path from development structure
                     Path.Combine(
                         Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) ?? "",
-                        "..", "..", "..", "..", "output", "Debug", "x64", "net8.0-windows10.0.22621.0", "RunGame", "RunGame.exe")
+                        "..", "..", "..", "..", "output", "Debug", "x64", "net10.0", "RunGame", "RunGame.exe")
                 };
 
                 string? runGameExePath = null;
@@ -1185,7 +987,7 @@ namespace MyOwnGames
                 {
                     AppendLog($"Found RunGame.exe at: {runGameExePath}");
                     AppendLog($"Launching RunGame with Game ID: {appId}");
-                    
+
                     var process = new System.Diagnostics.Process
                     {
                         StartInfo = new System.Diagnostics.ProcessStartInfo
@@ -1197,10 +999,10 @@ namespace MyOwnGames
                             WorkingDirectory = Path.GetDirectoryName(runGameExePath)
                         }
                     };
-                    
+
                     var started = process.Start();
                     AppendLog($"RunGame process started: {started}");
-                    
+
                     if (started)
                     {
                         AppendLog($"Successfully launched RunGame for game {appId}");
@@ -1223,7 +1025,7 @@ namespace MyOwnGames
             }
         }
 
-        private async void OnAppWindowClosing(AppWindow sender, AppWindowClosingEventArgs args)
+        private async void OnWindowClosing(object? sender, WindowClosingEventArgs e)
         {
             await SaveAndDisposeAsync("window closing");
         }
@@ -1235,7 +1037,6 @@ namespace MyOwnGames
             _isShuttingDown = true;
             AppLogger.OnLog -= _logHandler;
 
-            // Cancel any ongoing operations
             _cancellationTokenSource?.Cancel();
 
             try
@@ -1251,8 +1052,7 @@ namespace MyOwnGames
 
             _steamService?.Dispose();
             _steamService = null;
-            
-            // Unsubscribe from events before disposing
+
             try
             {
                 if (_imageService != null)
@@ -1265,8 +1065,7 @@ namespace MyOwnGames
             {
                 AppLogger.LogDebug($"Error disposing image service: {ex.Message}");
             }
-            
-            // Dispose cancellation token sources
+
             try
             {
                 _cancellationTokenSource?.Dispose();
@@ -1278,7 +1077,6 @@ namespace MyOwnGames
                 AppLogger.LogDebug($"Error disposing cancellation token source: {ex.Message}");
             }
 
-            // Stop CDN statistics timer
             try
             {
                 if (_cdnStatsTimer != null)
@@ -1305,7 +1103,7 @@ namespace MyOwnGames
             return _defaultLanguage;
         }
 
-        private async void LanguageComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private async void LanguageComboBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
         {
             if (_isLoading || LanguageComboBox.SelectedItem == null)
                 return;
@@ -1315,7 +1113,7 @@ namespace MyOwnGames
 
             AppendLog($"Language switching: UI={newLanguage}, ImageService={currentImageServiceLanguage}");
 
-            if (newLanguage == currentImageServiceLanguage) // 避免重複切換同一語言
+            if (newLanguage == currentImageServiceLanguage)
             {
                 AppendLog($"Language switch skipped - already using {newLanguage}");
                 return;
@@ -1326,22 +1124,18 @@ namespace MyOwnGames
 
             try
             {
-                // 設定為正在載入狀態，但不阻塞 UI
                 _isLoading = true;
 
-                // Update image service language first
                 if (_imageService != null)
                 {
                     await _imageService.SetLanguage(newLanguage);
                 }
 
-                // 先快速更新語言顯示
                 foreach (var gameEntry in AllGameItems)
                 {
                     gameEntry.CurrentLanguage = newLanguage;
                 }
 
-                // 異步處理圖片刷新：優先可見圖片，隱藏圖片清空
                 _ = Task.Run(async () =>
                 {
                     try
@@ -1372,33 +1166,14 @@ namespace MyOwnGames
         {
             try
             {
-                // CRITICAL: Save focused element before language switch to restore it after
-                // CleanSlateLanguageSwitcher rebinds ItemsSource, causing focus to shift to GridView
-                UIElement? focusedElement = null;
-                var tcsSaveFocus = new TaskCompletionSource<bool>();
-                this.DispatcherQueue.TryEnqueue(() =>
-                {
-                    focusedElement = Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(Content.XamlRoot) as UIElement;
-                    tcsSaveFocus.SetResult(true);
-                });
-                await tcsSaveFocus.Task;
-
                 // Use shared CleanSlateLanguageSwitcher
-                // CRITICAL: Must pass GameItems (filtered collection bound to GridView), not AllGameItems
                 await CleanSlateLanguageSwitcher.SwitchLanguageAsync(
                     GamesGridView,
                     GameItems,
-                    newLanguage,
-                    this.DispatcherQueue);
+                    newLanguage);
 
-                // CRITICAL: Start sequential image loading after language switch
-                // and restore focus to the previously focused element (typically LanguageComboBox)
-                this.DispatcherQueue.TryEnqueue(() =>
+                Dispatcher.UIThread.Post(() =>
                 {
-                    if (focusedElement != null)
-                    {
-                        focusedElement.Focus(FocusState.Programmatic);
-                    }
                     StartSequentialImageLoading();
                     StatusText = $"Language switched to {newLanguage}. Loading images...";
                 });
@@ -1414,21 +1189,6 @@ namespace MyOwnGames
                 AppendLog($"Error processing language switch: {ex.GetType().Name}: {ex.Message}");
             }
         }
-
-        private static ScrollViewer? FindScrollViewer(DependencyObject root)
-        {
-            if (root is ScrollViewer sv)
-                return sv;
-
-            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
-            {
-                var child = VisualTreeHelper.GetChild(root, i);
-                if (FindScrollViewer(child) is ScrollViewer result)
-                    return result;
-            }
-
-            return null;
-        }
     }
 
     public class GameEntry : INotifyPropertyChanged, IImageLoadableItem
@@ -1438,28 +1198,24 @@ namespace MyOwnGames
         private string _iconUri = "";
         private volatile bool _isUpdatingIcon = false;
 
-        // Image loading state tracking
         private volatile bool _coverLoading = false;
         private string _loadedLanguage = "";
-
-        // Dispatcher for UI thread operations (set by MainWindow)
-        public DispatcherQueue Dispatcher { get; set; } = null!;
 
         public string IconUri
         {
             get => _iconUri;
             set
             {
-                if (_isUpdatingIcon) return; // Prevent concurrent updates
+                if (_isUpdatingIcon) return;
 
                 try
                 {
                     _isUpdatingIcon = true;
 
-                    if (_iconUri != value || !string.IsNullOrEmpty(value)) // Force update if new value is not empty
+                    if (_iconUri != value || !string.IsNullOrEmpty(value))
                     {
                         _iconUri = value;
-                        OnPropertyChanged(); // This already triggers IconUri property change
+                        OnPropertyChanged();
                     }
                 }
                 finally
@@ -1468,12 +1224,11 @@ namespace MyOwnGames
                 }
             }
         }
-        
+
         public string NameEn { get; set; } = "";
-        
-        // Multi-language support - store names by language code
+
         public Dictionary<string, string> LocalizedNames { get; set; } = new();
-        
+
         private string _currentLanguage = "english";
         public string CurrentLanguage
         {
@@ -1488,32 +1243,27 @@ namespace MyOwnGames
                 }
             }
         }
-        
-        // Display name based on current language
+
         public string DisplayName
         {
             get
             {
-                // Try to get localized name for current language
-                if (!string.IsNullOrEmpty(CurrentLanguage) && 
-                    LocalizedNames.TryGetValue(CurrentLanguage, out var localizedName) && 
+                if (!string.IsNullOrEmpty(CurrentLanguage) &&
+                    LocalizedNames.TryGetValue(CurrentLanguage, out var localizedName) &&
                     !string.IsNullOrEmpty(localizedName))
                 {
                     return localizedName;
                 }
-                
-                // Fall back to English name
+
                 return NameEn;
             }
         }
-        
-        // Legacy property for backward compatibility
-        public string NameLocalized 
-        { 
-            get => DisplayName; 
-            set 
+
+        public string NameLocalized
+        {
+            get => DisplayName;
+            set
             {
-                // Store in current language
                 if (!string.IsNullOrEmpty(CurrentLanguage) && !string.IsNullOrEmpty(value))
                 {
                     LocalizedNames[CurrentLanguage] = value;
@@ -1530,34 +1280,21 @@ namespace MyOwnGames
             {
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
             }
-            catch (System.Runtime.InteropServices.COMException)
-            {
-                // Ignore COM exceptions during shutdown
-            }
             catch (Exception ex)
             {
                 AppLogger.LogDebug($"Error in GameEntry.OnPropertyChanged: {ex.Message}");
             }
         }
-        
-        // Method to force UI refresh
+
         public void ForceIconRefresh()
         {
             try
             {
                 OnPropertyChanged(nameof(IconUri));
             }
-            catch (System.Runtime.InteropServices.COMException)
-            {
-                // Ignore COM exceptions during UI refresh
-            }
-            catch (ObjectDisposedException)
-            {
-                // Ignore object disposed exceptions
-            }
+            catch (ObjectDisposedException) { }
         }
-        
-        // Method to update localized name for specific language
+
         public void SetLocalizedName(string language, string name)
         {
             LocalizedNames[language] = name;
@@ -1568,15 +1305,8 @@ namespace MyOwnGames
             }
         }
 
-        // IImageLoadableItem implementation
-
-        /// <summary>
-        /// Asynchronously loads the game's cover image using the shared image service.
-        /// Implements English fallback strategy for non-English languages.
-        /// </summary>
         public async Task LoadCoverAsync(SharedImageService imageService, string? languageOverride = null, bool forceReload = false)
         {
-            // Skip if already loading
             if (_coverLoading)
             {
 #if DEBUG
@@ -1585,8 +1315,6 @@ namespace MyOwnGames
                 return;
             }
 
-            // Only skip if we already have a valid image (not no_icon)
-            // Unless forceReload is true (for language upgrade in Phase 3)
             if (!forceReload && !ImageLoadingHelper.IsNoIcon(IconUri))
             {
 #if DEBUG
@@ -1605,20 +1333,16 @@ namespace MyOwnGames
 
             try
             {
-                // Use ImageLoadingHelper for English fallback
                 var (imagePath, loadedLanguage) = await ImageLoadingHelper.LoadWithEnglishFallbackAsync(
                     imageService,
                     AppId,
                     currentLanguage,
-                    Dispatcher,
                     onEnglishFallbackLoaded: (englishPath) =>
                     {
-                        // Update UI with English fallback immediately
                         _loadedLanguage = "english";
                         var englishUri = new Uri(englishPath).AbsoluteUri;
-                        Dispatcher.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.High, () =>
+                        Dispatcher.UIThread.Post(() =>
                         {
-                            // Verify language hasn't changed
                             if (currentLanguage == CurrentLanguage)
                             {
                                 IconUri = englishUri;
@@ -1636,14 +1360,8 @@ namespace MyOwnGames
                     _loadedLanguage = loadedLanguage;
                     var fileUri = new Uri(imagePath).AbsoluteUri;
 
-                    // Update UI with final image
-                    var priority = imageService.IsImageCached(AppId, currentLanguage)
-                        ? Microsoft.UI.Dispatching.DispatcherQueuePriority.High
-                        : Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal;
-
-                    Dispatcher.TryEnqueue(priority, () =>
+                    Dispatcher.UIThread.Post(() =>
                     {
-                        // Verify language hasn't changed
                         if (currentLanguage == CurrentLanguage)
                         {
                             IconUri = fileUri;
@@ -1664,18 +1382,12 @@ namespace MyOwnGames
             }
         }
 
-        /// <summary>
-        /// Clears the loading state to allow reloading.
-        /// </summary>
         public void ClearLoadingState()
         {
             _coverLoading = false;
             _loadedLanguage = "";
         }
 
-        /// <summary>
-        /// Checks if the current cover image is from the specified language.
-        /// </summary>
         public bool IsCoverFromLanguage(string language)
         {
             if (string.IsNullOrEmpty(_loadedLanguage))
@@ -1685,4 +1397,3 @@ namespace MyOwnGames
         }
     }
 }
-

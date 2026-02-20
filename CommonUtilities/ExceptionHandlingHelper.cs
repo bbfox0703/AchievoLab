@@ -1,11 +1,10 @@
 using System;
 using System.Threading.Tasks;
-using Microsoft.UI.Xaml;
 
 namespace CommonUtilities
 {
     /// <summary>
-    /// Provides unified exception handling utilities for WinUI 3 applications.
+    /// Provides unified exception handling utilities for applications.
     /// Shared across AnSAM, RunGame, and MyOwnGames for consistent exception logging.
     /// </summary>
     public static class ExceptionHandlingHelper
@@ -54,26 +53,9 @@ namespace CommonUtilities
         }
 
         /// <summary>
-        /// Handler for WinUI 3 UnhandledException events (UI thread exceptions).
-        /// </summary>
-        /// <param name="sender">The event sender.</param>
-        /// <param name="e">The exception event args.</param>
-        /// <param name="markAsHandled">Whether to mark the exception as handled (prevents app crash).</param>
-        public static void OnUnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e, bool markAsHandled = true)
-        {
-            LogException(e.Exception, "UI Thread - UnhandledException");
-
-            // Mark as handled to prevent crash (for debugging purposes)
-            // Remove markAsHandled=true if you want the app to crash and show the error
-            e.Handled = markAsHandled;
-        }
-
-        /// <summary>
         /// Handler for AppDomain.UnhandledException events (background thread exceptions).
         /// </summary>
-        /// <param name="sender">The event sender.</param>
-        /// <param name="e">The exception event args.</param>
-        public static void OnAppDomainUnhandledException(object sender, System.UnhandledExceptionEventArgs e)
+        public static void OnAppDomainUnhandledException(object sender, UnhandledExceptionEventArgs e)
         {
             AppLogger.LogDebug("=== APPDOMAIN UNHANDLED EXCEPTION (Background Thread) ===");
 
@@ -102,14 +84,10 @@ namespace CommonUtilities
         /// <summary>
         /// Handler for TaskScheduler.UnobservedTaskException events (fire-and-forget task exceptions).
         /// </summary>
-        /// <param name="sender">The event sender.</param>
-        /// <param name="e">The exception event args.</param>
-        /// <param name="setObserved">Whether to mark the exception as observed (prevents crash during GC).</param>
         public static void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e, bool setObserved = true)
         {
             LogAggregateException(e.Exception, "Fire-and-forget Task - UnobservedTaskException");
 
-            // Mark as observed to prevent crash during GC
             if (setObserved)
             {
                 e.SetObserved();
@@ -117,28 +95,10 @@ namespace CommonUtilities
         }
 
         /// <summary>
-        /// Registers all global exception handlers for a WinUI 3 application.
+        /// Registers global exception handlers (AppDomain and TaskScheduler).
         /// </summary>
-        /// <param name="app">The WinUI 3 Application instance.</param>
-        /// <param name="onUnhandledException">Optional custom handler for UI thread exceptions.</param>
-        /// <param name="markUIExceptionsAsHandled">Whether to mark UI exceptions as handled (prevents crash).</param>
-        public static void RegisterGlobalExceptionHandlers(
-            Application app,
-            Action<object, Microsoft.UI.Xaml.UnhandledExceptionEventArgs>? onUnhandledException = null,
-            bool markUIExceptionsAsHandled = true)
+        public static void RegisterGlobalExceptionHandlers()
         {
-            app.UnhandledException += (sender, e) =>
-            {
-                if (onUnhandledException != null)
-                {
-                    onUnhandledException(sender, e);
-                }
-                else
-                {
-                    OnUnhandledException(sender, e, markUIExceptionsAsHandled);
-                }
-            };
-
             AppDomain.CurrentDomain.UnhandledException += OnAppDomainUnhandledException;
             TaskScheduler.UnobservedTaskException += (sender, e) => OnUnobservedTaskException(sender, e, true);
         }

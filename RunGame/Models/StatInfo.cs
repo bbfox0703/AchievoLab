@@ -49,6 +49,11 @@ namespace RunGame.Models
         public abstract object Value { get; set; }
 
         /// <summary>
+        /// Gets the original value as a display string for the UI.
+        /// </summary>
+        public abstract string OriginalValueDisplay { get; }
+
+        /// <summary>
         /// Gets a value indicating whether the current value differs from the original value retrieved from Steam.
         /// </summary>
         public abstract bool IsModified { get; }
@@ -130,6 +135,11 @@ namespace RunGame.Models
         }
 
         /// <summary>
+        /// Gets the original value as a display string.
+        /// </summary>
+        public override string OriginalValueDisplay => OriginalValue.ToString();
+
+        /// <summary>
         /// Gets a value indicating whether the current value differs from the original Steam value.
         /// </summary>
         public override bool IsModified => IntValue != OriginalValue;
@@ -196,6 +206,11 @@ namespace RunGame.Models
             get => FloatValue;
             set => FloatValue = Convert.ToSingle(value);
         }
+
+        /// <summary>
+        /// Gets the original value as a display string.
+        /// </summary>
+        public override string OriginalValueDisplay => OriginalValue.ToString("F2");
 
         /// <summary>
         /// Gets a value indicating whether the current value differs from the original Steam value.

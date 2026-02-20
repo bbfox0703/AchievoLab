@@ -1,0 +1,103 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:AnSAM"
+        x:Class="AnSAM.MainWindow"
+        x:DataType="local:MainWindow"
+        Title="AchievoLab:Main"
+        Width="1200" Height="800">
+
+    <Grid RowDefinitions="Auto,*,Auto">
+
+        <!-- Toolbar -->
+        <StackPanel Orientation="Horizontal" Spacing="4" Margin="4">
+            <AutoCompleteBox x:Name="SearchBox"
+                             Width="336"
+                             Watermark="Type keyword..."
+                             FilterMode="Contains" />
+            <ComboBox x:Name="LanguageComboBox"
+                      Width="150"
+                      SelectionChanged="LanguageComboBox_SelectionChanged"/>
+            <Separator Width="1" Margin="4,4"/>
+            <Button x:Name="LaunchByAppIdButton" Content="+ Launch by App ID" Click="LaunchByAppId_Click"/>
+            <Separator Width="1" Margin="4,4"/>
+            <Button Content="Theme">
+                <Button.Flyout>
+                    <MenuFlyout>
+                        <MenuItem Header="Use system (Default)" Click="Theme_Default_Click"/>
+                        <MenuItem Header="Light" Click="Theme_Light_Click"/>
+                        <MenuItem Header="Dark" Click="Theme_Dark_Click"/>
+                    </MenuFlyout>
+                </Button.Flyout>
+            </Button>
+        </StackPanel>
+
+        <!-- Game grid -->
+        <ScrollViewer x:Name="GamesScrollViewer" Grid.Row="1"
+                      HorizontalScrollBarVisibility="Disabled"
+                      VerticalScrollBarVisibility="Auto">
+            <ItemsControl x:Name="GamesView" ItemsSource="{Binding Games}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <WrapPanel />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="local:GameItem">
+                        <StackPanel Width="231" Margin="4"
+                                    DoubleTapped="GameCard_DoubleTapped">
+                            <StackPanel.ContextMenu>
+                                <ContextMenu>
+                                    <MenuItem Header="Launch Achievement Manager"
+                                              Click="OnLaunchManagerClicked"
+                                              Tag="{Binding}"
+                                              IsEnabled="{Binding IsManagerAvailable}"/>
+                                    <MenuItem Header="Launch Game"
+                                              Click="OnLaunchGameClicked"
+                                              Tag="{Binding}"/>
+                                </ContextMenu>
+                            </StackPanel.ContextMenu>
+                            <Border Height="100" CornerRadius="8"
+                                    HorizontalAlignment="Center">
+                                <Image Source="{Binding IconUri, Mode=OneWay}"
+                                       Stretch="Uniform"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"/>
+                            </Border>
+                            <TextBlock Text="{Binding Title, Mode=OneWay}"
+                                       Margin="2,8,0,0"
+                                       TextWrapping="Wrap"
+                                       TextTrimming="CharacterEllipsis"
+                                       MaxLines="3"/>
+                        </StackPanel>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+
+        <!-- Status bar -->
+        <Border Grid.Row="2" Padding="8,0">
+            <Grid Height="28">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <TextBlock x:Name="StatusText"
+                           Text="Ready" VerticalAlignment="Center"/>
+
+                <TextBlock x:Name="StatusCdn" Grid.Column="1"
+                           Text="" VerticalAlignment="Center"
+                           Margin="0,0,12,0" FontSize="11" Opacity="0.8"/>
+
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8"
+                            VerticalAlignment="Center">
+                    <ProgressBar x:Name="StatusProgress"
+                                 Width="160" Height="14"
+                                 Minimum="0" Maximum="100" Value="0"/>
+                    <TextBlock x:Name="StatusExtra" Text="0%" />
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>
