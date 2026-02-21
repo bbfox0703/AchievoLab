@@ -266,26 +266,31 @@ namespace MyOwnGames
                 GameItems.Clear();
                 AllGameItems.Clear();
 
-                await Task.Run(() =>
+                var entries = await Task.Run(() =>
                 {
+                    var list = new List<GameEntry>(savedGamesWithLanguages.Count);
                     foreach (var game in savedGamesWithLanguages)
                     {
-                        var entry = new GameEntry
+                        list.Add(new GameEntry
                         {
                             AppId = game.AppId,
                             NameEn = game.NameEn,
                             LocalizedNames = new Dictionary<string, string>(game.LocalizedNames),
                             CurrentLanguage = currentLanguage,
                             IconUri = ImageLoadingHelper.GetNoIconPath()
-                        };
-
-                        Dispatcher.UIThread.Post(() =>
-                        {
-                            GameItems.Add(entry);
-                            AllGameItems.Add(entry);
                         });
                     }
+                    return list;
                 });
+
+                foreach (var entry in entries)
+                {
+                    GameItems.Add(entry);
+                    AllGameItems.Add(entry);
+                }
+
+                GamesScrollViewer.InvalidateMeasure();
+                GamesScrollViewer.InvalidateArrange();
 
                 StartSequentialImageLoading();
 
@@ -782,6 +787,7 @@ namespace MyOwnGames
                         if (ct.IsCancellationRequested)
                             break;
 
+                        int loggedCount = 0;
                         for (int j = 0; j < phase1BatchSize && (i + j) < AllGameItems.Count; j++)
                         {
                             var entry = AllGameItems[i + j];
@@ -792,6 +798,11 @@ namespace MyOwnGames
                                 if (!string.IsNullOrEmpty(cachedPath) && File.Exists(cachedPath))
                                 {
                                     var uri = new Uri(cachedPath).AbsoluteUri;
+                                    if (i == 0 && loggedCount < 3)
+                                    {
+                                        AppLogger.LogDebug($"Phase 1 image found: AppId={entry.AppId}, path={cachedPath}, uri={uri}");
+                                        loggedCount++;
+                                    }
                                     Dispatcher.UIThread.Post(() => entry.IconUri = uri);
                                 }
                                 else if (!isEnglish)
@@ -821,15 +832,12 @@ namespace MyOwnGames
                     catch (OperationCanceledException) { break; }
                     catch (Exception ex)
                     {
-#if DEBUG
-                        AppLogger.LogDebug($"Phase 1 error at {i}: {ex.Message}");
-#endif
+                        AppLogger.LogDebug($"Phase 1 error at batch {i}: {ex}");
                     }
                 }
 
-#if DEBUG
-                AppLogger.LogDebug($"Phase 1 complete. Need English: {gamesNeedingEnglish.Count}, Need target: {gamesNeedingTarget.Count}");
-#endif
+                AppLogger.LogDebug($"Phase 1 complete. Total: {AllGameItems.Count}, Need English: {gamesNeedingEnglish.Count}, Need target: {gamesNeedingTarget.Count}");
+
 
                 // PHASE 2: Fast download of English fallback
                 const int phase2BatchSize = 5;
