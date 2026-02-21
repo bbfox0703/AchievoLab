@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:AnSAM"
+        xmlns:utils="clr-namespace:CommonUtilities;assembly=CommonUtilities"
         x:Class="AnSAM.MainWindow"
         x:DataType="local:MainWindow"
         Title="AchievoLab:Main"
@@ -58,7 +59,7 @@
                             </StackPanel.ContextMenu>
                             <Border Height="100" CornerRadius="8"
                                     HorizontalAlignment="Center">
-                                <Image Source="{Binding IconUri, Mode=OneWay}"
+                                <Image Source="{Binding IconUri, Mode=OneWay, Converter={x:Static utils:FilePathToBitmapConverter.Instance}}"
                                        Stretch="Uniform"
                                        HorizontalAlignment="Center"
                                        VerticalAlignment="Center"/>

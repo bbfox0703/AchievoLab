@@ -1,7 +1,7 @@
 using System;
 using System.IO;
-using Microsoft.Extensions.Configuration;
 using Serilog;
+using Serilog.Events;
 
 namespace CommonUtilities
 {
@@ -11,22 +11,37 @@ namespace CommonUtilities
     /// </summary>
     public static class ApplicationInitializationHelper
     {
+        private const string OutputTemplate =
+            "[{Timestamp:yyyy-MM-dd HH:mm:ss.fff}] [{Level:u3}] {Message:lj}{NewLine}{Exception}";
+
         /// <summary>
-        /// Initializes Serilog logging from appsettings.json.
-        /// Reads configuration from the application's base directory and initializes AppLogger.
+        /// Initializes Serilog logging with code-based configuration (AOT-compatible).
+        /// Uses programmatic setup instead of ReadFrom.Configuration() which requires reflection.
         /// </summary>
         /// <param name="appName">The application name for logging identification (e.g., "AnSAM", "RunGame", "MyOwnGames").</param>
         public static void InitializeLogging(string appName)
         {
             try
             {
-                var configuration = new ConfigurationBuilder()
-                    .SetBasePath(AppContext.BaseDirectory)
-                    .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
-                    .Build();
+                var logDir = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "AchievoLab", "logs");
+                Directory.CreateDirectory(logDir);
+
+                var logPath = Path.Combine(logDir, $"{appName.ToLowerInvariant()}-.log");
 
                 Log.Logger = new LoggerConfiguration()
-                    .ReadFrom.Configuration(configuration)
+                    .MinimumLevel.Debug()
+                    .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+                    .MinimumLevel.Override("System", LogEventLevel.Warning)
+                    .WriteTo.Console(outputTemplate: OutputTemplate)
+                    .WriteTo.Debug(outputTemplate: OutputTemplate)
+                    .WriteTo.File(logPath,
+                        rollingInterval: RollingInterval.Day,
+                        retainedFileCountLimit: 7,
+                        shared: true,
+                        outputTemplate: OutputTemplate)
+                    .Enrich.FromLogContext()
                     .CreateLogger();
 
                 AppLogger.Initialize(Log.Logger);

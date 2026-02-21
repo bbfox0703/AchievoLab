@@ -959,17 +959,12 @@ namespace MyOwnGames
         {
             try
             {
+                var baseDir = AppContext.BaseDirectory;
                 var possiblePaths = new[]
                 {
-                    Path.Combine(
-                        Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) ?? "",
-                        "RunGame.exe"),
-                    Path.Combine(
-                        Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) ?? "",
-                        "..", "RunGame", "RunGame.exe"),
-                    Path.Combine(
-                        Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) ?? "",
-                        "..", "..", "..", "..", "output", "Debug", "x64", "net10.0", "RunGame", "RunGame.exe")
+                    Path.Combine(baseDir, "RunGame.exe"),
+                    Path.Combine(baseDir, "..", "RunGame", "RunGame.exe"),
+                    Path.Combine(baseDir, "..", "..", "..", "..", "output", "Debug", "x64", "net10.0", "RunGame", "RunGame.exe")
                 };
 
                 string? runGameExePath = null;

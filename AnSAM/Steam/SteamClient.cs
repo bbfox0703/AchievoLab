@@ -121,22 +121,18 @@ namespace AnSAM.Steam
                 if (Initialized)
                 {
                     _callbackTimer = new Timer(_ => PumpCallbacks(), null, 0, 100);
+                    AppLogger.LogDebug("SteamClient initialized successfully");
+                }
+                else
+                {
+                    AppLogger.LogDebug($"SteamClient initialization failed: client=0x{_client:X}, pipe={_pipe}, user={_user}, apps008=0x{_apps008:X}");
                 }
             }
             catch (Exception ex)
             {
                 Initialized = false;
-#if DEBUG
-                AppLogger.LogDebug($"Steam API init threw: {ex}");
-#endif
+                AppLogger.LogDebug($"SteamClient init threw: {ex}");
             }
-
-#if DEBUG
-            if (!Initialized)
-            {
-                AppLogger.LogDebug("Steam API not initialized");
-            }
-#endif
         }
 
         /// <summary>
