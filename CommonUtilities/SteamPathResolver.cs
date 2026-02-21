@@ -64,7 +64,7 @@ namespace CommonUtilities
         }
 
         /// <summary>
-        /// Resolves the steamclient64.dll path and loads it using Windows API.
+        /// Resolves the steamclient64.dll path and loads it using NativeLibrary.Load (AOT-compatible).
         /// This method is designed to be used as a NativeLibrary.SetDllImportResolver callback.
         /// </summary>
         public static IntPtr ResolveSteamClientDll(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
@@ -76,7 +76,14 @@ namespace CommonUtilities
 
                 string? installPath = GetSteamInstallPath();
                 if (string.IsNullOrEmpty(installPath))
+                {
+                    AppLogger.LogDebug("SteamPathResolver: Steam install path not found in registry");
                     return IntPtr.Zero;
+                }
+
+                // Add Steam directories to DLL search path for dependency resolution
+                Native.AddDllDirectory(installPath);
+                Native.AddDllDirectory(Path.Combine(installPath, "bin"));
 
                 string libraryPath = Path.Combine(installPath, "steamclient64.dll");
                 if (!File.Exists(libraryPath))
@@ -85,16 +92,19 @@ namespace CommonUtilities
                 }
 
                 if (!File.Exists(libraryPath))
+                {
+                    AppLogger.LogDebug($"SteamPathResolver: steamclient64.dll not found at {installPath}");
                     return IntPtr.Zero;
+                }
 
-                Native.AddDllDirectory(installPath);
-                Native.AddDllDirectory(Path.Combine(installPath, "bin"));
-
-                return Native.LoadLibraryEx(libraryPath, IntPtr.Zero,
-                    Native.LoadLibrarySearchDefaultDirs | Native.LoadLibrarySearchUserDirs);
+                AppLogger.LogDebug($"SteamPathResolver: Loading steamclient64.dll from {libraryPath}");
+                var handle = NativeLibrary.Load(libraryPath);
+                AppLogger.LogDebug($"SteamPathResolver: steamclient64.dll loaded successfully, handle=0x{handle:X}");
+                return handle;
             }
-            catch
+            catch (Exception ex)
             {
+                AppLogger.LogDebug($"SteamPathResolver: Failed to load steamclient64.dll: {ex.Message}");
                 return IntPtr.Zero;
             }
         }

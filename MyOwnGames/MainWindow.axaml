@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:MyOwnGames"
+        xmlns:utils="clr-namespace:CommonUtilities;assembly=CommonUtilities"
         x:Class="MyOwnGames.MainWindow"
         x:DataType="local:MainWindow"
         Title="AchievoLab:My Owned Steam Games"
@@ -117,7 +118,7 @@
                             <Grid RowDefinitions="80,*">
                                 <!-- Game image -->
                                 <Border Grid.Row="0" CornerRadius="2">
-                                    <Image Source="{Binding IconUri, Mode=OneWay}"
+                                    <Image Source="{Binding IconUri, Mode=OneWay, Converter={x:Static utils:FilePathToBitmapConverter.Instance}}"
                                            Stretch="UniformToFill"
                                            HorizontalAlignment="Center"
                                            VerticalAlignment="Center"/>
