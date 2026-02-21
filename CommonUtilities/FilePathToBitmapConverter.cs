@@ -13,6 +13,7 @@ namespace CommonUtilities
     public class FilePathToBitmapConverter : IValueConverter
     {
         public static FilePathToBitmapConverter Instance { get; } = new();
+        private int _logCount;
 
         public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
         {
@@ -29,12 +30,26 @@ namespace CommonUtilities
 
                 if (File.Exists(path))
                 {
-                    return new Bitmap(path);
+                    // Load via MemoryStream to avoid holding file handles open
+                    // Decode to limited height (200px) to reduce memory and decoding time
+                    // Steam header images are 460x215, no need to decode at full resolution
+                    var bytes = File.ReadAllBytes(path);
+                    using var ms = new MemoryStream(bytes);
+                    return Bitmap.DecodeToHeight(ms, 200);
+                }
+                else if (_logCount < 10)
+                {
+                    AppLogger.LogDebug($"FilePathToBitmapConverter: File not found: {path}");
+                    _logCount++;
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // Ignore invalid paths or corrupted images
+                if (_logCount < 10)
+                {
+                    AppLogger.LogDebug($"FilePathToBitmapConverter error for '{path}': {ex.Message}");
+                    _logCount++;
+                }
             }
             return null;
         }

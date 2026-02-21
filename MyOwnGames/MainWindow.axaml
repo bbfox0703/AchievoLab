@@ -10,6 +10,8 @@
     <Grid RowDefinitions="Auto,*,Auto">
 
         <!-- Top: Toolbar -->
+        <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                      VerticalScrollBarVisibility="Disabled">
         <StackPanel Orientation="Horizontal" Spacing="4" Margin="8,4">
             <!-- Search -->
             <AutoCompleteBox x:Name="KeywordBox"
@@ -90,6 +92,7 @@
                     Click="StopButton_Click"
                     IsEnabled="False"/>
         </StackPanel>
+        </ScrollViewer>
 
         <!-- Center: Game Grid -->
         <ScrollViewer x:Name="GamesScrollViewer" Grid.Row="1"
