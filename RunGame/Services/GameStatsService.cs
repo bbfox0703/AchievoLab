@@ -1004,6 +1004,11 @@ namespace RunGame.Services
         Integer = 1,
 
         /// <summary>
+        /// Alias for Integer (some games use "Int" in their schema).
+        /// </summary>
+        Int = Integer,
+
+        /// <summary>
         /// Floating-point statistic.
         /// </summary>
         Float = 2,
