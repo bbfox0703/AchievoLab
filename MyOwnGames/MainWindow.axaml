@@ -16,7 +16,7 @@
             <!-- Search -->
             <AutoCompleteBox x:Name="KeywordBox"
                              Width="240"
-                             Watermark="Keyword search"
+                             PlaceholderText="Keyword search"
                              FilterMode="Contains" />
 
             <Separator Width="1" Margin="4,4"/>
@@ -26,7 +26,7 @@
             <TextBox x:Name="ApiKeyBox"
                      Width="240"
                      PasswordChar="*"
-                     Watermark="Your Steam Web API Key"
+                     PlaceholderText="Your Steam Web API Key"
                      RevealPassword="False" />
 
             <Separator Width="1" Margin="4,4"/>
@@ -36,7 +36,7 @@
             <TextBox x:Name="SteamIdBox"
                      Width="180"
                      PasswordChar="*"
-                     Watermark="7656119xxxxxxxxxx"
+                     PlaceholderText="7656119xxxxxxxxxx"
                      RevealPassword="False" />
 
             <Separator Width="1" Margin="4,4"/>

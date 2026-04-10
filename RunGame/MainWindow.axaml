@@ -32,7 +32,7 @@
                 <Grid RowDefinitions="Auto,*">
                     <!-- Achievement Filters -->
                     <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="10" Margin="10">
-                        <TextBox x:Name="SearchTextBox" Watermark="Search achievements..." Width="200"/>
+                        <TextBox x:Name="SearchTextBox" PlaceholderText="Search achievements..." Width="200"/>
                         <ToggleButton x:Name="ShowLockedButton" Content="Show Locked Only" Click="OnShowLockedToggle"/>
                         <ToggleButton x:Name="ShowUnlockedButton" Content="Show Unlocked Only" Click="OnShowUnlockedToggle"/>
                         <ComboBox x:Name="LanguageComboBox" PlaceholderText="Language" Width="120" SelectionChanged="OnLanguageChanged"/>
