@@ -19,7 +19,7 @@
             <Button x:Name="InvertAllButton" Content="Select All" Click="OnInvertAll" ToolTip.Tip="Select All"/>
             <Separator Width="1" Margin="4,4"/>
             <ToggleButton x:Name="AutoMouseMoveButton" Content="Auto Mouse"
-                          Checked="OnAutoMouseMove" Unchecked="OnAutoMouseMove"
+                          Click="OnAutoMouseMove"
                           ToolTip.Tip="Auto Mouse"/>
             <ToggleButton x:Name="TimerToggleButton" Content="Timer"
                           Click="OnTimerToggle" ToolTip.Tip="Timer"/>
