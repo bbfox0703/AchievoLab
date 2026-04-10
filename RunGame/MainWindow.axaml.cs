@@ -446,7 +446,7 @@ namespace RunGame
         private async void OnStore(object sender, RoutedEventArgs e)
         {
             // Get selected achievements
-            var selectedAchievements = (AchievementListView.SelectedItems ?? Enumerable.Empty<object>())
+            var selectedAchievements = (AchievementListView.SelectedItems ?? (System.Collections.IList)Array.Empty<object>())
                 .OfType<AchievementInfo>()
                 .Where(a => !a.IsProtected)
                 .ToList();
@@ -1066,12 +1066,12 @@ namespace RunGame
 
         private async void OnSetTimer(object sender, RoutedEventArgs e)
         {
-            var selectedAchievements = (AchievementListView.SelectedItems ?? Enumerable.Empty<object>())
+            var selectedAchievements = (AchievementListView.SelectedItems ?? (System.Collections.IList)Array.Empty<object>())
                 .OfType<AchievementInfo>()
                 .Where(a => !a.IsAchieved && !a.IsProtected)
                 .ToList();
 
-            var achievedSelected = (AchievementListView.SelectedItems ?? Enumerable.Empty<object>())
+            var achievedSelected = (AchievementListView.SelectedItems ?? (System.Collections.IList)Array.Empty<object>())
                 .OfType<AchievementInfo>()
                 .Where(a => a.IsAchieved)
                 .ToList();
@@ -1246,7 +1246,7 @@ namespace RunGame
                     return;
                 }
 
-                var selectedAchievements = (AchievementListView.SelectedItems ?? Enumerable.Empty<object>())
+                var selectedAchievements = (AchievementListView.SelectedItems ?? (System.Collections.IList)Array.Empty<object>())
                     .OfType<AchievementInfo>()
                     .ToList();
 
