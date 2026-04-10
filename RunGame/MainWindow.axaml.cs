@@ -446,7 +446,7 @@ namespace RunGame
         private async void OnStore(object sender, RoutedEventArgs e)
         {
             // Get selected achievements
-            var selectedAchievements = AchievementListView.SelectedItems
+            var selectedAchievements = (AchievementListView.SelectedItems ?? (System.Collections.IList)Array.Empty<object>())
                 .OfType<AchievementInfo>()
                 .Where(a => !a.IsProtected)
                 .ToList();
@@ -925,7 +925,7 @@ namespace RunGame
         {
             AppLogger.LogDebug("Select all unlocked button clicked");
 
-            AchievementListView.SelectedItems.Clear();
+            AchievementListView.SelectedItems?.Clear();
 
             var unlockedAchievements = _achievements
                 .Where(a => !a.IsProtected && a.IsAchieved)
@@ -933,7 +933,7 @@ namespace RunGame
 
             foreach (var achievement in unlockedAchievements)
             {
-                AchievementListView.SelectedItems.Add(achievement);
+                AchievementListView.SelectedItems?.Add(achievement);
             }
 
             AppLogger.LogDebug($"Selected {unlockedAchievements.Count} unlocked achievements");
@@ -943,7 +943,7 @@ namespace RunGame
         {
             AppLogger.LogDebug("Select all locked button clicked");
 
-            AchievementListView.SelectedItems.Clear();
+            AchievementListView.SelectedItems?.Clear();
 
             var lockedAchievements = _achievements
                 .Where(a => !a.IsProtected && !a.IsAchieved)
@@ -951,7 +951,7 @@ namespace RunGame
 
             foreach (var achievement in lockedAchievements)
             {
-                AchievementListView.SelectedItems.Add(achievement);
+                AchievementListView.SelectedItems?.Add(achievement);
             }
 
             AppLogger.LogDebug($"Selected {lockedAchievements.Count} locked achievements");
@@ -961,7 +961,7 @@ namespace RunGame
         {
             AppLogger.LogDebug("Select All button clicked");
 
-            AchievementListView.SelectedItems.Clear();
+            AchievementListView.SelectedItems?.Clear();
 
             var selectableAchievements = _achievements
                 .Where(a => !a.IsProtected)
@@ -969,7 +969,7 @@ namespace RunGame
 
             foreach (var achievement in selectableAchievements)
             {
-                AchievementListView.SelectedItems.Add(achievement);
+                AchievementListView.SelectedItems?.Add(achievement);
             }
 
             AppLogger.LogDebug($"Selected {selectableAchievements.Count} achievements");
@@ -1066,12 +1066,12 @@ namespace RunGame
 
         private async void OnSetTimer(object sender, RoutedEventArgs e)
         {
-            var selectedAchievements = AchievementListView.SelectedItems
+            var selectedAchievements = (AchievementListView.SelectedItems ?? (System.Collections.IList)Array.Empty<object>())
                 .OfType<AchievementInfo>()
                 .Where(a => !a.IsAchieved && !a.IsProtected)
                 .ToList();
 
-            var achievedSelected = AchievementListView.SelectedItems
+            var achievedSelected = (AchievementListView.SelectedItems ?? (System.Collections.IList)Array.Empty<object>())
                 .OfType<AchievementInfo>()
                 .Where(a => a.IsAchieved)
                 .ToList();
@@ -1246,7 +1246,7 @@ namespace RunGame
                     return;
                 }
 
-                var selectedAchievements = AchievementListView.SelectedItems
+                var selectedAchievements = (AchievementListView.SelectedItems ?? (System.Collections.IList)Array.Empty<object>())
                     .OfType<AchievementInfo>()
                     .ToList();
 
