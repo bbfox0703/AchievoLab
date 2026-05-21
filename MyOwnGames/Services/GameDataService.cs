@@ -66,14 +66,14 @@ namespace MyOwnGames.Services
         }
 
         /// <summary>
-        /// Helper method to execute an action with cross-process file lock
+        /// Helper for write operations - throws TimeoutException if the cross-process
+        /// lock cannot be acquired within 60 seconds.
         /// </summary>
         private async Task<T> WithFileLockAsync<T>(Func<Task<T>> action, bool isWrite = false)
         {
             await _fileLock.WaitAsync();
             try
             {
-                // Acquire cross-process lock with appropriate timeout
                 // Increased read timeout to reduce contention with batch writes
                 var timeout = isWrite ? TimeSpan.FromSeconds(60) : TimeSpan.FromSeconds(30);
 
@@ -84,11 +84,36 @@ namespace MyOwnGames.Services
                     {
                         throw new TimeoutException("Failed to acquire cross-process file lock for steam_games.xml (write operation)");
                     }
-                    else
-                    {
-                        // For read operations, log warning but return default
-                        AppLogger.LogDebug("Failed to acquire cross-process file lock for steam_games.xml (read operation), returning default");
-                    }
+
+                    // Read path lost the race for the lock. Returning default! here would
+                    // hand back a null List<T> to call sites that immediately iterate it
+                    // (regression vs. legacy behaviour). Callers that need a safe fallback
+                    // must use WithReadLockAsync(..., fallbackFactory).
+                    AppLogger.LogDebug("Failed to acquire cross-process file lock for steam_games.xml (read operation), returning default");
+                    return default!;
+                }
+                return await action();
+            }
+            finally
+            {
+                _fileLock.Release();
+            }
+        }
+
+        /// <summary>
+        /// Helper for read operations - returns <paramref name="fallbackFactory"/>() if the
+        /// cross-process lock cannot be acquired (instead of silently reading without the lock).
+        /// </summary>
+        private async Task<T> WithReadLockAsync<T>(Func<Task<T>> action, Func<T> fallbackFactory)
+        {
+            await _fileLock.WaitAsync();
+            try
+            {
+                await using var lockHandle = await _crossProcessLock.AcquireHandleAsync(TimeSpan.FromSeconds(30));
+                if (!lockHandle.IsAcquired)
+                {
+                    AppLogger.LogDebug("Failed to acquire cross-process file lock for steam_games.xml (read operation), returning fallback");
+                    return fallbackFactory();
                 }
                 return await action();
             }
@@ -293,7 +318,7 @@ namespace MyOwnGames.Services
         /// </remarks>
         public async Task<List<SteamGame>> LoadGamesFromXmlAsync()
         {
-            return await WithFileLockAsync(async () =>
+            return await WithReadLockAsync(async () =>
             {
                 try
                 {
@@ -322,7 +347,7 @@ namespace MyOwnGames.Services
                     AppLogger.LogDebug($"Error loading games from XML: {ex.Message}");
                     return new List<SteamGame>();
                 }
-            });
+            }, () => new List<SteamGame>());
         }
 
         /// <summary>
@@ -330,7 +355,7 @@ namespace MyOwnGames.Services
         /// </summary>
         public async Task<List<MultiLanguageGameData>> LoadGamesWithLanguagesAsync()
         {
-            return await WithFileLockAsync(async () =>
+            return await WithReadLockAsync(async () =>
             {
                 try
                 {
@@ -376,7 +401,7 @@ namespace MyOwnGames.Services
                     AppLogger.LogDebug($"Error loading multi-language games from XML: {ex.Message}");
                     return new List<MultiLanguageGameData>();
                 }
-            });
+            }, () => new List<MultiLanguageGameData>());
         }
 
         /// <summary>
@@ -402,19 +427,19 @@ namespace MyOwnGames.Services
         /// </remarks>
         public async Task<(ISet<int> AppIds, int? ExpectedTotal)> LoadRetrievedAppIdsAsync()
         {
-            return await WithFileLockAsync(async () =>
+            return await WithReadLockAsync<(ISet<int> AppIds, int? ExpectedTotal)>(async () =>
             {
-                var appIds = new HashSet<int>();
+                ISet<int> appIds = new HashSet<int>();
                 int? expectedTotal = null;
 
                 try
                 {
                     if (!File.Exists(_xmlFilePath))
-                        return (appIds, (int?)null);
+                        return (appIds, null);
 
                     var doc = await Task.Run(() => XDocument.Load(_xmlFilePath));
                     var root = doc.Root;
-                    if (root == null) return (appIds, (int?)null);
+                    if (root == null) return (appIds, null);
 
                     appIds = root.Elements("Game")
                         .Select(e => int.Parse(e.Attribute("AppID")?.Value ?? "0"))
@@ -435,7 +460,7 @@ namespace MyOwnGames.Services
                 }
 
                 return (appIds, expectedTotal);
-            });
+            }, () => (new HashSet<int>(), null));
         }
 
         /// <summary>
@@ -514,7 +539,7 @@ namespace MyOwnGames.Services
         /// </remarks>
         public async Task<GameExportInfo?> GetExportInfoAsync()
         {
-            return await WithFileLockAsync(async () =>
+            return await WithReadLockAsync<GameExportInfo?>(async () =>
             {
                 try
                 {
@@ -540,7 +565,7 @@ namespace MyOwnGames.Services
                     AppLogger.LogDebug($"Error getting export info: {ex.Message}");
                     return (GameExportInfo?)null;
                 }
-            });
+            }, () => null);
         }
 
         /// <summary>

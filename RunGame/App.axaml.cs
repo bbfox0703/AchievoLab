@@ -57,8 +57,10 @@ namespace RunGame
                     return;
                 }
 
-                // Check if another instance with the same game ID is already running
-                string mutexName = $"Global\\RunGame_AppId_{gameId}";
+                // Check if another instance with the same game ID is already running.
+                // Scope to the current session (Local\) so a different user / session cannot
+                // squat the name and lock the legitimate user out (cross-session DoS).
+                string mutexName = $"Local\\RunGame_AppId_{gameId}";
                 _instanceMutex = new Mutex(true, mutexName, out bool createdNew);
 
                 if (!createdNew)

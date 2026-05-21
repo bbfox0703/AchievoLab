@@ -73,6 +73,7 @@ namespace RunGame.Steam
         private readonly IntPtr _utils;
 
         private readonly List<Action<UserStatsReceived>> _userStatsCallbacks = new();
+        private readonly object _callbacksLock = new();
 
         static SteamGameClient()
         {
@@ -570,8 +571,15 @@ namespace RunGame.Steam
                         {
                             var userStatsReceived = Marshal.PtrToStructure<UserStatsReceived>(msg.ParamPointer);
                             AppLogger.LogDebug($"UserStatsReceived - GameId: {userStatsReceived.GameId}, Result: {userStatsReceived.Result}, UserId: {userStatsReceived.UserId}");
-                            
-                            foreach (var callback in _userStatsCallbacks)
+
+                            // Snapshot under lock so Register/Clear can run concurrently
+                            // without throwing "Collection was modified" during iteration.
+                            Action<UserStatsReceived>[] callbacks;
+                            lock (_callbacksLock)
+                            {
+                                callbacks = _userStatsCallbacks.ToArray();
+                            }
+                            foreach (var callback in callbacks)
                             {
                                 try
                                 {
@@ -600,7 +608,10 @@ namespace RunGame.Steam
 
         public void RegisterUserStatsCallback(Action<UserStatsReceived> callback)
         {
-            _userStatsCallbacks.Add(callback);
+            lock (_callbacksLock)
+            {
+                _userStatsCallbacks.Add(callback);
+            }
         }
 
         public string? GetAppData(uint id, string key)
@@ -648,7 +659,10 @@ namespace RunGame.Steam
             }
 
             // Clear callback list to release managed delegates
-            _userStatsCallbacks.Clear();
+            lock (_callbacksLock)
+            {
+                _userStatsCallbacks.Clear();
+            }
 
             // Release handles if they were acquired, regardless of Initialized state
             if (_pipe != 0)

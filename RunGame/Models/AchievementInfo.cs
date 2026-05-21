@@ -62,8 +62,12 @@ namespace RunGame.Models
             {
                 if (_iconImage != value)
                 {
+                    var previous = _iconImage;
                     _iconImage = value;
                     OnPropertyChanged(nameof(IconImage));
+                    // Dispose AFTER raising PropertyChanged so any binding has switched
+                    // its source to the new bitmap before we release the old one.
+                    previous?.Dispose();
                 }
             }
         }

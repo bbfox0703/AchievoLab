@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Xml.Linq;
@@ -19,6 +20,25 @@ namespace CommonUtilities
         // Exponential backoff configuration
         private const int BaseBackoffMinutes = 5;
         private const int MaxBackoffMinutes = 20480; // 失敗 12 次+: 20480 分鐘 (上限)
+
+        // ISO 8601 UTC ("o" round-trip) — for legacy "yyyy-MM-dd HH:mm:ss" entries we
+        // fall back to DateTime.TryParse with AssumeLocal + AdjustToUniversal.
+        private const string TimestampFormat = "yyyy-MM-ddTHH:mm:ssZ";
+
+        private static bool TryParseTimestampUtc(string? value, out DateTime utc)
+        {
+            if (DateTime.TryParse(
+                    value,
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeLocal | DateTimeStyles.AdjustToUniversal,
+                    out var parsed))
+            {
+                utc = parsed;
+                return true;
+            }
+            utc = default;
+            return false;
+        }
 
         /// <summary>
         /// Initializes a new instance of the ImageFailureTrackingService class with the default cache directory.
@@ -57,8 +77,11 @@ namespace CommonUtilities
             // ...
             // 失敗 12 次+: 20480 分鐘 (上限)
             if (failureCount < 0) failureCount = 0;
+            // 5 * 2^12 = 20480 = MaxBackoffMinutes. Cap the shift to avoid int overflow
+            // (failureCount >= 30 wraps negative, defeating the Math.Min cap).
+            if (failureCount > 12) failureCount = 12;
 
-            int backoffMinutes = BaseBackoffMinutes * (int)Math.Pow(2, failureCount);
+            int backoffMinutes = BaseBackoffMinutes * (1 << failureCount);
             return Math.Min(backoffMinutes, MaxBackoffMinutes);
         }
 
@@ -93,11 +116,11 @@ namespace CommonUtilities
                     var lastFailedStr = languageElement.Attribute("LastFailed")?.Value;
                     var failureCount = (int?)languageElement.Attribute("FailureCount") ?? 0;
 
-                    if (DateTime.TryParse(lastFailedStr, out var lastFailed))
+                    if (TryParseTimestampUtc(lastFailedStr, out var lastFailedUtc))
                     {
                         // Use exponential backoff based on failure count
                         var backoffMinutes = CalculateBackoffMinutes(failureCount);
-                        var minutesSinceFailure = (DateTime.Now - lastFailed).TotalMinutes;
+                        var minutesSinceFailure = (DateTime.UtcNow - lastFailedUtc).TotalMinutes;
 
                         if (minutesSinceFailure <= backoffMinutes)
                         {
@@ -173,7 +196,8 @@ namespace CommonUtilities
                     var languageElement = gameElement.Elements("Language")
                         .FirstOrDefault(l => l.Attribute("Code")?.Value == language);
 
-                    var timestamp = (failedAt ?? DateTime.Now).ToString("yyyy-MM-dd HH:mm:ss");
+                    var failedAtUtc = (failedAt ?? DateTime.UtcNow).ToUniversalTime();
+                    var timestamp = failedAtUtc.ToString(TimestampFormat, CultureInfo.InvariantCulture);
 
                     if (languageElement == null)
                     {
@@ -282,9 +306,9 @@ namespace CommonUtilities
                                 var language = langElement.Attribute("Code")?.Value;
                                 var lastFailedStr = langElement.Attribute("LastFailed")?.Value;
 
-                                if (!string.IsNullOrEmpty(language) && DateTime.TryParse(lastFailedStr, out var lastFailed))
+                                if (!string.IsNullOrEmpty(language) && TryParseTimestampUtc(lastFailedStr, out var lastFailedUtc))
                                 {
-                                    records.Add((appId.Value, language, lastFailed, gameName));
+                                    records.Add((appId.Value, language, lastFailedUtc, gameName));
                                 }
                             }
                         }
@@ -312,7 +336,7 @@ namespace CommonUtilities
                         return;
 
                     var doc = XDocument.Load(_xmlFilePath);
-                    var cutoffDate = DateTime.Now.AddDays(-30);
+                    var cutoffDate = DateTime.UtcNow.AddDays(-30);
                     var removedCount = 0;
 
                     var gamesToRemove = new List<XElement>();
@@ -323,7 +347,7 @@ namespace CommonUtilities
                             .Where(l =>
                             {
                                 var lastFailedStr = l.Attribute("LastFailed")?.Value;
-                                return DateTime.TryParse(lastFailedStr, out var lastFailed) && lastFailed < cutoffDate;
+                                return TryParseTimestampUtc(lastFailedStr, out var lastFailedUtc) && lastFailedUtc < cutoffDate;
                             })
                             .ToList();
 

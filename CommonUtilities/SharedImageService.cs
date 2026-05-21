@@ -98,7 +98,10 @@ namespace CommonUtilities
             {
                 AppLogger.LogDebug($"Switching language from {_currentLanguage} to {language}. Pending requests: {_pendingRequests.Count}");
 
-                // Cancel ongoing operations
+                // Cancel ongoing operations FIRST and keep _cts pointing at the cancelled
+                // instance until pending requests settle. This is load-bearing: catch paths
+                // such as the "if (!_cts.IsCancellationRequested) RecordFailedDownload(...)"
+                // check at line ~430 must observe a cancelled _cts to skip recording a failure.
                 _cts.Cancel();
 
                 // CRITICAL: Wait for all pending requests to actually finish or be cancelled
@@ -127,9 +130,8 @@ namespace CommonUtilities
                     _completedEvents.Clear();
                 }
 
-                // Replace CTS for new operations. The old CTS is not disposed here because
-                // timed-out downloads may still reference its token. It will be collected by GC.
-                // CTS only holds unmanaged resources if Token.WaitHandle was accessed.
+                // Replace CTS for new operations. Do NOT dispose the old CTS: pending downloads
+                // that timed out at 5s may still hold its Token. GC will collect once they finish.
                 _cts = new CancellationTokenSource();
                 _currentLanguage = language;
 
@@ -206,10 +208,10 @@ namespace CommonUtilities
 
             AppLogger.LogDebug($"Cancelling {pendingCount} pending downloads due to rapid viewport change");
 
-            // Cancel all in-flight downloads
+            // Cancel first, then swap. Catch paths in GetGameImageInternalAsync rely on
+            // _cts.IsCancellationRequested being true to skip recording a failure during
+            // cancellation. Old CTS is NOT disposed: GC collects after pending tasks finish.
             _cts.Cancel();
-
-            // Create new CTS for future requests
             _cts = new CancellationTokenSource();
 
             // Clean up cancelled tasks from pending dictionary
@@ -1058,10 +1060,15 @@ namespace CommonUtilities
         /// </remarks>
         public void Dispose()
         {
+            if (_disposed) return;
             _disposed = true;
-            _cts.Cancel();
-            _cts.Dispose();
-            _downloadSemaphore.Dispose();
+
+            // Cancel ongoing operations so awaiters wake up, but do NOT dispose the CTS
+            // here — in-flight tasks may still touch _cts.Token. Once they observe
+            // cancellation and finish, GC will collect both this object and the CTS.
+            try { _cts.Cancel(); } catch (ObjectDisposedException) { }
+
+            try { _downloadSemaphore.Dispose(); } catch (ObjectDisposedException) { }
             if (_disposeHttpClient)
             {
                 _httpClient.Dispose();
