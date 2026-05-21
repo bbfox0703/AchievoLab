@@ -16,6 +16,9 @@ namespace RunGame.Services
     public class AchievementTimerService : IDisposable
     {
         private readonly GameStatsService _gameStatsService;
+        // _state guards _scheduledAchievements, _pendingUnlocks, _lastStoreTime —
+        // mutated from the System.Threading.Timer thread + UI thread.
+        private readonly object _state = new();
         private readonly Dictionary<string, DateTime> _scheduledAchievements = new();
         private readonly System.Threading.Timer _timer;
         private readonly List<string> _pendingUnlocks = new();
@@ -57,13 +60,22 @@ namespace RunGame.Services
         /// <param name="unlockTime">The date and time when the achievement should be unlocked.</param>
         public void ScheduleAchievement(string achievementId, DateTime unlockTime)
         {
-            if (unlockTime <= DateTime.Now)
+            // Normalize to UTC so DST shifts don't shift the schedule.
+            // Unspecified kind is treated as Local (typical for callers using DateTime.Now-based input).
+            var unlockUtc = unlockTime.Kind == DateTimeKind.Utc
+                ? unlockTime
+                : unlockTime.ToUniversalTime();
+
+            if (unlockUtc <= DateTime.UtcNow)
             {
                 AppLogger.LogDebug($"Unlock time {unlockTime} is in the past, ignoring schedule for {achievementId}");
                 return;
             }
 
-            _scheduledAchievements[achievementId] = unlockTime;
+            lock (_state)
+            {
+                _scheduledAchievements[achievementId] = unlockUtc;
+            }
             AppLogger.LogDebug($"Scheduled achievement {achievementId} to unlock at {unlockTime}");
         }
 
@@ -73,7 +85,12 @@ namespace RunGame.Services
         /// <param name="achievementId">The unique achievement identifier.</param>
         public void CancelSchedule(string achievementId)
         {
-            if (_scheduledAchievements.Remove(achievementId))
+            bool removed;
+            lock (_state)
+            {
+                removed = _scheduledAchievements.Remove(achievementId);
+            }
+            if (removed)
             {
                 AppLogger.LogDebug($"Cancelled scheduled unlock for achievement {achievementId}");
             }
@@ -86,16 +103,25 @@ namespace RunGame.Services
         /// <returns>The scheduled unlock time, or null if the achievement is not scheduled.</returns>
         public DateTime? GetScheduledTime(string achievementId)
         {
-            return _scheduledAchievements.TryGetValue(achievementId, out var time) ? time : null;
+            lock (_state)
+            {
+                // Return as Local so existing UI binding semantics are preserved.
+                return _scheduledAchievements.TryGetValue(achievementId, out var timeUtc)
+                    ? timeUtc.ToLocalTime()
+                    : null;
+            }
         }
 
         /// <summary>
         /// Gets a copy of all currently scheduled achievements and their unlock times.
         /// </summary>
-        /// <returns>A dictionary mapping achievement IDs to their scheduled unlock times.</returns>
+        /// <returns>A dictionary mapping achievement IDs to their scheduled unlock times (local time).</returns>
         public Dictionary<string, DateTime> GetAllScheduledAchievements()
         {
-            return new Dictionary<string, DateTime>(_scheduledAchievements);
+            lock (_state)
+            {
+                return _scheduledAchievements.ToDictionary(kv => kv.Key, kv => kv.Value.ToLocalTime());
+            }
         }
 
         /// <summary>
@@ -104,16 +130,23 @@ namespace RunGame.Services
         /// </summary>
         public void NotifyStatsReloaded()
         {
-            // After stats reload, check if we still have pending timers
-            if (_scheduledAchievements.Count > 0)
+            int count;
+            double? secondsToNext = null;
+            lock (_state)
             {
-                var now = DateTime.Now;
-                var nextScheduledTime = GetNextScheduledTime();
-                if (nextScheduledTime.HasValue)
+                count = _scheduledAchievements.Count;
+                if (count > 0)
                 {
-                    var secondsToNext = (nextScheduledTime.Value - now).TotalSeconds;
-                    StatusUpdated?.Invoke($"Stats reloaded. {_scheduledAchievements.Count} timer{(_scheduledAchievements.Count != 1 ? "s" : "")} active, next in {secondsToNext:F0}s");
+                    var nextUtc = GetNextScheduledTimeUtcUnlocked();
+                    if (nextUtc.HasValue)
+                    {
+                        secondsToNext = (nextUtc.Value - DateTime.UtcNow).TotalSeconds;
+                    }
                 }
+            }
+            if (count > 0 && secondsToNext.HasValue)
+            {
+                StatusUpdated?.Invoke($"Stats reloaded. {count} timer{(count != 1 ? "s" : "")} active, next in {secondsToNext.Value:F0}s");
             }
         }
 
@@ -127,24 +160,33 @@ namespace RunGame.Services
         {
             try
             {
-                var now = DateTime.Now;
-                var achievementsToUnlock = _scheduledAchievements
-                    .Where(kvp => kvp.Value <= now)
-                    .ToList();
+                var nowUtc = DateTime.UtcNow;
+
+                // Snapshot due achievements under lock so we can release it during Steam I/O.
+                List<KeyValuePair<string, DateTime>> achievementsToUnlock;
+                lock (_state)
+                {
+                    achievementsToUnlock = _scheduledAchievements
+                        .Where(kvp => kvp.Value <= nowUtc)
+                        .ToList();
+                }
 
                 bool hasNewUnlocks = false;
                 foreach (var achievement in achievementsToUnlock)
                 {
                     var achievementId = achievement.Key;
-                    var scheduledTime = achievement.Value;
+                    var scheduledTimeUtc = achievement.Value;
 
-                    AppLogger.LogDebug($"Unlocking scheduled achievement {achievementId} (scheduled for {scheduledTime}, now {now})");
+                    AppLogger.LogDebug($"Unlocking scheduled achievement {achievementId} (scheduled for {scheduledTimeUtc.ToLocalTime()}, now {nowUtc.ToLocalTime()})");
 
                     // Set the achievement as achieved
                     if (_gameStatsService.SetAchievement(achievementId, true))
                     {
                         AppLogger.LogDebug($"Successfully set achievement {achievementId} to unlocked");
-                        _pendingUnlocks.Add(achievementId);
+                        lock (_state)
+                        {
+                            _pendingUnlocks.Add(achievementId);
+                        }
                         hasNewUnlocks = true;
 
                         // Notify UI to update the achievement's IsAchieved property and icon
@@ -155,45 +197,56 @@ namespace RunGame.Services
                         AppLogger.LogDebug($"Failed to unlock achievement {achievementId}");
                     }
 
-                    // Remove from scheduled list
-                    _scheduledAchievements.Remove(achievementId);
+                    lock (_state)
+                    {
+                        _scheduledAchievements.Remove(achievementId);
+                    }
                 }
 
                 // Decide whether to store changes to Steam now
                 if (hasNewUnlocks)
                 {
-                    var nextScheduledTime = GetNextScheduledTime();
+                    DateTime? nextScheduledTimeUtc;
+                    int pendingCount;
+                    lock (_state)
+                    {
+                        nextScheduledTimeUtc = GetNextScheduledTimeUtcUnlocked();
+                        pendingCount = _pendingUnlocks.Count;
+                    }
+
                     bool shouldStore = false;
 
-                    if (nextScheduledTime == null)
+                    if (nextScheduledTimeUtc == null)
                     {
-                        // No more scheduled achievements, store now
                         shouldStore = true;
                         AppLogger.LogDebug("No more scheduled achievements, storing changes now");
                     }
-                    else if ((nextScheduledTime.Value - now).TotalSeconds > 12)
+                    else if ((nextScheduledTimeUtc.Value - nowUtc).TotalSeconds > 12)
                     {
-                        // Next achievement is more than 12 seconds away, store now
                         shouldStore = true;
-                        AppLogger.LogDebug($"Next achievement is {(nextScheduledTime.Value - now).TotalSeconds:F1} seconds away, storing changes now");
+                        AppLogger.LogDebug($"Next achievement is {(nextScheduledTimeUtc.Value - nowUtc).TotalSeconds:F1} seconds away, storing changes now");
                     }
                     else
                     {
-                        AppLogger.LogDebug($"Next achievement is in {(nextScheduledTime.Value - now).TotalSeconds:F1} seconds, delaying store");
+                        AppLogger.LogDebug($"Next achievement is in {(nextScheduledTimeUtc.Value - nowUtc).TotalSeconds:F1} seconds, delaying store");
                     }
 
                     if (shouldStore)
                     {
                         _gameStatsService.StoreStats();
-                        _lastStoreTime = now;
-                        var unlockCount = _pendingUnlocks.Count;
+                        int unlockCount;
+                        lock (_state)
+                        {
+                            _lastStoreTime = nowUtc;
+                            unlockCount = _pendingUnlocks.Count;
+                            _pendingUnlocks.Clear();
+                        }
                         AppLogger.LogDebug($"Stored {unlockCount} achievement unlocks to Steam");
-                        StatusUpdated?.Invoke($"Stored {unlockCount} achievement unlock{(unlockCount != 1 ? "s" : "")} to Steam at {now:HH:mm:ss}");
-                        _pendingUnlocks.Clear();
+                        StatusUpdated?.Invoke($"Stored {unlockCount} achievement unlock{(unlockCount != 1 ? "s" : "")} to Steam at {nowUtc.ToLocalTime():HH:mm:ss}");
                     }
-                    else if (_pendingUnlocks.Count > 0)
+                    else if (pendingCount > 0)
                     {
-                        StatusUpdated?.Invoke($"Pending {_pendingUnlocks.Count} achievement unlock{(_pendingUnlocks.Count != 1 ? "s" : "")}, next store in {(nextScheduledTime!.Value - now).TotalSeconds:F0}s");
+                        StatusUpdated?.Invoke($"Pending {pendingCount} achievement unlock{(pendingCount != 1 ? "s" : "")}, next store in {(nextScheduledTimeUtc!.Value - nowUtc).TotalSeconds:F0}s");
                     }
                 }
             }
@@ -204,10 +257,9 @@ namespace RunGame.Services
         }
 
         /// <summary>
-        /// Gets the next scheduled unlock time from all pending achievements.
+        /// Returns the next scheduled UTC unlock time. Caller must hold <c>_state</c>.
         /// </summary>
-        /// <returns>The earliest scheduled unlock time, or null if no achievements are scheduled.</returns>
-        private DateTime? GetNextScheduledTime()
+        private DateTime? GetNextScheduledTimeUtcUnlocked()
         {
             if (_scheduledAchievements.Count == 0)
                 return null;

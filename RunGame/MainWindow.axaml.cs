@@ -66,12 +66,9 @@ namespace RunGame
 
             _gameStatsService = new GameStatsService(_steamClient, gameId);
 
-            // Initialize timers
+            // Initialize timers (named handlers so OnWindowClosing can -= them)
             _callbackTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
-            _callbackTimer.Tick += (_, _) =>
-            {
-                _steamClient.RunCallbacks();
-            };
+            _callbackTimer.Tick += OnCallbackTimerTick;
             _callbackTimer.Start();
 
             _timeTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
@@ -85,20 +82,7 @@ namespace RunGame
             _mouseTimer.Tick += OnMouseTimerTick;
 
             _searchDebounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
-            _searchDebounceTimer.Tick += async (_, _) =>
-            {
-                try
-                {
-                    _searchDebounceTimer.Stop();
-                    await LoadAchievements();
-                }
-                catch (Exception ex)
-                {
-                    AppLogger.LogDebug($"Error in search debounce timer: {ex.GetType().Name}: {ex.Message}");
-                    AppLogger.LogDebug($"Stack trace: {ex.StackTrace}");
-                    StatusLabel.Text = $"Search error: {ex.Message}";
-                }
-            };
+            _searchDebounceTimer.Tick += OnSearchDebounceTimerTick;
 
             // Set up event handlers
             _gameStatsService.UserStatsReceived += OnUserStatsReceived;
@@ -184,12 +168,14 @@ namespace RunGame
                 _mouseMoverService?.Dispose();
                 _achievementIconService?.Dispose();
 
-                // Stop timers
-                _callbackTimer.Stop();
+                // Stop timers and unsubscribe Tick handlers so the timer instances (held
+                // by the Avalonia Dispatcher until GC) don't keep MainWindow rooted.
+                _callbackTimer.Stop(); _callbackTimer.Tick -= OnCallbackTimerTick;
                 _timeTimer.Stop(); _timeTimer.Tick -= OnTimeTimerTick;
                 _achievementTimer.Stop(); _achievementTimer.Tick -= OnAchievementTimerTick;
                 _mouseTimer.Stop(); _mouseTimer.Tick -= OnMouseTimerTick;
-                _searchDebounceTimer.Stop();
+                _searchDebounceTimer.Stop(); _searchDebounceTimer.Tick -= OnSearchDebounceTimerTick;
+                SearchTextBox.TextChanged -= OnSearchTextChanged;
 
                 // Dispose Steam client to release Steam pipe and user handles
                 if (_steamClient is IDisposable disposableSteamClient)
@@ -1335,6 +1321,26 @@ namespace RunGame
         private void OnTimeTimerTick(object? sender, EventArgs e)
         {
             CurrentTimeLabel.Text = $"Current Time: {DateTime.Now:yyyy/MM/dd HH:mm:ss}";
+        }
+
+        private void OnCallbackTimerTick(object? sender, EventArgs e)
+        {
+            _steamClient.RunCallbacks();
+        }
+
+        private async void OnSearchDebounceTimerTick(object? sender, EventArgs e)
+        {
+            try
+            {
+                _searchDebounceTimer.Stop();
+                await LoadAchievements();
+            }
+            catch (Exception ex)
+            {
+                AppLogger.LogDebug($"Error in search debounce timer: {ex.GetType().Name}: {ex.Message}");
+                AppLogger.LogDebug($"Stack trace: {ex.StackTrace}");
+                StatusLabel.Text = $"Search error: {ex.Message}";
+            }
         }
 
         private void OnAchievementTimerTick(object? sender, EventArgs e)

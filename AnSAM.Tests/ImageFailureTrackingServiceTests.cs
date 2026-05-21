@@ -40,7 +40,14 @@ public class ImageFailureTrackingServiceTests
             .FirstOrDefault(l => l.Attribute("Code")?.Value == "english")?
             .Attribute("LastFailed")?.Value;
 
-        Assert.Equal(lastFailedStr, migrated);
+        // Storage format changed to UTC ISO 8601 ("yyyy-MM-ddTHH:mm:ssZ") for DST safety;
+        // compare semantic instants instead of raw strings.
+        Assert.NotNull(migrated);
+        Assert.True(DateTime.TryParse(migrated,
+            System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.AssumeLocal | System.Globalization.DateTimeStyles.AdjustToUniversal,
+            out var migratedUtc));
+        Assert.Equal(lastFailed.ToUniversalTime(), migratedUtc, TimeSpan.FromSeconds(1));
 
         // Cleanup
         tracker.RemoveFailedRecord(appId, "english");

@@ -1104,7 +1104,7 @@ namespace AnSAM
                 {
                     _isUpdatingIcon = true;
 
-                    if (_iconUri != value || !string.IsNullOrEmpty(value))
+                    if (_iconUri != value)
                     {
                         _iconUri = value;
                         try

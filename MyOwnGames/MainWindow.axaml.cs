@@ -478,31 +478,38 @@ namespace MyOwnGames
 
                     AppendLog($"Processing game {game.AppId} - {game.NameEn} ({selectedLanguage}){(hasLanguageData ? " [updating]" : " [new data]")}");
 
-                    var existingEntry = AllGameItems.FirstOrDefault(g => g.AppId == game.AppId);
+                    // ObservableCollection + bound-property mutations must run on the UI
+                    // thread; in-progress awaits inside SteamApiService capture the
+                    // dispatcher context today, but defensively marshal here so a future
+                    // ConfigureAwait(false) cannot silently break the binding system.
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        var existingEntry = AllGameItems.FirstOrDefault(g => g.AppId == game.AppId);
 
-                    if (existingEntry != null)
-                    {
-                        existingEntry.NameEn = game.NameEn;
-                        existingEntry.SetLocalizedName(selectedLanguage, game.NameLocalized);
-                        existingEntry.CurrentLanguage = selectedLanguage;
-                        AppendLog($"Updated UI entry: {game.AppId} - {game.NameEn}");
-                    }
-                    else
-                    {
-                        var newEntry = new GameEntry
+                        if (existingEntry != null)
                         {
-                            AppId = game.AppId,
-                            NameEn = game.NameEn,
-                            CurrentLanguage = selectedLanguage,
-                            IconUri = ImageLoadingHelper.GetNoIconPath()
-                        };
+                            existingEntry.NameEn = game.NameEn;
+                            existingEntry.SetLocalizedName(selectedLanguage, game.NameLocalized);
+                            existingEntry.CurrentLanguage = selectedLanguage;
+                            AppendLog($"Updated UI entry: {game.AppId} - {game.NameEn}");
+                        }
+                        else
+                        {
+                            var newEntry = new GameEntry
+                            {
+                                AppId = game.AppId,
+                                NameEn = game.NameEn,
+                                CurrentLanguage = selectedLanguage,
+                                IconUri = ImageLoadingHelper.GetNoIconPath()
+                            };
 
-                        newEntry.SetLocalizedName(selectedLanguage, game.NameLocalized);
+                            newEntry.SetLocalizedName(selectedLanguage, game.NameLocalized);
 
-                        GameItems.Add(newEntry);
-                        AllGameItems.Add(newEntry);
-                        AppendLog($"Added new game: {game.AppId} - {game.NameEn} ({selectedLanguage})");
-                    }
+                            GameItems.Add(newEntry);
+                            AllGameItems.Add(newEntry);
+                            AppendLog($"Added new game: {game.AppId} - {game.NameEn} ({selectedLanguage})");
+                        }
+                    });
 
                     if (!shouldSkip)
                     {
