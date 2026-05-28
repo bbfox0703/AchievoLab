@@ -521,6 +521,10 @@ namespace RunGame.Steam
             return paths;
         }
 
+        // Source-generated (AOT-safe) matcher for the "path" entries in libraryfolders.vdf.
+        [System.Text.RegularExpressions.GeneratedRegex(@"""path""\s*""([^""]+)""")]
+        private static partial System.Text.RegularExpressions.Regex SteamLibraryPathRegex();
+
         private static List<string> FindSteamGameDirectories()
         {
             var directories = new List<string>();
@@ -540,7 +544,7 @@ namespace RunGame.Steam
                     {
                         if (line.Contains("\"path\""))
                         {
-                            var match = System.Text.RegularExpressions.Regex.Match(line, @"""path""\s*""([^""]+)""");
+                            var match = SteamLibraryPathRegex().Match(line);
                             if (match.Success)
                             {
                                 var path = match.Groups[1].Value.Replace("\\\\", "\\");
