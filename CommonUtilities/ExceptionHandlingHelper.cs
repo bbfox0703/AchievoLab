@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading.Tasks;
 
 namespace CommonUtilities
@@ -91,6 +92,34 @@ namespace CommonUtilities
             if (setObserved)
             {
                 e.SetObserved();
+            }
+        }
+
+        /// <summary>
+        /// Writes an early-startup crash to <c>%LOCALAPPDATA%\&lt;appName&gt;\crash.log</c>.
+        /// Intended for <c>Program.Main</c>'s top-level catch: it runs BEFORE Serilog
+        /// and the global exception handlers are initialized, so it writes directly to a
+        /// file (best-effort). Under Native AOT this is often the only diagnostic signal
+        /// for bootstrap failures (compositor/MicroCom/text-shaping), whose stack traces
+        /// are otherwise gutted.
+        /// </summary>
+        /// <param name="appName">Application name used as the log sub-folder (e.g. "AnSAM").</param>
+        /// <param name="ex">The unhandled startup exception.</param>
+        public static void WriteStartupCrashLog(string appName, Exception ex)
+        {
+            try
+            {
+                var logDir = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    appName);
+                Directory.CreateDirectory(logDir);
+                File.AppendAllText(
+                    Path.Combine(logDir, "crash.log"),
+                    $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {ex}{Environment.NewLine}");
+            }
+            catch
+            {
+                // Best effort — nothing else we can do this early in startup.
             }
         }
 
