@@ -39,3 +39,8 @@ if (-not $failed) {
     Write-Host " All projects published successfully!"
     Write-Host "========================================"
 }
+
+# Propagate a proper exit code so CI (and callers) can detect failures.
+if ($failed) {
+    exit 1
+}
