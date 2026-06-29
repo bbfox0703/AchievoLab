@@ -62,6 +62,9 @@ namespace AnSAM
             InitializeComponent();
             DataContext = this;
 
+            // Restore last position/size/maximized state and keep it remembered.
+            WindowPlacementManager.Attach(this, "AnSAM", _settingsService);
+
             InitializeLanguageComboBox();
 
             // Set window icon

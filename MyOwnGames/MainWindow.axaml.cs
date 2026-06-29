@@ -32,6 +32,7 @@ namespace MyOwnGames
         private CancellationTokenSource _sequentialLoadCts = new();
         private DispatcherTimer? _searchDebounceTimer;
         private DispatcherTimer? _cdnStatsTimer;
+        private WindowPlacementManager? _placementManager;
 
         private readonly string _detectedLanguage = GetDefaultLanguage();
         private readonly string _defaultLanguage = "english";
@@ -137,6 +138,9 @@ namespace MyOwnGames
             _imageService = new SharedImageService(HttpClientProvider.Shared);
             InitializeComponent();
             DataContext = this;
+
+            // Restore last position/size/maximized state and keep it remembered.
+            _placementManager = WindowPlacementManager.Attach(this, "MyOwnGames");
 
             // Set window icon
             var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "MyOwnGames.ico");
@@ -1045,6 +1049,12 @@ namespace MyOwnGames
             if (_isShuttingDown)
                 return;
             _isShuttingDown = true;
+
+            // Persist window placement on the ProcessExit backstop too (no-op if the
+            // window's Closing already saved it). Keeps placement memory as robust as
+            // the game-data save this shutdown path already guarantees.
+            _placementManager?.SavePlacement();
+
             AppLogger.OnLog -= _logHandler;
 
             _cancellationTokenSource?.Cancel();
