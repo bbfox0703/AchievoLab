@@ -50,6 +50,9 @@ namespace RunGame
         {
             InitializeComponent();
 
+            // Restore last position/size/maximized state and keep it remembered.
+            WindowPlacementManager.Attach(this, "RunGame");
+
             _gameId = gameId;
 
             // Set window icon
