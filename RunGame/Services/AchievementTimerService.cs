@@ -23,13 +23,12 @@ namespace RunGame.Services
     public class AchievementTimerService : IDisposable
     {
         private readonly GameStatsService _gameStatsService;
-        // _state guards _scheduledAchievements, _pendingUnlocks, _lastStoreTime, _snapshot,
-        // _unlockedSinceReload — mutated from the System.Threading.Timer thread + UI thread.
+        // _state guards _scheduledAchievements, _pendingUnlocks, _snapshot, _unlockedSinceReload —
+        // mutated from the System.Threading.Timer thread + UI thread.
         private readonly object _state = new();
         private readonly Dictionary<string, DateTime> _scheduledAchievements = new();
         private readonly System.Threading.Timer _timer;
         private readonly List<string> _pendingUnlocks = new();
-        private DateTime? _lastStoreTime = null;
         private volatile bool _disposed = false;
 
         // Immutable per-achievement state snapshot pushed from the UI on every (re)load. Used to
@@ -200,11 +199,13 @@ namespace RunGame.Services
 
         /// <summary>
         /// Timer callback that checks for achievements scheduled to be unlocked.
-        /// Non-completionist achievements are written first (with the usual batching); any
-        /// completionist ("unlock every achievement") achievement due at the same time is always
-        /// committed LAST in its own StoreStats. When <see cref="ProtectionEnabled"/> is true, a due
-        /// completionist is only unlocked if every other non-protected achievement is already
-        /// unlocked or is being unlocked in this same tick.
+        /// Due achievements are committed in ascending scheduled-time order, one StoreStats per
+        /// distinct time, so the write/commit sequence matches the times the user set (an earlier
+        /// scheduled time is committed before a later one). Achievements sharing the exact same time
+        /// are committed together in a single StoreStats. A game's completionist ("unlock every
+        /// achievement") achievement is always committed LAST, after every other due achievement, and
+        /// — when <see cref="ProtectionEnabled"/> is true — only if every other non-protected
+        /// achievement is already unlocked or is being unlocked in this same pass.
         /// </summary>
         /// <param name="state">Timer state (unused).</param>
         private void CheckScheduledAchievements(object? state)
@@ -234,56 +235,53 @@ namespace RunGame.Services
                 var dueOthers = due.Where(kvp => !IsCompletionist(kvp.Key)).ToList();
                 var dueCompletionists = due.Where(kvp => IsCompletionist(kvp.Key)).ToList();
 
-                // ---- Phase 1: non-completionist unlocks ----
-                bool phase1Unlocked = false;
-                foreach (var kvp in dueOthers)
+                // ---- Phase 1: non-completionist unlocks, committed in scheduled-time order ----
+                // One StoreStats per distinct time: an earlier-scheduled unlock commits before a
+                // later one, while achievements sharing the exact same time commit together.
+                foreach (var group in dueOthers.GroupBy(kvp => kvp.Value).OrderBy(g => g.Key))
                 {
-                    if (UnlockOne(kvp.Key, kvp.Value, nowUtc))
-                        phase1Unlocked = true;
-                    lock (_state) { _scheduledAchievements.Remove(kvp.Key); }
+                    bool groupUnlocked = false;
+                    foreach (var kvp in group)
+                    {
+                        if (UnlockOne(kvp.Key, kvp.Value, nowUtc))
+                            groupUnlocked = true;
+                        lock (_state) { _scheduledAchievements.Remove(kvp.Key); }
+                    }
+                    if (groupUnlocked)
+                        StoreNow(nowUtc);
                 }
 
                 if (dueCompletionists.Count == 0)
-                {
-                    // Common case: keep the existing batching (delay StoreStats to group unlocks).
-                    if (phase1Unlocked)
-                        MaybeStoreWithBatching(nowUtc);
                     return;
-                }
 
-                // A completionist is due → it must be the LAST write. Commit everything staged so far
-                // (phase-1 + any prior pending) before touching the completionist.
-                bool anythingPending;
-                lock (_state) { anythingPending = _pendingUnlocks.Count > 0; }
-                if (anythingPending)
-                    StoreNow(nowUtc);
-
-                // What counts as "already unlocked" for the guard: everything unlocked by this service
-                // since the last snapshot (includes this tick's phase-1 unlocks and prior timer unlocks).
+                // ---- Phase 2: completionists, written LAST (after every other due achievement) ----
+                // Everything above is already committed, so what counts as "already unlocked" for the
+                // guard is everything unlocked since the last snapshot (this pass + prior timer unlocks).
                 HashSet<string> unlockedView;
                 lock (_state) { unlockedView = new HashSet<string>(_unlockedSinceReload); }
 
-                // ---- Phase 2: completionists, written last ----
-                bool phase2Unlocked = false;
-                foreach (var kvp in dueCompletionists)
+                foreach (var group in dueCompletionists.GroupBy(kvp => kvp.Value).OrderBy(g => g.Key))
                 {
-                    var id = kvp.Key;
-
-                    if (ProtectionEnabled && !IsCompletionistSafe(id, snapshot, unlockedView, out int remaining))
+                    bool groupUnlocked = false;
+                    foreach (var kvp in group)
                     {
-                        AppLogger.LogDebug($"Completionist protection: skipping scheduled unlock of {id} ({remaining} still locked)");
-                        StatusUpdated?.Invoke($"Completionist protection: skipped scheduled '{id}' — {remaining} achievement(s) still locked");
+                        var id = kvp.Key;
+
+                        if (ProtectionEnabled && !IsCompletionistSafe(id, snapshot, unlockedView, out int remaining))
+                        {
+                            AppLogger.LogDebug($"Completionist protection: skipping scheduled unlock of {id} ({remaining} still locked)");
+                            StatusUpdated?.Invoke($"Completionist protection: skipped scheduled '{id}' — {remaining} achievement(s) still locked");
+                            lock (_state) { _scheduledAchievements.Remove(id); }
+                            continue;
+                        }
+
+                        if (UnlockOne(id, kvp.Value, nowUtc))
+                            groupUnlocked = true;
                         lock (_state) { _scheduledAchievements.Remove(id); }
-                        continue;
                     }
-
-                    if (UnlockOne(id, kvp.Value, nowUtc))
-                        phase2Unlocked = true;
-                    lock (_state) { _scheduledAchievements.Remove(id); }
+                    if (groupUnlocked)
+                        StoreNow(nowUtc);
                 }
-
-                if (phase2Unlocked)
-                    StoreNow(nowUtc);
             }
             catch (Exception ex)
             {
@@ -352,53 +350,11 @@ namespace RunGame.Services
             int unlockCount;
             lock (_state)
             {
-                _lastStoreTime = nowUtc;
                 unlockCount = _pendingUnlocks.Count;
                 _pendingUnlocks.Clear();
             }
             AppLogger.LogDebug($"Stored {unlockCount} achievement unlocks to Steam");
             StatusUpdated?.Invoke($"Stored {unlockCount} achievement unlock{(unlockCount != 1 ? "s" : "")} to Steam at {nowUtc.ToLocalTime():HH:mm:ss.f}");
-        }
-
-        /// <summary>
-        /// Decides whether to commit pending unlocks now or delay to batch with an upcoming unlock.
-        /// Stores immediately unless another achievement is scheduled within 12 seconds.
-        /// </summary>
-        private void MaybeStoreWithBatching(DateTime nowUtc)
-        {
-            DateTime? nextScheduledTimeUtc;
-            int pendingCount;
-            lock (_state)
-            {
-                nextScheduledTimeUtc = GetNextScheduledTimeUtcUnlocked();
-                pendingCount = _pendingUnlocks.Count;
-            }
-
-            bool shouldStore;
-            if (nextScheduledTimeUtc == null)
-            {
-                shouldStore = true;
-                AppLogger.LogDebug("No more scheduled achievements, storing changes now");
-            }
-            else if ((nextScheduledTimeUtc.Value - nowUtc).TotalSeconds > 12)
-            {
-                shouldStore = true;
-                AppLogger.LogDebug($"Next achievement is {(nextScheduledTimeUtc.Value - nowUtc).TotalSeconds:F1} seconds away, storing changes now");
-            }
-            else
-            {
-                shouldStore = false;
-                AppLogger.LogDebug($"Next achievement is in {(nextScheduledTimeUtc.Value - nowUtc).TotalSeconds:F1} seconds, delaying store");
-            }
-
-            if (shouldStore)
-            {
-                StoreNow(nowUtc);
-            }
-            else if (pendingCount > 0)
-            {
-                StatusUpdated?.Invoke($"Pending {pendingCount} achievement unlock{(pendingCount != 1 ? "s" : "")}, next store in {(nextScheduledTimeUtc!.Value - nowUtc).TotalSeconds:F0}s");
-            }
         }
 
         /// <summary>
