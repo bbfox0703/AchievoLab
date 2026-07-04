@@ -55,7 +55,7 @@
                           Click="OnTimerToggle">
                 <ToolTip.Tip>
                     <TextBlock MaxWidth="360" TextWrapping="Wrap"
-                               Text="Toggle the unlock scheduler on/off. While running, achievements you queued with 'Set Timer' are unlocked automatically when their scheduled time arrives. The button reads 'Stop Timer' while active."/>
+                               Text="Start/stop the on-screen timer status indicator (it blinks while active). Achievements you queue with 'Set Timer' unlock automatically in the background at their scheduled time. The button reads 'Stop Timer' while active."/>
                 </ToolTip.Tip>
             </ToggleButton>
             <Separator Width="1" Margin="4,4"/>
@@ -88,7 +88,7 @@
                         <Button x:Name="SetTimerButton" Content="Set Timer" Click="OnSetTimer">
                             <ToolTip.Tip>
                                 <TextBlock MaxWidth="360" TextWrapping="Wrap"
-                                           Text="Schedule the selected LOCKED achievements to unlock automatically at a date/time you pick. The top 'Start Timer' toggle must be running for scheduled unlocks to fire."/>
+                                           Text="Schedule the selected LOCKED achievements to unlock automatically at a date/time you pick, down to 0.1 second. A game's 'unlock all achievements' achievement is always unlocked last."/>
                             </ToolTip.Tip>
                         </Button>
                         <Button x:Name="ResetAllTimersButton" Content="Reset All Timers" Click="OnResetAllTimers"
@@ -167,17 +167,17 @@
                                                    VerticalAlignment="Center"
                                                    Margin="0,0,10,0"/>
 
-                                        <!-- Unlock Time -->
+                                        <!-- Unlock Time (to 0.1s) -->
                                         <TextBlock Grid.Column="5"
-                                                   Text="{Binding UnlockTime}"
+                                                   Text="{Binding UnlockTime, StringFormat='{}{0:yyyy-MM-dd HH:mm:ss.f}'}"
                                                    FontFamily="Consolas"
                                                    FontSize="12"
                                                    VerticalAlignment="Center"
                                                    Margin="0,0,10,0"/>
 
-                                        <!-- Scheduled Time -->
+                                        <!-- Scheduled Time (to 0.1s) -->
                                         <TextBlock Grid.Column="6"
-                                                   Text="{Binding ScheduledUnlockTime, Mode=OneWay}"
+                                                   Text="{Binding ScheduledUnlockTime, Mode=OneWay, StringFormat='{}{0:yyyy-MM-dd HH:mm:ss.f}'}"
                                                    FontFamily="Consolas"
                                                    FontSize="12"
                                                    VerticalAlignment="Center"

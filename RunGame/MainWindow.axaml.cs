@@ -133,6 +133,7 @@ namespace RunGame
             _achievementTimerService = new AchievementTimerService(_gameStatsService);
             _achievementTimerService.StatusUpdated += OnTimerStatusUpdated;
             _achievementTimerService.AchievementUnlocked += OnTimerAchievementUnlocked;
+            _achievementTimerService.ProtectionEnabled = _protectUnlockAll;
 
             // Get window handle for mouse service
             _mouseMoverService = new MouseMoverService(IntPtr.Zero); // Will be updated when window is shown
@@ -332,6 +333,7 @@ namespace RunGame
                     await LoadAchievementIconsAsync();
 
                     // Notify timer service that stats have been reloaded
+                    PushAchievementSnapshotToTimer();
                     _achievementTimerService?.NotifyStatsReloaded();
 
                     LoadingBar.IsVisible = false;
@@ -564,47 +566,21 @@ namespace RunGame
                 AppLogger.LogDebug($"PerformStoreToggle called for {selectedAchievements.Count} achievements");
                 AppLogger.LogDebug($"Debug mode: {AppLogger.IsDebugMode}");
 
+                // A game's "unlock every achievement" (completionist) achievement must be committed
+                // LAST, in a separate StoreStats, so its unlock is recorded after every other change
+                // in this batch. This applies whether or not completionist protection is enabled.
+                var completionists = selectedAchievements
+                    .Where(AchievementCompletionDetector.IsUnlockAllAchievement).ToList();
+                var others = selectedAchievements
+                    .Where(a => !AchievementCompletionDetector.IsUnlockAllAchievement(a)).ToList();
+
                 int achievementCount = 0;
-                foreach (var achievement in selectedAchievements)
-                {
-                    if (achievement.IsProtected)
-                    {
-                        AppLogger.LogDebug($"Skipping protected achievement {achievement.Id}");
-                        continue;
-                    }
 
-                    bool newState = !achievement.IsAchieved;
-                    AppLogger.LogDebug($"Achievement {achievement.Id} toggle: {achievement.IsAchieved} -> {newState}");
-
-                    if (!_gameStatsService.SetAchievement(achievement.Id, newState))
-                    {
-                        Dispatcher.UIThread.Post(() =>
-                        {
-                            if (achievement.IsProtected)
-                            {
-                                ShowErrorDialog($"Cannot modify protected achievement:\n\n" +
-                                              $"ID: {achievement.Id}\n" +
-                                              $"Name: {achievement.Name}\n\n" +
-                                              $"This achievement is protected by the game developer and cannot be modified.");
-                            }
-                            else
-                            {
-                                ShowErrorDialog($"Failed to set achievement '{achievement.Id}'. Steam API rejected the change.");
-                            }
-                        });
-                        return;
-                    }
-
-                    Dispatcher.UIThread.Post(() =>
-                    {
-                        achievement.IsAchieved = newState;
-                    });
-
-                    achievementCount++;
-                }
+                // Phase 1: every non-completionist toggle, plus statistics, committed together.
+                if (!TryToggleAchievements(others, ref achievementCount))
+                    return;
 
                 int statCount = StoreStatistics(true);
-
                 if (statCount < 0)
                 {
                     AppLogger.LogDebug("Statistics store failed in PerformStoreToggle - refreshing");
@@ -612,18 +588,18 @@ namespace RunGame
                     return;
                 }
 
-                bool success = _gameStatsService.StoreStats();
-                AppLogger.LogDebug($"StoreStats result: {success}");
-
-                if (!success)
-                {
-                    AppLogger.LogDebug("StoreStats failed in PerformStoreToggle - refreshing");
-                    Dispatcher.UIThread.Post(() =>
-                    {
-                        StatusLabel.Text = "Failed to commit changes to Steam. Refreshing...";
-                    });
-                    RefreshAfterFailure(false);
+                // Only commit phase 1 if it staged something — avoids an empty StoreStats when the
+                // selection was a completionist only (its unlock is committed in phase 2).
+                if ((achievementCount > 0 || statCount > 0) && !CommitStore("PerformStoreToggle phase 1"))
                     return;
+
+                // Phase 2: completionist toggles committed last, in their own StoreStats.
+                if (completionists.Count > 0)
+                {
+                    if (!TryToggleAchievements(completionists, ref achievementCount))
+                        return;
+                    if (!CommitStore("PerformStoreToggle phase 2 (completionist)"))
+                        return;
                 }
 
                 int finalAchievementCount = achievementCount;
@@ -665,6 +641,77 @@ namespace RunGame
                     StatusLabel.Text = $"Error: {ex.Message}";
                 });
             }
+        }
+
+        /// <summary>
+        /// Applies the toggle (unlock/lock) for each item in <paramref name="list"/> via SetAchievement,
+        /// without committing. On the first Steam API failure it surfaces an error and returns false so
+        /// the caller aborts.
+        /// </summary>
+        private bool TryToggleAchievements(List<AchievementInfo> list, ref int achievementCount)
+        {
+            foreach (var achievement in list)
+            {
+                if (achievement.IsProtected)
+                {
+                    AppLogger.LogDebug($"Skipping protected achievement {achievement.Id}");
+                    continue;
+                }
+
+                bool newState = !achievement.IsAchieved;
+                AppLogger.LogDebug($"Achievement {achievement.Id} toggle: {achievement.IsAchieved} -> {newState}");
+
+                if (!_gameStatsService.SetAchievement(achievement.Id, newState))
+                {
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        if (achievement.IsProtected)
+                        {
+                            ShowErrorDialog($"Cannot modify protected achievement:\n\n" +
+                                          $"ID: {achievement.Id}\n" +
+                                          $"Name: {achievement.Name}\n\n" +
+                                          $"This achievement is protected by the game developer and cannot be modified.");
+                        }
+                        else
+                        {
+                            ShowErrorDialog($"Failed to set achievement '{achievement.Id}'. Steam API rejected the change.");
+                        }
+                    });
+                    return false;
+                }
+
+                Dispatcher.UIThread.Post(() =>
+                {
+                    achievement.IsAchieved = newState;
+                });
+
+                achievementCount++;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Commits staged achievement/stat changes to Steam via StoreStats. On failure it refreshes
+        /// from Steam and returns false so the caller aborts.
+        /// </summary>
+        private bool CommitStore(string context)
+        {
+            bool success = _gameStatsService.StoreStats();
+            AppLogger.LogDebug($"StoreStats result: {success} ({context})");
+
+            if (!success)
+            {
+                AppLogger.LogDebug($"StoreStats failed in {context} - refreshing");
+                Dispatcher.UIThread.Post(() =>
+                {
+                    StatusLabel.Text = "Failed to commit changes to Steam. Refreshing...";
+                });
+                RefreshAfterFailure(false);
+                return false;
+            }
+
+            return true;
         }
 
         private void PerformStore(bool silent)
@@ -1073,6 +1120,7 @@ namespace RunGame
             LoadStatistics();
             UpdateScheduledTimesDisplay();
             await LoadAchievementIconsAsync();
+            PushAchievementSnapshotToTimer();
             _achievementTimerService?.NotifyStatsReloaded();
 
             LoadingBar.IsVisible = false;
@@ -1185,7 +1233,7 @@ namespace RunGame
                         achievement.ScheduledUnlockTime = unlockTime;
                         _achievementTimerService?.ScheduleAchievement(achievement.Id, unlockTime);
                     }
-                    var formattedTime = unlockTime.ToString("yyyy-MM-dd HH:mm:ss");
+                    var formattedTime = unlockTime.ToString("yyyy-MM-dd HH:mm:ss.f");
                     StatusLabel.Text =
                         $"Scheduled {selectedAchievements.Count} achievement(s) to unlock at {formattedTime}{completionistSkipNote}";
                 }
@@ -1246,8 +1294,8 @@ namespace RunGame
             var timePicker = new TimePicker { SelectedTime = defaultTime.TimeOfDay };
             stack.Children.Add(timePicker);
 
-            stack.Children.Add(new TextBlock { Text = "Seconds (0-59):" });
-            var secondsBox = new NumericUpDown { Value = 0, Minimum = 0, Maximum = 59 };
+            stack.Children.Add(new TextBlock { Text = "Seconds (0.0 – 59.9):" });
+            var secondsBox = new NumericUpDown { Value = 0, Minimum = 0, Maximum = 59.9m, Increment = 0.1m, FormatString = "0.0" };
             stack.Children.Add(secondsBox);
 
             var buttonPanel = new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, Spacing = 10, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right, Margin = new Thickness(0, 10, 0, 0) };
@@ -1257,8 +1305,10 @@ namespace RunGame
             {
                 var selectedDate = datePicker.SelectedDate?.Date ?? defaultTime.Date;
                 var selectedTime = timePicker.SelectedTime ?? defaultTime.TimeOfDay;
-                int seconds = (int)(secondsBox.Value ?? 0);
-                var unlockTime = selectedDate.Add(selectedTime).AddSeconds(seconds);
+                // Compose via exact decimal ticks: casting 0.1-step decimals to double and using
+                // AddSeconds loses precision (e.g. 1.2s would render as 1.1 after ".f" truncation).
+                decimal seconds = secondsBox.Value ?? 0m;
+                var unlockTime = selectedDate.Add(selectedTime).AddTicks((long)(seconds * TimeSpan.TicksPerSecond));
                 tcs.TrySetResult(unlockTime);
                 dialog.Close();
             };
@@ -1413,11 +1463,30 @@ namespace RunGame
         {
             _protectUnlockAll = ProtectUnlockAllButton.IsChecked == true;
             _settingsService.TrySetBool(ProtectUnlockAllSettingKey, _protectUnlockAll);
+            if (_achievementTimerService != null)
+                _achievementTimerService.ProtectionEnabled = _protectUnlockAll;
 
             StatusLabel.Text = _protectUnlockAll
                 ? "Completionist protection ON: an 'unlock all achievements' achievement is blocked until every other achievement is unlocked."
                 : "Completionist protection OFF: an 'unlock all achievements' achievement can be unlocked at any time (use this for DLC-added achievements).";
             AppLogger.LogDebug($"Completionist protection set to {_protectUnlockAll}");
+        }
+
+        /// <summary>
+        /// Pushes an immutable snapshot of every achievement's state (achieved / protected /
+        /// completionist) to the timer service so scheduled unlocks can order and guard the
+        /// completionist achievement without reading UI-thread-owned collections.
+        /// </summary>
+        private void PushAchievementSnapshotToTimer()
+        {
+            if (_achievementTimerService == null) return;
+
+            var states = _allAchievements
+                .Select(a => new AchievementState(
+                    a.Id, a.IsAchieved, a.IsProtected, AchievementCompletionDetector.IsUnlockAllAchievement(a)))
+                .ToList();
+
+            _achievementTimerService.UpdateAchievementSnapshot(states);
         }
 
         private void OnTimerToggle(object sender, RoutedEventArgs e)

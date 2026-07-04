@@ -153,6 +153,26 @@ namespace RunGame.Tests
         }
 
         [Fact]
+        public void FindUnsafeCompletionists_BlocksCompletionist_WhenAnotherIsBeingRelocked()
+        {
+            // Requirement: if the same batch re-locks an achievement (unlock -> lock), the
+            // completionist must become non-writable even though everything else is unlocked.
+            var completionist = Ach("ALL", desc: "Unlock all achievements");
+            var relocked = Ach("B", achieved: true); // currently unlocked, being re-locked in this batch
+            var all = new[] { completionist, relocked };
+
+            // Store-style projected state: selected items toggle, others keep their state.
+            var selected = new System.Collections.Generic.HashSet<AchievementInfo> { completionist, relocked };
+            System.Func<AchievementInfo, bool> projected = x => selected.Contains(x) ? !x.IsAchieved : x.IsAchieved;
+
+            var blocked = AchievementCompletionDetector.FindUnsafeCompletionists(
+                all, new[] { completionist }, projected, out int remaining);
+
+            Assert.Single(blocked); // re-locked "B" projects to locked -> completionist blocked
+            Assert.Equal(1, remaining);
+        }
+
+        [Fact]
         public void FindUnsafeCompletionists_IgnoresAlreadyAchievedCompletionist()
         {
             var completionist = Ach("ALL", achieved: true, desc: "Unlock all achievements");
