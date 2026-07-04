@@ -13,6 +13,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../RunGame/Services/GameStatsService.cs" Link="GameStatsService.cs" />
+    <Compile Include="../RunGame/Services/AchievementCompletionDetector.cs" Link="AchievementCompletionDetector.cs" />
     <Compile Include="../RunGame/Models/StatInfo.cs" Link="StatInfo.cs" />
     <Compile Include="../RunGame/Models/AchievementDefinition.cs" Link="AchievementDefinition.cs" />
     <Compile Include="../RunGame/Models/StatDefinition.cs" Link="StatDefinition.cs" />

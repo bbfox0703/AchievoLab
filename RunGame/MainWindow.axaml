@@ -11,18 +11,61 @@
 
         <!-- Top: Toolbar -->
         <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="4" Margin="8,4">
-            <Button x:Name="RefreshButton" Content="Refresh" Click="OnRefresh" ToolTip.Tip="Refresh"/>
-            <Button x:Name="StoreButton" Content="Store" Click="OnStore" ToolTip.Tip="Store"/>
+            <Button x:Name="RefreshButton" Content="Refresh" Click="OnRefresh">
+                <ToolTip.Tip>
+                    <TextBlock MaxWidth="360" TextWrapping="Wrap"
+                               Text="Reload all achievements and statistics from Steam. Discards the current selection and any unsaved edits, and shows the live state."/>
+                </ToolTip.Tip>
+            </Button>
+            <Button x:Name="StoreButton" Content="Store" Click="OnStore">
+                <ToolTip.Tip>
+                    <TextBlock MaxWidth="380" TextWrapping="Wrap"
+                               Text="Save your changes to Steam. Store TOGGLES every selected achievement: a locked one becomes UNLOCKED, and an already-unlocked one is reverted back to LOCKED. It also writes any edited statistics. Protected (🔒) items are skipped. A confirmation dialog lists exactly what will change before anything is written."/>
+                </ToolTip.Tip>
+            </Button>
             <Separator Width="1" Margin="4,4"/>
-            <Button x:Name="LockAllButton" Content="Select all unlocked" Click="OnUnlockAll" ToolTip.Tip="Select all unlocked"/>
-            <Button x:Name="UnlockAllButton" Content="Select all locked" Click="OnLockAll" ToolTip.Tip="Select all locked"/>
-            <Button x:Name="InvertAllButton" Content="Select All" Click="OnInvertAll" ToolTip.Tip="Select All"/>
+            <!-- Click handlers match the labels: "unlocked" selects achieved items, "locked" selects unachieved items. -->
+            <Button x:Name="LockAllButton" Content="Select all unlocked" Click="OnLockAll">
+                <ToolTip.Tip>
+                    <TextBlock MaxWidth="360" TextWrapping="Wrap"
+                               Text="Select every achievement that is currently UNLOCKED (and not protected). Handy before pressing Store to revert those achievements back to locked."/>
+                </ToolTip.Tip>
+            </Button>
+            <Button x:Name="UnlockAllButton" Content="Select all locked" Click="OnUnlockAll">
+                <ToolTip.Tip>
+                    <TextBlock MaxWidth="360" TextWrapping="Wrap"
+                               Text="Select every achievement that is currently LOCKED (and not protected). Handy before pressing Store to unlock those achievements."/>
+                </ToolTip.Tip>
+            </Button>
+            <Button x:Name="InvertAllButton" Content="Select All" Click="OnInvertAll">
+                <ToolTip.Tip>
+                    <TextBlock MaxWidth="360" TextWrapping="Wrap"
+                               Text="Select all modifiable (non-protected) achievements regardless of their current state. Pressing Store then toggles the state of every one of them."/>
+                </ToolTip.Tip>
+            </Button>
             <Separator Width="1" Margin="4,4"/>
             <ToggleButton x:Name="AutoMouseMoveButton" Content="Auto Mouse"
-                          Click="OnAutoMouseMove"
-                          ToolTip.Tip="Auto Mouse"/>
-            <ToggleButton x:Name="TimerToggleButton" Content="Timer"
-                          Click="OnTimerToggle" ToolTip.Tip="Timer"/>
+                          Click="OnAutoMouseMove">
+                <ToolTip.Tip>
+                    <TextBlock MaxWidth="360" TextWrapping="Wrap"
+                               Text="Toggle: periodically nudge the mouse cursor a few pixels so Steam and the game do not treat you as idle while long unlock timers run. Click again to stop."/>
+                </ToolTip.Tip>
+            </ToggleButton>
+            <ToggleButton x:Name="TimerToggleButton" Content="Start Timer"
+                          Click="OnTimerToggle">
+                <ToolTip.Tip>
+                    <TextBlock MaxWidth="360" TextWrapping="Wrap"
+                               Text="Toggle the unlock scheduler on/off. While running, achievements you queued with 'Set Timer' are unlocked automatically when their scheduled time arrives. The button reads 'Stop Timer' while active."/>
+                </ToolTip.Tip>
+            </ToggleButton>
+            <Separator Width="1" Margin="4,4"/>
+            <ToggleButton x:Name="ProtectUnlockAllButton" Content="Protect Completionist"
+                          IsChecked="True" Click="OnToggleUnlockAllProtection">
+                <ToolTip.Tip>
+                    <TextBlock MaxWidth="400" TextWrapping="Wrap"
+                               Text="Safety guard (default ON). Prevents a game's &quot;unlock every achievement&quot; meta achievement (e.g. 'Unlock all achievements', 'Earn all achievements', '獲得所有成就', '取得所有獎盃') from being unlocked before every OTHER achievement is unlocked. Turn this OFF only if a later DLC added new achievements and you want to unlock the completionist achievement anyway."/>
+                </ToolTip.Tip>
+            </ToggleButton>
         </StackPanel>
 
         <!-- Main Content: TabControl -->
@@ -32,14 +75,26 @@
                 <Grid RowDefinitions="Auto,*">
                     <!-- Achievement Filters -->
                     <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="10" Margin="10">
-                        <TextBox x:Name="SearchTextBox" PlaceholderText="Search achievements..." Width="200"/>
-                        <ToggleButton x:Name="ShowLockedButton" Content="Show Locked Only" Click="OnShowLockedToggle"/>
-                        <ToggleButton x:Name="ShowUnlockedButton" Content="Show Unlocked Only" Click="OnShowUnlockedToggle"/>
-                        <ComboBox x:Name="LanguageComboBox" PlaceholderText="Language" Width="120" SelectionChanged="OnLanguageChanged"/>
-                        <ComboBox x:Name="ColumnLayoutComboBox" PlaceholderText="Column Layout" Width="150" SelectionChanged="OnColumnLayoutChanged"/>
-                        <Button x:Name="SetTimerButton" Content="Set Timer" Click="OnSetTimer"/>
-                        <Button x:Name="ResetAllTimersButton" Content="Reset All Timers" Click="OnResetAllTimers"/>
-                        <Button x:Name="ResetSelectedTimersButton" Content="Reset Selected Timers" Click="OnResetSelectedTimers"/>
+                        <TextBox x:Name="SearchTextBox" PlaceholderText="Search achievements..." Width="200"
+                                 ToolTip.Tip="Filter the list by achievement name, description or ID. Matches both the selected language and the English text."/>
+                        <ToggleButton x:Name="ShowLockedButton" Content="Show Locked Only" Click="OnShowLockedToggle"
+                                      ToolTip.Tip="Show only achievements that are still LOCKED. Turning this on turns off 'Show Unlocked Only'."/>
+                        <ToggleButton x:Name="ShowUnlockedButton" Content="Show Unlocked Only" Click="OnShowUnlockedToggle"
+                                      ToolTip.Tip="Show only achievements that are already UNLOCKED. Turning this on turns off 'Show Locked Only'."/>
+                        <ComboBox x:Name="LanguageComboBox" PlaceholderText="Language" Width="120" SelectionChanged="OnLanguageChanged"
+                                  ToolTip.Tip="Choose the language used for achievement names and descriptions."/>
+                        <ComboBox x:Name="ColumnLayoutComboBox" PlaceholderText="Column Layout" Width="150" SelectionChanged="OnColumnLayoutChanged"
+                                  ToolTip.Tip="Change the on-screen column width preset for easier reading."/>
+                        <Button x:Name="SetTimerButton" Content="Set Timer" Click="OnSetTimer">
+                            <ToolTip.Tip>
+                                <TextBlock MaxWidth="360" TextWrapping="Wrap"
+                                           Text="Schedule the selected LOCKED achievements to unlock automatically at a date/time you pick. The top 'Start Timer' toggle must be running for scheduled unlocks to fire."/>
+                            </ToolTip.Tip>
+                        </Button>
+                        <Button x:Name="ResetAllTimersButton" Content="Reset All Timers" Click="OnResetAllTimers"
+                                ToolTip.Tip="Cancel every scheduled unlock timer."/>
+                        <Button x:Name="ResetSelectedTimersButton" Content="Reset Selected Timers" Click="OnResetSelectedTimers"
+                                ToolTip.Tip="Cancel the scheduled unlock timers for the currently selected achievements only."/>
                         <TextBlock Text="⚪ Timer Off" x:Name="TimerStatusText" VerticalAlignment="Center" Margin="10,0,0,0" FontWeight="Bold"/>
                     </StackPanel>
 

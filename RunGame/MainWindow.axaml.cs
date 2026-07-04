@@ -39,6 +39,11 @@ namespace RunGame
         private bool _isLoadingStats = false;
         private bool _lastMouseMoveRight = true;
 
+        // Completionist protection ("防呆") opt-in; default ON. Persisted in the shared settings.json.
+        private readonly ApplicationSettingsService _settingsService = new();
+        private const string ProtectUnlockAllSettingKey = "RunGame.ProtectUnlockAllAchievements";
+        private bool _protectUnlockAll = true;
+
         // New services
         private AchievementTimerService? _achievementTimerService;
         private MouseMoverService? _mouseMoverService;
@@ -100,6 +105,9 @@ namespace RunGame
 
             // Initialize column layout options
             InitializeColumnLayoutComboBox();
+
+            // Restore the completionist-protection opt-in (default ON)
+            InitializeCompletionistProtection();
 
             // Set up list views
             AchievementListView.ItemsSource = _achievements;
@@ -457,6 +465,37 @@ namespace RunGame
                 return;
             }
 
+            // Completionist protection ("防呆", opt-in / default ON): don't let a game's meta
+            // "unlock every achievement" achievement be unlocked before all of the others are.
+            // A later DLC can add achievements, so this guard can be turned off by the user.
+            var skippedCompletionist = new List<AchievementInfo>();
+            int stillLockedForCompletionist = 0;
+            if (_protectUnlockAll)
+            {
+                var selectedSet = new HashSet<AchievementInfo>(selectedAchievements);
+
+                // Store toggles every selected item, so its projected achieved-state is the toggle.
+                bool ProjectedAchieved(AchievementInfo a) =>
+                    selectedSet.Contains(a) ? !a.IsAchieved : a.IsAchieved;
+
+                skippedCompletionist = AchievementCompletionDetector.FindUnsafeCompletionists(
+                    _allAchievements, selectedAchievements, ProjectedAchieved, out stillLockedForCompletionist);
+
+                foreach (var blocked in skippedCompletionist)
+                {
+                    selectedAchievements.Remove(blocked);
+                }
+
+                if (selectedAchievements.Count == 0)
+                {
+                    ShowErrorDialog(
+                        $"Completionist protection is ON. \"{string.Join(", ", skippedCompletionist.Select(a => a.Id))}\" " +
+                        $"unlocks automatically once every other achievement is unlocked ({stillLockedForCompletionist} still locked). " +
+                        $"Unlock the rest first, or turn off the \"Protect Completionist\" button to override.");
+                    return;
+                }
+            }
+
             // Separate achievements by their current state for clear confirmation
             var achievedCount = selectedAchievements.Count(a => a.IsAchieved);
             var unachievedCount = selectedAchievements.Count - achievedCount;
@@ -478,6 +517,15 @@ namespace RunGame
             else
             {
                 confirmMessage = $"Are you sure you want to UNLOCK {unachievedCount} locked achievement(s)?";
+            }
+
+            if (skippedCompletionist.Count > 0)
+            {
+                confirmMessage +=
+                    $"\n\nNote: {skippedCompletionist.Count} completionist achievement(s) " +
+                    $"({string.Join(", ", skippedCompletionist.Select(a => a.Id))}) will be SKIPPED — " +
+                    $"they unlock automatically after every other achievement is unlocked " +
+                    $"({stillLockedForCompletionist} still locked). Turn off \"Protect Completionist\" to override.";
             }
 
             var result = await ShowConfirmationDialog("Confirm Achievement Toggle", confirmMessage);
@@ -1077,6 +1125,47 @@ namespace RunGame
                 return;
             }
 
+            // Completionist protection ("防呆"): mirror the Store guard on the timer path so a game's
+            // "unlock every achievement" achievement cannot be scheduled to unlock before every other
+            // achievement is unlocked or already scheduled. Opt-in / default ON.
+            string completionistSkipNote = string.Empty;
+            if (_protectUnlockAll)
+            {
+                var batchSet = new HashSet<AchievementInfo>(selectedAchievements);
+
+                // An achievement "will be unlocked" if it is already unlocked, is being scheduled in
+                // this same batch, or already has an active scheduled timer.
+                bool WillBeUnlocked(AchievementInfo a) =>
+                    a.IsAchieved
+                    || batchSet.Contains(a)
+                    || _achievementTimerService?.GetScheduledTime(a.Id) != null;
+
+                var blockedCompletionists = AchievementCompletionDetector.FindUnsafeCompletionists(
+                    _allAchievements, selectedAchievements, WillBeUnlocked, out int stillPendingForTimer);
+
+                foreach (var blocked in blockedCompletionists)
+                {
+                    selectedAchievements.Remove(blocked);
+                }
+
+                if (blockedCompletionists.Count > 0)
+                {
+                    if (selectedAchievements.Count == 0)
+                    {
+                        ShowErrorDialog(
+                            $"Completionist protection is ON. \"{string.Join(", ", blockedCompletionists.Select(a => a.Id))}\" " +
+                            $"can only be scheduled once every other achievement is unlocked or already scheduled " +
+                            $"({stillPendingForTimer} still pending). Schedule the rest first, or turn off the \"Protect Completionist\" button to override.");
+                        return;
+                    }
+
+                    completionistSkipNote =
+                        $" (skipped {blockedCompletionists.Count} completionist achievement(s): " +
+                        $"{string.Join(", ", blockedCompletionists.Select(a => a.Id))} — schedule them after the others)";
+                    StatusLabel.Text = "Completionist protection: skipped" + completionistSkipNote;
+                }
+            }
+
             try
             {
                 var dialogResult = await ShowTimerDialog(selectedAchievements);
@@ -1098,7 +1187,7 @@ namespace RunGame
                     }
                     var formattedTime = unlockTime.ToString("yyyy-MM-dd HH:mm:ss");
                     StatusLabel.Text =
-                        $"Scheduled {selectedAchievements.Count} achievement(s) to unlock at {formattedTime}";
+                        $"Scheduled {selectedAchievements.Count} achievement(s) to unlock at {formattedTime}{completionistSkipNote}";
                 }
                 else
                 {
@@ -1300,9 +1389,35 @@ namespace RunGame
                 bool enabled = AutoMouseMoveButton.IsChecked == true;
                 _mouseMoverService.IsEnabled = enabled;
                 AutoMouseMoveButton.Content = enabled ? "Stop Auto Mouse" : "Auto Mouse";
-                ToolTip.SetTip(AutoMouseMoveButton, enabled ? "Stop Auto Mouse" : "Auto Mouse");
+                // Keep the detailed ToolTip from the XAML; the button Content already reflects state.
                 AppLogger.LogDebug($"Auto mouse movement {(enabled ? "enabled" : "disabled")}");
             }
+        }
+
+        private void InitializeCompletionistProtection()
+        {
+            if (_settingsService.TryGetBool(ProtectUnlockAllSettingKey, out bool stored))
+            {
+                _protectUnlockAll = stored;
+            }
+            else
+            {
+                _protectUnlockAll = true; // default ON
+            }
+
+            // Programmatic IsChecked assignment does not raise Click, so the handler won't run here.
+            ProtectUnlockAllButton.IsChecked = _protectUnlockAll;
+        }
+
+        private void OnToggleUnlockAllProtection(object sender, RoutedEventArgs e)
+        {
+            _protectUnlockAll = ProtectUnlockAllButton.IsChecked == true;
+            _settingsService.TrySetBool(ProtectUnlockAllSettingKey, _protectUnlockAll);
+
+            StatusLabel.Text = _protectUnlockAll
+                ? "Completionist protection ON: an 'unlock all achievements' achievement is blocked until every other achievement is unlocked."
+                : "Completionist protection OFF: an 'unlock all achievements' achievement can be unlocked at any time (use this for DLC-added achievements).";
+            AppLogger.LogDebug($"Completionist protection set to {_protectUnlockAll}");
         }
 
         private void OnTimerToggle(object sender, RoutedEventArgs e)
@@ -1310,13 +1425,13 @@ namespace RunGame
             if (TimerToggleButton.IsChecked == true)
             {
                 _achievementTimer.Start();
-                TimerToggleButton.Content = "Disable Timer";
+                TimerToggleButton.Content = "Stop Timer";
                 UpdateTimerStatusIndicator(true);
             }
             else
             {
                 _achievementTimer.Stop();
-                TimerToggleButton.Content = "Enable Timer";
+                TimerToggleButton.Content = "Start Timer";
                 UpdateTimerStatusIndicator(false);
             }
         }
