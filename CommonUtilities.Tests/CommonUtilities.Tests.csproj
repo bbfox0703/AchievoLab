@@ -10,12 +10,12 @@
     <PublishReadyToRun>false</PublishReadyToRun>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="10.0.9" />
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.7.0" />
-    <PackageReference Include="Microsoft.Testing.Extensions.Telemetry" Version="2.2.3" />
-    <PackageReference Include="Microsoft.Testing.Extensions.TrxReport.Abstractions" Version="2.2.3" />
-    <PackageReference Include="Microsoft.Testing.Platform" Version="2.2.3" />
-    <PackageReference Include="Microsoft.Testing.Platform.MSBuild" Version="2.2.3" />
+    <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="10.0.10" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
+    <PackageReference Include="Microsoft.Testing.Extensions.Telemetry" Version="2.3.2" />
+    <PackageReference Include="Microsoft.Testing.Extensions.TrxReport.Abstractions" Version="2.3.2" />
+    <PackageReference Include="Microsoft.Testing.Platform" Version="2.3.2" />
+    <PackageReference Include="Microsoft.Testing.Platform.MSBuild" Version="2.3.2" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     <PackageReference Include="xunit.v3" Version="3.2.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
