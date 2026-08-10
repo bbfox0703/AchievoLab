@@ -479,6 +479,8 @@ namespace RunGame.Services
                         Description = def.Description,
                         EnglishDescription = def.EnglishDescription,
                         IsAchieved = isAchieved,
+                        // Freshly read from Steam, so nothing is staged yet.
+                        DesiredAchieved = isAchieved,
                         UnlockTime = isAchieved && unlockTime > 0
                             ? DateTimeOffset.FromUnixTimeSeconds(unlockTime).LocalDateTime
                             : null,
