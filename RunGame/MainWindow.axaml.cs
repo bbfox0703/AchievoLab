@@ -44,6 +44,18 @@ namespace RunGame
         private const string ProtectUnlockAllSettingKey = "RunGame.ProtectUnlockAllAchievements";
         private bool _protectUnlockAll = true;
 
+        // Unlock time of the last successful "Set Timer", reused as the next dialog's default.
+        // Scheduling a batch one achievement at a time otherwise re-seeds from DateTime.Now on every
+        // open, so the minute silently drifts between dialogs and only the hour/seconds the user
+        // actually touched stay put. Session-scoped: a remembered time is stale after a restart.
+        private DateTime? _lastScheduledUnlockTime;
+
+        // Close-confirmation state for pending scheduled unlocks. _closePromptOpen keeps a second
+        // close attempt from stacking dialogs; _pendingTimersCloseConfirmed lets the programmatic
+        // Close() that follows a "yes" fall straight through to teardown.
+        private bool _closePromptOpen;
+        private bool _pendingTimersCloseConfirmed;
+
         // New services
         private AchievementTimerService? _achievementTimerService;
         private MouseMoverService? _mouseMoverService;
@@ -134,6 +146,8 @@ namespace RunGame
             _achievementTimerService.StatusUpdated += OnTimerStatusUpdated;
             _achievementTimerService.AchievementUnlocked += OnTimerAchievementUnlocked;
             _achievementTimerService.ProtectionEnabled = _protectUnlockAll;
+            // The Timer toggle is the master switch for scheduled unlocks; it starts off.
+            _achievementTimerService.SchedulingEnabled = TimerToggleButton.IsChecked == true;
 
             // Get window handle for mouse service
             _mouseMoverService = new MouseMoverService(IntPtr.Zero); // Will be updated when window is shown
@@ -165,6 +179,26 @@ namespace RunGame
 
         private void OnWindowClosing(object? sender, WindowClosingEventArgs e)
         {
+            // Scheduled unlocks are held in memory by AchievementTimerService only, and this handler
+            // is what disposes it — so confirm before any teardown runs, not after.
+            if (!_pendingTimersCloseConfirmed)
+            {
+                if (_closePromptOpen)
+                {
+                    e.Cancel = true;
+                    return;
+                }
+
+                var pending = _achievementTimerService?.GetAllScheduledAchievements();
+                if (pending is { Count: > 0 })
+                {
+                    e.Cancel = true;
+                    _closePromptOpen = true;
+                    _ = ConfirmDiscardPendingTimersAsync(pending);
+                    return;
+                }
+            }
+
             try
             {
                 // Unsubscribe event handlers to prevent leaks
@@ -201,6 +235,50 @@ namespace RunGame
             catch (Exception ex)
             {
                 AppLogger.LogDebug($"Error during cleanup: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Asks whether to discard scheduled unlocks that have not fired yet, then re-closes the
+        /// window if the user agrees. Called by <see cref="OnWindowClosing"/> after it cancels the
+        /// close, so a "no" simply leaves the window (and every timer) alone.
+        /// </summary>
+        private async Task ConfirmDiscardPendingTimersAsync(Dictionary<string, DateTime> pending)
+        {
+            try
+            {
+                const int previewCount = 5;
+                var preview = string.Join("\n", pending
+                    .OrderBy(kv => kv.Value)
+                    .Take(previewCount)
+                    .Select(kv => $"• {kv.Value:yyyy-MM-dd HH:mm:ss.f}  {kv.Key}"));
+                if (pending.Count > previewCount)
+                    preview += $"\n... and {pending.Count - previewCount} more";
+
+                AppLogger.LogDebug($"Close requested with {pending.Count} pending scheduled unlock(s)");
+
+                var confirmed = await ShowConfirmationDialog(
+                    "Pending Scheduled Unlocks",
+                    $"{pending.Count} scheduled unlock(s) have not fired yet. Timers are kept in " +
+                    $"memory only, so closing RunGame cancels them:\n\n{preview}\n\nClose anyway?");
+
+                if (!confirmed)
+                {
+                    AppLogger.LogDebug("Close cancelled - pending scheduled unlocks kept");
+                    return;
+                }
+
+                AppLogger.LogDebug($"Discarding {pending.Count} pending scheduled unlock(s) on close");
+                _pendingTimersCloseConfirmed = true;
+                Close();
+            }
+            catch (Exception ex)
+            {
+                AppLogger.LogDebug($"Error confirming pending timers on close: {ex.Message}");
+            }
+            finally
+            {
+                _closePromptOpen = false;
             }
         }
 
@@ -316,7 +394,7 @@ namespace RunGame
                         {
                             achievement.Counter = counter;
                         }
-                        achievement.OriginalIsAchieved = achievement.IsAchieved;
+                        achievement.ResetStaging();
                         achievement.PropertyChanged += OnAchievementPropertyChanged;
                     }
 
@@ -444,15 +522,17 @@ namespace RunGame
 
         private async void OnStore(object sender, RoutedEventArgs e)
         {
-            // Get selected achievements
-            var selectedAchievements = (AchievementListView.SelectedItems ?? (System.Collections.IList)Array.Empty<object>())
-                .OfType<AchievementInfo>()
-                .Where(a => !a.IsProtected)
+            // Everything whose checkbox no longer matches Steam. Scoped to _allAchievements rather
+            // than the filtered view so a change staged before the user narrowed the filter is still
+            // written — the confirmation below spells out exactly what that is.
+            var selectedAchievements = _allAchievements
+                .Where(a => a.IsModified && !a.IsProtected)
                 .ToList();
 
             if (selectedAchievements.Count == 0)
             {
-                ShowErrorDialog("Please select unprotected achievements to toggle");
+                ShowErrorDialog(
+                    "No changes to store. Tick an achievement to unlock it, or untick one to lock it, then press Store.");
                 return;
             }
 
@@ -474,14 +554,10 @@ namespace RunGame
             int stillLockedForCompletionist = 0;
             if (_protectUnlockAll)
             {
-                var selectedSet = new HashSet<AchievementInfo>(selectedAchievements);
-
-                // Store toggles every selected item, so its projected achieved-state is the toggle.
-                bool ProjectedAchieved(AchievementInfo a) =>
-                    selectedSet.Contains(a) ? !a.IsAchieved : a.IsAchieved;
-
+                // Store writes each checkbox as-is, so the projected state is simply the ticked one
+                // (which equals IsAchieved for every row the user left alone).
                 skippedCompletionist = AchievementCompletionDetector.FindUnsafeCompletionists(
-                    _allAchievements, selectedAchievements, ProjectedAchieved, out stillLockedForCompletionist);
+                    _allAchievements, selectedAchievements, a => a.DesiredAchieved, out stillLockedForCompletionist);
 
                 foreach (var blocked in skippedCompletionist)
                 {
@@ -498,14 +574,15 @@ namespace RunGame
                 }
             }
 
-            // Separate achievements by their current state for clear confirmation
+            // Every item here is staged, so its current state tells you which way it is going:
+            // currently unlocked means the user unticked it, currently locked means they ticked it.
             var achievedCount = selectedAchievements.Count(a => a.IsAchieved);
             var unachievedCount = selectedAchievements.Count - achievedCount;
 
             string confirmMessage;
             if (achievedCount > 0 && unachievedCount > 0)
             {
-                confirmMessage = $"You are about to toggle {selectedAchievements.Count} achievement(s):\n\n" +
+                confirmMessage = $"You are about to change {selectedAchievements.Count} achievement(s):\n\n" +
                                $"• {unachievedCount} locked achievement(s) will be UNLOCKED\n" +
                                $"• {achievedCount} unlocked achievement(s) will be LOCKED\n\n" +
                                $"Are you sure you want to continue?";
@@ -521,6 +598,14 @@ namespace RunGame
                 confirmMessage = $"Are you sure you want to UNLOCK {unachievedCount} locked achievement(s)?";
             }
 
+            // Staged rows the current filter hides would otherwise be written invisibly.
+            int hiddenCount = selectedAchievements.Count(a => !_achievements.Contains(a));
+            if (hiddenCount > 0)
+            {
+                confirmMessage +=
+                    $"\n\nNote: {hiddenCount} of these are not visible under the current filter or search.";
+            }
+
             if (skippedCompletionist.Count > 0)
             {
                 confirmMessage +=
@@ -530,7 +615,7 @@ namespace RunGame
                     $"({stillLockedForCompletionist} still locked). Turn off \"Protect Completionist\" to override.";
             }
 
-            var result = await ShowConfirmationDialog("Confirm Achievement Toggle", confirmMessage);
+            var result = await ShowConfirmationDialog("Confirm Achievement Changes", confirmMessage);
 
             if (!result)
             {
@@ -544,7 +629,7 @@ namespace RunGame
 
             try
             {
-                await Task.Run(() => PerformStoreToggle(selectedAchievements));
+                await Task.Run(() => PerformStoreStaged(selectedAchievements));
             }
             catch (Exception ex)
             {
@@ -559,11 +644,11 @@ namespace RunGame
             }
         }
 
-        private void PerformStoreToggle(List<AchievementInfo> selectedAchievements)
+        private void PerformStoreStaged(List<AchievementInfo> selectedAchievements)
         {
             try
             {
-                AppLogger.LogDebug($"PerformStoreToggle called for {selectedAchievements.Count} achievements");
+                AppLogger.LogDebug($"PerformStoreStaged called for {selectedAchievements.Count} achievements");
                 AppLogger.LogDebug($"Debug mode: {AppLogger.IsDebugMode}");
 
                 // A game's "unlock every achievement" (completionist) achievement must be committed
@@ -576,29 +661,29 @@ namespace RunGame
 
                 int achievementCount = 0;
 
-                // Phase 1: every non-completionist toggle, plus statistics, committed together.
-                if (!TryToggleAchievements(others, ref achievementCount))
+                // Phase 1: every non-completionist change, plus statistics, committed together.
+                if (!TryApplyStagedAchievements(others, ref achievementCount))
                     return;
 
                 int statCount = StoreStatistics(true);
                 if (statCount < 0)
                 {
-                    AppLogger.LogDebug("Statistics store failed in PerformStoreToggle - refreshing");
+                    AppLogger.LogDebug("Statistics store failed in PerformStoreStaged - refreshing");
                     RefreshAfterFailure(false);
                     return;
                 }
 
                 // Only commit phase 1 if it staged something — avoids an empty StoreStats when the
                 // selection was a completionist only (its unlock is committed in phase 2).
-                if ((achievementCount > 0 || statCount > 0) && !CommitStore("PerformStoreToggle phase 1"))
+                if ((achievementCount > 0 || statCount > 0) && !CommitStore("PerformStoreStaged phase 1"))
                     return;
 
-                // Phase 2: completionist toggles committed last, in their own StoreStats.
+                // Phase 2: completionist changes committed last, in their own StoreStats.
                 if (completionists.Count > 0)
                 {
-                    if (!TryToggleAchievements(completionists, ref achievementCount))
+                    if (!TryApplyStagedAchievements(completionists, ref achievementCount))
                         return;
-                    if (!CommitStore("PerformStoreToggle phase 2 (completionist)"))
+                    if (!CommitStore("PerformStoreStaged phase 2 (completionist)"))
                         return;
                 }
 
@@ -606,7 +691,7 @@ namespace RunGame
                 int finalStatCount = statCount;
                 Dispatcher.UIThread.Post(() =>
                 {
-                    string prefix = AppLogger.IsDebugMode ? "[DEBUG MODE] Fake toggled" : "Successfully toggled";
+                    string prefix = AppLogger.IsDebugMode ? "[DEBUG MODE] Fake stored" : "Successfully stored";
                     StatusLabel.Text = $"{prefix} {finalAchievementCount} achievements and {Math.Max(0, finalStatCount)} statistics. Refreshing...";
 
                     _ = Task.Run(async () =>
@@ -635,7 +720,7 @@ namespace RunGame
             }
             catch (Exception ex)
             {
-                AppLogger.LogDebug($"Error in PerformStoreToggle: {ex.Message}");
+                AppLogger.LogDebug($"Error in PerformStoreStaged: {ex.Message}");
                 Dispatcher.UIThread.Post(() =>
                 {
                     StatusLabel.Text = $"Error: {ex.Message}";
@@ -644,11 +729,11 @@ namespace RunGame
         }
 
         /// <summary>
-        /// Applies the toggle (unlock/lock) for each item in <paramref name="list"/> via SetAchievement,
+        /// Writes each item's staged <see cref="AchievementInfo.DesiredAchieved"/> via SetAchievement,
         /// without committing. On the first Steam API failure it surfaces an error and returns false so
         /// the caller aborts.
         /// </summary>
-        private bool TryToggleAchievements(List<AchievementInfo> list, ref int achievementCount)
+        private bool TryApplyStagedAchievements(List<AchievementInfo> list, ref int achievementCount)
         {
             foreach (var achievement in list)
             {
@@ -658,8 +743,8 @@ namespace RunGame
                     continue;
                 }
 
-                bool newState = !achievement.IsAchieved;
-                AppLogger.LogDebug($"Achievement {achievement.Id} toggle: {achievement.IsAchieved} -> {newState}");
+                bool newState = achievement.DesiredAchieved;
+                AppLogger.LogDebug($"Achievement {achievement.Id} change: {achievement.IsAchieved} -> {newState}");
 
                 if (!_gameStatsService.SetAchievement(achievement.Id, newState))
                 {
@@ -822,9 +907,9 @@ namespace RunGame
 
             foreach (var achievement in sortedAchievements)
             {
-                AppLogger.LogDebug($"Achievement {achievement.Id} modified: {achievement.OriginalIsAchieved} -> {achievement.IsAchieved}");
+                AppLogger.LogDebug($"Achievement {achievement.Id} modified: {achievement.IsAchieved} -> {achievement.DesiredAchieved}");
 
-                if (!_gameStatsService.SetAchievement(achievement.Id, achievement.IsAchieved))
+                if (!_gameStatsService.SetAchievement(achievement.Id, achievement.DesiredAchieved))
                 {
                     if (!silent)
                     {
@@ -843,7 +928,8 @@ namespace RunGame
                     return -1;
                 }
 
-                achievement.OriginalIsAchieved = achievement.IsAchieved;
+                // The write succeeded, so the staged value is now what Steam holds.
+                achievement.IsAchieved = achievement.DesiredAchieved;
                 count++;
             }
 
@@ -1005,58 +1091,72 @@ namespace RunGame
                    $"The value may violate Steam API constraints.";
         }
 
-        private void OnLockAll(object sender, RoutedEventArgs e)
+        /// <summary>
+        /// Stages the ticked state for every modifiable achievement currently in view. Only the
+        /// checkboxes change — nothing reaches Steam until Store is pressed.
+        /// </summary>
+        /// <param name="desired">The value to write into each checkbox, given its current state.</param>
+        /// <param name="action">Verb used in the log and status line.</param>
+        private void StageAll(Func<AchievementInfo, bool> desired, string action)
         {
-            AppLogger.LogDebug("Select all unlocked button clicked");
+            // Scoped to the visible list so a filtered-out achievement is never staged behind the
+            // user's back — what you see is what these buttons touch.
+            var editable = _achievements.Where(a => !a.IsProtected).ToList();
 
-            AchievementListView.SelectedItems?.Clear();
-
-            var unlockedAchievements = _achievements
-                .Where(a => !a.IsProtected && a.IsAchieved)
-                .ToList();
-
-            foreach (var achievement in unlockedAchievements)
+            foreach (var achievement in editable)
             {
-                AchievementListView.SelectedItems?.Add(achievement);
+                achievement.DesiredAchieved = desired(achievement);
             }
 
-            AppLogger.LogDebug($"Selected {unlockedAchievements.Count} unlocked achievements");
+            ReportStagedChanges($"{action} {editable.Count} achievement(s)");
+            AppLogger.LogDebug($"{action} {editable.Count} achievements");
         }
 
-        private void OnUnlockAll(object sender, RoutedEventArgs e)
+        /// <summary>
+        /// Updates the status line with how many changes are staged and waiting for Store.
+        /// </summary>
+        private void ReportStagedChanges(string prefix)
         {
-            AppLogger.LogDebug("Select all locked button clicked");
-
-            AchievementListView.SelectedItems?.Clear();
-
-            var lockedAchievements = _achievements
-                .Where(a => !a.IsProtected && !a.IsAchieved)
-                .ToList();
-
-            foreach (var achievement in lockedAchievements)
+            var staged = _allAchievements.Where(a => a.IsModified && !a.IsProtected).ToList();
+            if (staged.Count == 0)
             {
-                AchievementListView.SelectedItems?.Add(achievement);
+                StatusLabel.Text = $"{prefix}. No pending changes.";
+                return;
             }
 
-            AppLogger.LogDebug($"Selected {lockedAchievements.Count} locked achievements");
+            int toUnlock = staged.Count(a => a.DesiredAchieved);
+            int toLock = staged.Count - toUnlock;
+            StatusLabel.Text =
+                $"{prefix}. Pending: {toUnlock} to unlock, {toLock} to lock — press Store to apply.";
         }
 
-        private void OnInvertAll(object sender, RoutedEventArgs e)
+        private void OnLockAll(object sender, RoutedEventArgs e) => StageAll(_ => false, "Unticked");
+
+        private void OnUnlockAll(object sender, RoutedEventArgs e) => StageAll(_ => true, "Ticked");
+
+        private void OnInvertAll(object sender, RoutedEventArgs e) =>
+            StageAll(a => !a.DesiredAchieved, "Inverted");
+
+        private void OnResetStagedChanges(object sender, RoutedEventArgs e)
         {
-            AppLogger.LogDebug("Select All button clicked");
-
-            AchievementListView.SelectedItems?.Clear();
-
-            var selectableAchievements = _achievements
-                .Where(a => !a.IsProtected)
-                .ToList();
-
-            foreach (var achievement in selectableAchievements)
+            // Resets everything, not just the visible rows, so nothing stays staged out of sight.
+            // A tick that belongs to a scheduled timer is left alone — it records a commitment
+            // already made, and withdrawing it is what "Reset Ticked Timers" is for.
+            int kept = 0;
+            foreach (var achievement in _allAchievements)
             {
-                AchievementListView.SelectedItems?.Add(achievement);
+                if (_achievementTimerService?.GetScheduledTime(achievement.Id) != null)
+                {
+                    if (achievement.IsModified) kept++;
+                    continue;
+                }
+                achievement.ResetStaging();
             }
 
-            AppLogger.LogDebug($"Selected {selectableAchievements.Count} achievements");
+            StatusLabel.Text = kept > 0
+                ? $"Discarded staged changes. {kept} tick(s) kept for scheduled timers."
+                : "Discarded all staged changes.";
+            AppLogger.LogDebug($"Staged changes reset ({kept} kept for scheduled timers)");
         }
 
         private void OnSearchTextChanged(object? sender, TextChangedEventArgs e)
@@ -1112,7 +1212,7 @@ namespace RunGame
                 {
                     achievement.Counter = counter;
                 }
-                achievement.OriginalIsAchieved = achievement.IsAchieved;
+                achievement.ResetStaging();
                 achievement.PropertyChanged += OnAchievementPropertyChanged;
             }
 
@@ -1151,25 +1251,27 @@ namespace RunGame
 
         private async void OnSetTimer(object sender, RoutedEventArgs e)
         {
-            var selectedAchievements = (AchievementListView.SelectedItems ?? (System.Collections.IList)Array.Empty<object>())
-                .OfType<AchievementInfo>()
-                .Where(a => !a.IsAchieved && !a.IsProtected)
+            // Same input as Store: the checkboxes. Ticking a locked achievement says "I want this
+            // unlocked" — Store does it now, Set Timer does it at a time you choose.
+            var staged = _allAchievements
+                .Where(a => a.IsModified && !a.IsProtected)
                 .ToList();
 
-            var achievedSelected = (AchievementListView.SelectedItems ?? (System.Collections.IList)Array.Empty<object>())
-                .OfType<AchievementInfo>()
-                .Where(a => a.IsAchieved)
-                .ToList();
+            var selectedAchievements = staged.Where(a => a.DesiredAchieved).ToList();
+            var stagedLocks = staged.Where(a => !a.DesiredAchieved).ToList();
 
-            if (achievedSelected.Count > 0)
+            if (stagedLocks.Count > 0)
             {
-                ShowErrorDialog("Timer can only be set for unachieved achievements. To change achieved achievements to unachieved, use direct Store operation.");
+                ShowErrorDialog(
+                    $"A timer can only unlock achievements, but {stagedLocks.Count} of the ticked " +
+                    $"changes would LOCK an achievement ({string.Join(", ", stagedLocks.Take(5).Select(a => a.Id))}). " +
+                    $"Re-tick those, or apply them with Store instead.");
                 return;
             }
 
             if (selectedAchievements.Count == 0)
             {
-                ShowErrorDialog("Please select unachieved, unprotected achievements to schedule");
+                ShowErrorDialog("Tick the locked achievements you want to unlock, then press Set Timer.");
                 return;
             }
 
@@ -1233,9 +1335,19 @@ namespace RunGame
                         achievement.ScheduledUnlockTime = unlockTime;
                         _achievementTimerService?.ScheduleAchievement(achievement.Id, unlockTime);
                     }
+
+                    // Seed the next dialog so scheduling the rest of the batch keeps this minute.
+                    _lastScheduledUnlockTime = unlockTime;
+
+                    // The Timer toggle gates the whole scheduler, so scheduling while it is off would
+                    // otherwise queue something that silently never fires.
+                    var pausedNote = TimerToggleButton.IsChecked == true
+                        ? string.Empty
+                        : " — TIMER IS OFF, nothing will unlock until you press Start Timer";
+
                     var formattedTime = unlockTime.ToString("yyyy-MM-dd HH:mm:ss.f");
                     StatusLabel.Text =
-                        $"Scheduled {selectedAchievements.Count} achievement(s) to unlock at {formattedTime}{completionistSkipNote}";
+                        $"Scheduled {selectedAchievements.Count} achievement(s) to unlock at {formattedTime}{completionistSkipNote}{pausedNote}";
                 }
                 else
                 {
@@ -1260,7 +1372,20 @@ namespace RunGame
                 CanResize = false
             };
 
-            var defaultTime = DateTime.Now.AddHours(1);
+            // Reuse the last scheduled time so a batch keeps the same date/hour/minute and only the
+            // seconds need bumping. Falls back to one hour from now when nothing was scheduled yet,
+            // or when the remembered time has already passed (OnSetTimer would reject it anyway).
+            var defaultTime = _lastScheduledUnlockTime is { } remembered && remembered > DateTime.Now
+                ? remembered
+                : DateTime.Now.AddHours(1);
+
+            // Split into whole minutes (TimePicker has no seconds column) plus the sub-minute
+            // remainder for the seconds box, truncated to the box's 0.1s resolution. Seeding
+            // SelectedTime with a TimeOfDay that still carries seconds double-counts them when the
+            // two controls are composed back together on OK.
+            var defaultTimeOfDay = new TimeSpan(defaultTime.Hour, defaultTime.Minute, 0);
+            var defaultSeconds = Math.Truncate((decimal)(defaultTime.TimeOfDay - defaultTimeOfDay).TotalSeconds * 10m) / 10m;
+
             var tcs = new TaskCompletionSource<DateTime?>();
 
             var stack = new StackPanel { Margin = new Thickness(20), Spacing = 10 };
@@ -1291,11 +1416,11 @@ namespace RunGame
             stack.Children.Add(datePicker);
 
             stack.Children.Add(new TextBlock { Text = "Time:" });
-            var timePicker = new TimePicker { SelectedTime = defaultTime.TimeOfDay };
+            var timePicker = new TimePicker { SelectedTime = defaultTimeOfDay };
             stack.Children.Add(timePicker);
 
             stack.Children.Add(new TextBlock { Text = "Seconds (0.0 – 59.9):" });
-            var secondsBox = new NumericUpDown { Value = 0, Minimum = 0, Maximum = 59.9m, Increment = 0.1m, FormatString = "0.0" };
+            var secondsBox = new NumericUpDown { Value = defaultSeconds, Minimum = 0, Maximum = 59.9m, Increment = 0.1m, FormatString = "0.0" };
             stack.Children.Add(secondsBox);
 
             var buttonPanel = new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, Spacing = 10, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right, Margin = new Thickness(0, 10, 0, 0) };
@@ -1304,7 +1429,7 @@ namespace RunGame
             okButton.Click += (_, _) =>
             {
                 var selectedDate = datePicker.SelectedDate?.Date ?? defaultTime.Date;
-                var selectedTime = timePicker.SelectedTime ?? defaultTime.TimeOfDay;
+                var selectedTime = timePicker.SelectedTime ?? defaultTimeOfDay;
                 // Compose via exact decimal ticks: casting 0.1-step decimals to double and using
                 // AddSeconds loses precision (e.g. 1.2s would render as 1.1 after ".f" truncation).
                 decimal seconds = secondsBox.Value ?? 0m;
@@ -1351,6 +1476,8 @@ namespace RunGame
                 foreach (var achievementId in scheduledAchievements.Keys)
                 {
                     _achievementTimerService.CancelSchedule(achievementId);
+                    // The tick recorded the schedule's intent, so withdraw it with the schedule.
+                    _allAchievements.FirstOrDefault(a => a.Id == achievementId)?.ResetStaging();
                 }
 
                 StatusLabel.Text = $"Reset {scheduledAchievements.Count} active timer(s)";
@@ -1374,13 +1501,15 @@ namespace RunGame
                     return;
                 }
 
-                var selectedAchievements = (AchievementListView.SelectedItems ?? (System.Collections.IList)Array.Empty<object>())
-                    .OfType<AchievementInfo>()
+                // Keyed off the ticks, like Store and Set Timer — a scheduled achievement keeps its
+                // tick as the standing "I want this unlocked" intent until the timer fires.
+                var selectedAchievements = _allAchievements
+                    .Where(a => a.IsModified && !a.IsProtected)
                     .ToList();
 
                 if (selectedAchievements.Count == 0)
                 {
-                    ShowErrorDialog("Please select achievements to reset their timers");
+                    ShowErrorDialog("Tick the achievements whose timers you want to cancel.");
                     return;
                 }
 
@@ -1392,17 +1521,19 @@ namespace RunGame
                     {
                         _achievementTimerService.CancelSchedule(achievement.Id);
                         achievement.ScheduledUnlockTime = null;
+                        // The intent is withdrawn along with the schedule.
+                        achievement.ResetStaging();
                         resetCount++;
                     }
                 }
 
                 if (resetCount == 0)
                 {
-                    ShowErrorDialog("None of the selected achievements have active timers");
+                    ShowErrorDialog("None of the ticked achievements have active timers");
                     return;
                 }
 
-                StatusLabel.Text = $"Reset {resetCount} timer(s) for selected achievements";
+                StatusLabel.Text = $"Reset {resetCount} timer(s) for ticked achievements";
                 AppLogger.LogDebug($"Reset selected timers - {resetCount} timers cancelled");
 
                 UpdateScheduledTimesDisplay();
@@ -1424,6 +1555,10 @@ namespace RunGame
                 if (scheduledAchievements.TryGetValue(achievement.Id, out var scheduledTime))
                 {
                     achievement.ScheduledUnlockTime = scheduledTime;
+                    // A pending timer is a standing "this will be unlocked", so keep its tick on.
+                    // Reloading replaces every AchievementInfo, which would otherwise drop the tick
+                    // and leave the timer unreachable from the tick-driven Reset Ticked Timers.
+                    achievement.DesiredAchieved = true;
                 }
                 else
                 {
@@ -1491,23 +1626,35 @@ namespace RunGame
 
         private void OnTimerToggle(object sender, RoutedEventArgs e)
         {
-            if (TimerToggleButton.IsChecked == true)
+            bool on = TimerToggleButton.IsChecked == true;
+
+            // Master switch: pausing keeps every schedule, it just stops them being committed.
+            // Anything that came due while paused is committed on resume, in scheduled-time order.
+            if (_achievementTimerService != null)
+                _achievementTimerService.SchedulingEnabled = on;
+
+            if (on)
             {
                 _achievementTimer.Start();
                 TimerToggleButton.Content = "Stop Timer";
-                UpdateTimerStatusIndicator(true);
             }
             else
             {
                 _achievementTimer.Stop();
                 TimerToggleButton.Content = "Start Timer";
-                UpdateTimerStatusIndicator(false);
             }
+
+            UpdateTimerStatusIndicator(on);
+            // Repaint right away instead of leaving the old text until the next 1s tick.
+            UpdateNextUnlockCountdown();
         }
 
         private void OnTimeTimerTick(object? sender, EventArgs e)
         {
             CurrentTimeLabel.Text = $"Current Time: {DateTime.Now:yyyy/MM/dd HH:mm:ss}";
+            // Driven from here rather than _achievementTimer so the "paused" warning still appears
+            // (and stays current) while the Timer toggle — and with it _achievementTimer — is off.
+            UpdateNextUnlockCountdown();
         }
 
         private void OnCallbackTimerTick(object? sender, EventArgs e)
@@ -1542,7 +1689,9 @@ namespace RunGame
 
                 if (achievement.Counter == 0)
                 {
-                    achievement.IsAchieved = true;
+                    // Stage the unlock; PerformStore below writes everything that is staged and
+                    // brings IsAchieved up to date once Steam has accepted it.
+                    achievement.DesiredAchieved = true;
                     achievement.Counter = -1;
                     _achievementCounters[achievement.Id] = -1;
                     shouldStore = true;
@@ -1562,11 +1711,14 @@ namespace RunGame
 
         private async Task<bool> ShowConfirmationDialog(string title, string message)
         {
+            // Height follows the message: callers pass anything from one line to a multi-line list
+            // of pending timers, and a fixed height clipped the buttons off the longer ones.
             var dialog = new Window
             {
                 Title = title,
                 Width = 450,
-                Height = 280,
+                MinHeight = 160,
+                SizeToContent = SizeToContent.Height,
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
                 CanResize = false
             };
@@ -1800,6 +1952,48 @@ namespace RunGame
             }
         }
 
+        /// <summary>
+        /// Refreshes the label beside the timer indicator, once a second. With the Timer toggle on
+        /// it counts down to the next scheduled unlock; with it off it warns that pending schedules
+        /// are paused, since the toggle is the master switch and nothing will fire until it is on.
+        /// </summary>
+        private void UpdateNextUnlockCountdown()
+        {
+            var scheduled = _achievementTimerService?.GetAllScheduledAchievements();
+            bool on = TimerToggleButton.IsChecked == true;
+
+            if (scheduled is not { Count: > 0 })
+            {
+                NextUnlockText.Text = on ? "no scheduled unlocks" : string.Empty;
+                return;
+            }
+
+            if (!on)
+            {
+                NextUnlockText.Text = $"⏸ {scheduled.Count} scheduled unlock(s) paused — press Start Timer";
+                return;
+            }
+
+            var next = scheduled.OrderBy(kv => kv.Value).First();
+
+            // Clamp: a due entry can sit here for up to one tick before the service commits it.
+            var remaining = next.Value - DateTime.Now;
+            if (remaining < TimeSpan.Zero)
+                remaining = TimeSpan.Zero;
+
+            var eta = remaining.TotalHours >= 1
+                ? $"{(int)remaining.TotalHours}:{remaining.Minutes:00}:{remaining.Seconds:00}"
+                : $"{remaining.Minutes}:{remaining.Seconds:00}";
+
+            var name = _allAchievements.FirstOrDefault(a => a.Id == next.Key)?.Name;
+            if (string.IsNullOrWhiteSpace(name))
+                name = next.Key;
+
+            NextUnlockText.Text = scheduled.Count > 1
+                ? $"⏳ next: {name} in {eta} (+{scheduled.Count - 1} queued)"
+                : $"⏳ next: {name} in {eta}";
+        }
+
         private void OnTimerStatusUpdated(string status)
         {
             Dispatcher.UIThread.Post(() =>
@@ -1816,6 +2010,8 @@ namespace RunGame
                 if (achievement != null && !achievement.IsAchieved)
                 {
                     achievement.IsAchieved = true;
+                    // Steam now holds this, so clear any tick the user had staged for it.
+                    achievement.ResetStaging();
                     achievement.ScheduledUnlockTime = null;
                     AppLogger.LogDebug($"UI updated for timer-unlocked achievement: {achievementId}");
                 }

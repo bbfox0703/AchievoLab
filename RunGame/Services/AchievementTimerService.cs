@@ -44,12 +44,39 @@ namespace RunGame.Services
         // single pass can perform Steam I/O that may take longer than the interval.
         private int _inCallback;
 
+        // Backing field for SchedulingEnabled: written from the UI thread, read every tick on the
+        // timer thread, so it must be volatile (same reason as _disposed).
+        private volatile bool _schedulingEnabled;
+
         /// <summary>
         /// Gets or sets whether completionist protection is enabled (mirrors the UI opt-in).
         /// When true, a completionist achievement scheduled at the same time as others is only
         /// unlocked once every other (non-protected) achievement is already unlocked.
         /// </summary>
         public bool ProtectionEnabled { get; set; } = true;
+
+        /// <summary>
+        /// Gets or sets whether scheduled unlocks are actually committed — the master switch behind
+        /// the UI's Start/Stop Timer button. Defaults to <c>false</c>; the owner is expected to
+        /// mirror the toggle onto it.
+        /// <para>
+        /// Pausing keeps every schedule intact: nothing is cancelled and nothing is committed.
+        /// Schedules that fall due while paused are committed on the first tick after resuming,
+        /// still in ascending scheduled-time order, so the write order the user set is preserved.
+        /// </para>
+        /// </summary>
+        public bool SchedulingEnabled
+        {
+            get => _schedulingEnabled;
+            set
+            {
+                if (_schedulingEnabled == value)
+                    return;
+
+                _schedulingEnabled = value;
+                AppLogger.LogDebug($"Scheduled unlocks {(value ? "resumed" : "paused")}");
+            }
+        }
 
         /// <summary>
         /// Occurs when the service status changes (e.g., achievement unlocked, stats stored).
@@ -210,9 +237,11 @@ namespace RunGame.Services
         /// <param name="state">Timer state (unused).</param>
         private void CheckScheduledAchievements(object? state)
         {
-            // Skip this tick if the previous one is still running (100ms interval + Steam I/O), or if
+            // Skip this tick if scheduling is paused (Timer toggle off — schedules are kept, just not
+            // committed), if the previous tick is still running (100ms interval + Steam I/O), or if
             // the service has been disposed (window closing) so we don't touch a torn-down Steam client.
-            if (_disposed || System.Threading.Interlocked.CompareExchange(ref _inCallback, 1, 0) != 0)
+            if (_disposed || !_schedulingEnabled ||
+                System.Threading.Interlocked.CompareExchange(ref _inCallback, 1, 0) != 0)
                 return;
 
             try

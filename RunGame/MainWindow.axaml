@@ -7,6 +7,14 @@
         Title="AchievoLab:RunGame"
         Width="1400" Height="800">
 
+    <Window.Styles>
+        <!-- Applied to the status column while a row has an unsaved staged change. -->
+        <Style Selector="TextBlock.staged">
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Foreground" Value="{DynamicResource SystemControlForegroundAccentBrush}"/>
+        </Style>
+    </Window.Styles>
+
     <Grid RowDefinitions="Auto,*,Auto">
 
         <!-- Top: Toolbar -->
@@ -14,33 +22,39 @@
             <Button x:Name="RefreshButton" Content="Refresh" Click="OnRefresh">
                 <ToolTip.Tip>
                     <TextBlock MaxWidth="360" TextWrapping="Wrap"
-                               Text="Reload all achievements and statistics from Steam. Discards the current selection and any unsaved edits, and shows the live state."/>
+                               Text="Reload all achievements and statistics from Steam. Discards every ticked change you have not stored yet (scheduled timers are kept), and shows the live state."/>
                 </ToolTip.Tip>
             </Button>
             <Button x:Name="StoreButton" Content="Store" Click="OnStore">
                 <ToolTip.Tip>
                     <TextBlock MaxWidth="380" TextWrapping="Wrap"
-                               Text="Save your changes to Steam. Store TOGGLES every selected achievement: a locked one becomes UNLOCKED, and an already-unlocked one is reverted back to LOCKED. It also writes any edited statistics. Protected (🔒) items are skipped. A confirmation dialog lists exactly what will change before anything is written."/>
+                               Text="Write the ticked states to Steam. Every achievement whose checkbox differs from its current state is changed to match the checkbox — ticked becomes UNLOCKED, unticked becomes LOCKED. Rows you did not touch are left alone. Edited statistics are written too. Protected (🔒) items cannot be changed. A confirmation dialog lists exactly what will change before anything is written."/>
                 </ToolTip.Tip>
             </Button>
             <Separator Width="1" Margin="4,4"/>
-            <!-- Click handlers match the labels: "unlocked" selects achieved items, "locked" selects unachieved items. -->
-            <Button x:Name="LockAllButton" Content="Select all unlocked" Click="OnLockAll">
+            <!-- These only tick/untick checkboxes; nothing is written until Store is pressed. -->
+            <Button x:Name="UnlockAllButton" Content="Tick all" Click="OnUnlockAll">
                 <ToolTip.Tip>
                     <TextBlock MaxWidth="360" TextWrapping="Wrap"
-                               Text="Select every achievement that is currently UNLOCKED (and not protected). Handy before pressing Store to revert those achievements back to locked."/>
+                               Text="Tick every modifiable (non-protected) achievement, staging an unlock for each one that is still locked. Nothing is written until you press Store."/>
                 </ToolTip.Tip>
             </Button>
-            <Button x:Name="UnlockAllButton" Content="Select all locked" Click="OnUnlockAll">
+            <Button x:Name="LockAllButton" Content="Untick all" Click="OnLockAll">
                 <ToolTip.Tip>
                     <TextBlock MaxWidth="360" TextWrapping="Wrap"
-                               Text="Select every achievement that is currently LOCKED (and not protected). Handy before pressing Store to unlock those achievements."/>
+                               Text="Untick every modifiable (non-protected) achievement, staging a lock for each one that is currently unlocked. Nothing is written until you press Store."/>
                 </ToolTip.Tip>
             </Button>
-            <Button x:Name="InvertAllButton" Content="Select All" Click="OnInvertAll">
+            <Button x:Name="InvertAllButton" Content="Invert all" Click="OnInvertAll">
                 <ToolTip.Tip>
                     <TextBlock MaxWidth="360" TextWrapping="Wrap"
-                               Text="Select all modifiable (non-protected) achievements regardless of their current state. Pressing Store then toggles the state of every one of them."/>
+                               Text="Flip the checkbox of every modifiable (non-protected) achievement, so locked ones are staged to unlock and unlocked ones are staged to lock. Nothing is written until you press Store."/>
+                </ToolTip.Tip>
+            </Button>
+            <Button x:Name="ResetChangesButton" Content="Reset ticks" Click="OnResetStagedChanges">
+                <ToolTip.Tip>
+                    <TextBlock MaxWidth="360" TextWrapping="Wrap"
+                               Text="Discard every staged change and put all checkboxes back to the state Steam currently holds. Does not touch Steam or any scheduled timer."/>
                 </ToolTip.Tip>
             </Button>
             <Separator Width="1" Margin="4,4"/>
@@ -55,7 +69,7 @@
                           Click="OnTimerToggle">
                 <ToolTip.Tip>
                     <TextBlock MaxWidth="360" TextWrapping="Wrap"
-                               Text="Start/stop the on-screen timer status indicator (it blinks while active). Achievements you queue with 'Set Timer' unlock automatically in the background at their scheduled time. The button reads 'Stop Timer' while active."/>
+                               Text="Master switch for scheduled unlocks. While ON, achievements you queue with 'Set Timer' unlock automatically at their scheduled time, the status indicator blinks, and a countdown to the next unlock is shown. While OFF nothing unlocks — schedules are kept, not cancelled, and any that fall due meanwhile are unlocked in their original order as soon as you switch it back on. The button reads 'Stop Timer' while active."/>
                 </ToolTip.Tip>
             </ToggleButton>
             <Separator Width="1" Margin="4,4"/>
@@ -88,32 +102,40 @@
                         <Button x:Name="SetTimerButton" Content="Set Timer" Click="OnSetTimer">
                             <ToolTip.Tip>
                                 <TextBlock MaxWidth="360" TextWrapping="Wrap"
-                                           Text="Schedule the selected LOCKED achievements to unlock automatically at a date/time you pick, down to 0.1 second. A game's 'unlock all achievements' achievement is always unlocked last."/>
+                                           Text="Same input as Store — the ticked achievements — but applied at a date/time you pick instead of now, down to 0.1 second. Only ticks that would UNLOCK a locked achievement can be scheduled; ticks stay on while the timer is pending. A game's 'unlock all achievements' achievement is always unlocked last."/>
                             </ToolTip.Tip>
                         </Button>
                         <Button x:Name="ResetAllTimersButton" Content="Reset All Timers" Click="OnResetAllTimers"
                                 ToolTip.Tip="Cancel every scheduled unlock timer."/>
-                        <Button x:Name="ResetSelectedTimersButton" Content="Reset Selected Timers" Click="OnResetSelectedTimers"
-                                ToolTip.Tip="Cancel the scheduled unlock timers for the currently selected achievements only."/>
+                        <Button x:Name="ResetSelectedTimersButton" Content="Reset Ticked Timers" Click="OnResetSelectedTimers"
+                                ToolTip.Tip="Cancel the scheduled unlock timers for the ticked achievements only, and clear their ticks."/>
                         <TextBlock Text="⚪ Timer Off" x:Name="TimerStatusText" VerticalAlignment="Center" Margin="10,0,0,0" FontWeight="Bold"/>
+                        <TextBlock Text="" x:Name="NextUnlockText" VerticalAlignment="Center" MaxWidth="340"
+                                   FontFamily="Consolas" TextTrimming="CharacterEllipsis"
+                                   Foreground="{DynamicResource SystemControlForegroundAccentBrush}"
+                                   ToolTip.Tip="Countdown to the next scheduled auto unlock while the timer is on, or a warning that pending schedules are paused while it is off."/>
                     </StackPanel>
 
                     <!-- Achievement List -->
+                    <!-- Row selection no longer drives anything: Store and Set Timer both act on the
+                         row checkboxes, so multi-select highlight would only suggest a meaning it
+                         does not have. Single selection is kept for keyboard navigation. -->
                     <ListBox Grid.Row="1" x:Name="AchievementListView"
-                             SelectionMode="Multiple"
+                             SelectionMode="Single"
                              Margin="10,0,10,10">
                         <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="models:AchievementInfo">
                                 <Border Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
                                         BorderBrush="{DynamicResource SystemControlForegroundBaseMediumBrush}"
                                         BorderThickness="1" CornerRadius="8" Margin="2" Padding="10">
-                                    <Grid ColumnDefinitions="60,60,220,250,300,180,180,80">
-                                        <!-- Checkbox (Read-only status indicator) -->
+                                    <Grid ColumnDefinitions="60,60,150,220,250,300,180,180,80">
+                                        <!-- Checkbox: the state you WANT. Ticked = should be unlocked.
+                                             Store writes every row whose tick differs from the status column. -->
                                         <CheckBox Grid.Column="0"
-                                                  IsChecked="{Binding IsAchieved, Mode=OneWay}"
-                                                  IsEnabled="False"
-                                                  Content="✓"
-                                                  Margin="0,0,10,0"/>
+                                                  IsChecked="{Binding DesiredAchieved, Mode=TwoWay}"
+                                                  IsEnabled="{Binding IsNotProtected}"
+                                                  Margin="0,0,10,0"
+                                                  ToolTip.Tip="Tick to unlock this achievement, untick to lock it, then press Store. Protected achievements cannot be changed."/>
 
                                         <!-- Protection Indicator (only show for protected, unachieved) -->
                                         <TextBlock Grid.Column="0"
@@ -143,8 +165,18 @@
                                             </Grid>
                                         </Border>
 
-                                        <!-- ID -->
+                                        <!-- Current state (read-only). Shows "Locked → Unlocked" style
+                                             text while the checkbox stages a change Store has not written. -->
                                         <TextBlock Grid.Column="2"
+                                                   Text="{Binding StatusText}"
+                                                   FontFamily="Consolas"
+                                                   FontSize="12"
+                                                   Classes.staged="{Binding IsModified}"
+                                                   VerticalAlignment="Center"
+                                                   Margin="0,0,10,0"/>
+
+                                        <!-- ID -->
+                                        <TextBlock Grid.Column="3"
                                                    Text="{Binding Id}"
                                                    FontFamily="Consolas"
                                                    FontSize="12"
@@ -152,7 +184,7 @@
                                                    Margin="0,0,10,0"/>
 
                                         <!-- Name -->
-                                        <TextBlock Grid.Column="3"
+                                        <TextBlock Grid.Column="4"
                                                    Text="{Binding Name}"
                                                    FontWeight="SemiBold"
                                                    TextWrapping="Wrap"
@@ -160,7 +192,7 @@
                                                    Margin="0,0,10,0"/>
 
                                         <!-- Description -->
-                                        <TextBlock Grid.Column="4"
+                                        <TextBlock Grid.Column="5"
                                                    Text="{Binding Description}"
                                                    TextWrapping="Wrap"
                                                    Opacity="0.8"
@@ -168,7 +200,7 @@
                                                    Margin="0,0,10,0"/>
 
                                         <!-- Unlock Time (to 0.1s) -->
-                                        <TextBlock Grid.Column="5"
+                                        <TextBlock Grid.Column="6"
                                                    Text="{Binding UnlockTime, StringFormat='{}{0:yyyy-MM-dd HH:mm:ss.f}'}"
                                                    FontFamily="Consolas"
                                                    FontSize="12"
@@ -176,7 +208,7 @@
                                                    Margin="0,0,10,0"/>
 
                                         <!-- Scheduled Time (to 0.1s) -->
-                                        <TextBlock Grid.Column="6"
+                                        <TextBlock Grid.Column="7"
                                                    Text="{Binding ScheduledUnlockTime, Mode=OneWay, StringFormat='{}{0:yyyy-MM-dd HH:mm:ss.f}'}"
                                                    FontFamily="Consolas"
                                                    FontSize="12"
@@ -185,7 +217,7 @@
                                                    Margin="0,0,10,0"/>
 
                                         <!-- Permission -->
-                                        <TextBlock Grid.Column="7"
+                                        <TextBlock Grid.Column="8"
                                                    Text="{Binding Permission}"
                                                    FontFamily="Consolas"
                                                    FontSize="12"
