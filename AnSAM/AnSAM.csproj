@@ -39,10 +39,6 @@
     <PackageReference Include="MicroCom.Runtime" Version="0.11.6" />
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.10" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.10" />
-    <PackageReference Include="Microsoft.Testing.Extensions.Telemetry" Version="2.3.2" />
-    <PackageReference Include="Microsoft.Testing.Extensions.TrxReport.Abstractions" Version="2.3.2" />
-    <PackageReference Include="Microsoft.Testing.Platform" Version="2.3.2" />
-    <PackageReference Include="Microsoft.Testing.Platform.MSBuild" Version="2.3.2" />
     <PackageReference Include="runtime.win-x64.Microsoft.DotNet.ILCompiler" Version="10.0.10" />
     <PackageReference Include="Serilog" Version="4.4.0" />
     <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
@@ -52,6 +48,13 @@
     <PackageReference Include="SkiaSharp.NativeAssets.WebAssembly" Version="4.150.1" />
     <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="4.150.1" />
     <PackageReference Include="Tmds.DBus.Protocol" Version="0.94.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Windows-only: Steam client interop plus registry lookups. See CommonUtilities.csproj. -->
+    <AssemblyAttribute Include="System.Runtime.Versioning.SupportedOSPlatform">
+      <_Parameter1>windows</_Parameter1>
+    </AssemblyAttribute>
   </ItemGroup>
 
   <ItemGroup>
@@ -77,6 +80,5 @@
     <OutputPath>..\output\Release\$(Platform)\$(TargetFramework)\AnSAM\</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
-    <SelfContained>false</SelfContained>
   </PropertyGroup>
 </Project>

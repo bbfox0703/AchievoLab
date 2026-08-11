@@ -9,6 +9,18 @@
     <PublishReadyToRun>false</PublishReadyToRun>
   </PropertyGroup>
   <ItemGroup>
+    <!-- The whole solution is Windows-only: it drives the 64-bit Steam client through native
+         interop and reads Steam's install path out of the registry, and only win-x64 is shipped.
+         Saying so on the assembly is what CA1416 needs; without it every Registry call is flagged
+         as a cross-platform hazard on a code path that can never run anywhere else. Kept as an
+         assembly attribute rather than a net10.0-windows TFM so output paths and the documented
+         target framework stay as they are. -->
+    <AssemblyAttribute Include="System.Runtime.Versioning.SupportedOSPlatform">
+      <_Parameter1>windows</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Avalonia" Version="12.1.0" />
 <PackageReference Include="Serilog" Version="4.4.0" />
     <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1" />
