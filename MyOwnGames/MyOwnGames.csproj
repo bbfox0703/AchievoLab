@@ -50,6 +50,12 @@
     <ProjectReference Include="..\CommonUtilities\CommonUtilities.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- SteamApiService.ResetRateLimitBlock: the 429 block is process-wide static state that
+         tests must clear between cases. -->
+    <InternalsVisibleTo Include="MyOwnGames.Tests" />
+  </ItemGroup>
+
   <!-- Publish Properties -->
   <PropertyGroup>
     <PublishReadyToRun Condition="'$(Configuration)' == 'Debug'">False</PublishReadyToRun>

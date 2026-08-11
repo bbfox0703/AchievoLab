@@ -13,7 +13,7 @@
         <StackPanel Orientation="Horizontal" Spacing="4" Margin="4">
             <AutoCompleteBox x:Name="SearchBox"
                              Width="336"
-                             Watermark="Type keyword..."
+                             PlaceholderText="Type keyword..."
                              FilterMode="Contains" />
             <ComboBox x:Name="LanguageComboBox"
                       Width="150"

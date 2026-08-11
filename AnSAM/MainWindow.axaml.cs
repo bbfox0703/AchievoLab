@@ -24,7 +24,6 @@ namespace AnSAM
         private readonly List<GameItem> _allGames = new();
         private readonly SteamClient _steamClient;
         private readonly SharedImageService _imageService;
-        private volatile bool _isLanguageSwitching = false;
         private string _currentLanguage = "english";
         private CancellationTokenSource? _languageSwitchCts;
         private readonly SemaphoreSlim _languageSwitchLock = new(1, 1);
@@ -42,7 +41,8 @@ namespace AnSAM
 
         private bool _autoLoaded;
         private bool _languageInitialized;
-        private readonly DispatcherTimer _cdnStatsTimer;
+        // Nullable because the parameterless designer constructor never creates it.
+        private readonly DispatcherTimer? _cdnStatsTimer;
         private DispatcherTimer? _searchDebounceTimer;
         private readonly ThemeManagementService _themeService = new();
         private readonly ApplicationSettingsService _settingsService = new();
@@ -131,8 +131,14 @@ namespace AnSAM
                 LanguageComboBox.Items.Add(lang);
             }
 
+            // Restore the saved preference. LanguageComboBox_SelectionChanged has always written
+            // "Language" to the shared settings.json, but the value read back here was discarded
+            // and startup hard-coded english, so the setting never had any effect.
             _settingsService.TryGetString("Language", out var saved);
-            string initial = "english";
+            string initial = !string.IsNullOrWhiteSpace(saved) &&
+                             languages.Contains(saved, StringComparer.OrdinalIgnoreCase)
+                ? ordered.First(l => string.Equals(l, saved, StringComparison.OrdinalIgnoreCase))
+                : "english";
 
             LanguageComboBox.SelectedItem = initial;
             SteamLanguageResolver.OverrideLanguage = initial;
@@ -169,7 +175,7 @@ namespace AnSAM
             {
                 var inputBox = new TextBox
                 {
-                    Watermark = "Enter Steam App ID (e.g., 730 for CS:GO)"
+                    PlaceholderText = "Enter Steam App ID (e.g., 730 for CS:GO)"
                 };
 
                 var dialog = new Window
@@ -287,8 +293,6 @@ namespace AnSAM
 
                     try
                     {
-                        _isLanguageSwitching = true;
-
                         SteamLanguageResolver.OverrideLanguage = lang;
                         await _imageService.SetLanguage(lang);
                         _settingsService.TrySetString("Language", lang);
@@ -320,10 +324,6 @@ namespace AnSAM
 
                         await ShowMessageDialog("Language switch failed", "Unable to switch language. Please try again.");
                         StatusText.Text = "Ready";
-                    }
-                    finally
-                    {
-                        _isLanguageSwitching = false;
                     }
                 }
                 catch (ObjectDisposedException)
@@ -458,8 +458,11 @@ namespace AnSAM
 
         private void OnWindowClosed(object? sender, EventArgs args)
         {
-            _cdnStatsTimer?.Stop();
-            _cdnStatsTimer.Tick -= CdnStatsTimer_Tick;
+            if (_cdnStatsTimer != null)
+            {
+                _cdnStatsTimer.Stop();
+                _cdnStatsTimer.Tick -= CdnStatsTimer_Tick;
+            }
 
             GameListService.StatusChanged -= OnGameListStatusChanged;
             GameListService.ProgressChanged -= OnGameListProgressChanged;
@@ -836,12 +839,14 @@ namespace AnSAM
                         await Task.Delay(1, ct);
                     }
                     catch (OperationCanceledException) { break; }
+#if DEBUG
                     catch (Exception ex)
                     {
-#if DEBUG
                         AppLogger.LogDebug($"Phase 1 error at {i}: {ex.Message}");
-#endif
                     }
+#else
+                    catch { }
+#endif
                 }
 
                 UpdateProgress(progressContext, 33.0, $"{totalGames}/{totalGames}");
@@ -895,12 +900,14 @@ namespace AnSAM
                         await Task.Delay(50, ct);
                     }
                     catch (OperationCanceledException) { break; }
+#if DEBUG
                     catch (Exception ex)
                     {
-#if DEBUG
                         AppLogger.LogDebug($"Phase 2 error at {i}: {ex.Message}");
-#endif
                     }
+#else
+                    catch { }
+#endif
                 }
 
                 UpdateProgress(progressContext, 66.0, $"{gamesNeedingEnglish.Count}/{gamesNeedingEnglish.Count}");
@@ -947,12 +954,14 @@ namespace AnSAM
                             await Task.Delay(100, ct);
                         }
                         catch (OperationCanceledException) { break; }
+#if DEBUG
                         catch (Exception ex)
                         {
-#if DEBUG
                             AppLogger.LogDebug($"Phase 3 error at {i}: {ex.Message}");
-#endif
                         }
+#else
+                        catch { }
+#endif
                     }
                 }
 
@@ -992,6 +1001,17 @@ namespace AnSAM
                 if (!File.Exists(steamGamesXmlPath))
                 {
                     AppLogger.LogDebug("steam_games.xml not found, using English titles only");
+                    return;
+                }
+
+                // MyOwnGames rewrites this whole file every 100 games while it runs, so reading it
+                // unlocked can land mid-write and throw. GameCacheService.RefreshAsync already
+                // takes this lock for the same file; this path was the one that did not.
+                using var fileLock = new CrossProcessFileLock(steamGamesXmlPath);
+                if (!fileLock.TryAcquire(TimeSpan.FromSeconds(5)))
+                {
+                    // Keep whatever titles are already loaded rather than dropping to English.
+                    AppLogger.LogDebug("steam_games.xml is locked by another process; keeping the current localized titles.");
                     return;
                 }
 
@@ -1247,10 +1267,13 @@ namespace AnSAM
                 }
             }
             catch (OperationCanceledException) { }
+#if DEBUG
             catch (Exception ex)
             {
-#if DEBUG
                 AppLogger.LogDebug($"Error loading image for {ID}: {ex.Message}");
+#else
+            catch
+            {
 #endif
                 Dispatcher.UIThread.Post(() => IconUri = noIconPath);
             }

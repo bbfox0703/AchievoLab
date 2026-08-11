@@ -12,6 +12,14 @@ namespace RunGame.Steam
     public sealed partial class ModernSteamClient : IDisposable, ISteamUserStats
     {
         private bool _initialized;
+
+        /// <summary>
+        /// True once SteamAPI_InitFlat has succeeded, regardless of whether the rest of
+        /// initialization did. Dispose keys off this so a half-initialized instance still shuts the
+        /// native API down.
+        /// </summary>
+        private bool _apiInitialized;
+
         private readonly long _gameId;
         private IntPtr _steamUserStats;
         private IntPtr _steamApps;
@@ -53,6 +61,10 @@ namespace RunGame.Steam
                 }
 
                 AppLogger.LogDebug("Steam API initialized successfully");
+
+                // Tracked separately from _initialized: every failure path below leaves the native
+                // API up but the client unusable, and Dispose must still shut the API down.
+                _apiInitialized = true;
 
                 // Get Steam interfaces using modern accessors
                 _steamUserStats = SteamAPI_SteamUserStats();
@@ -410,7 +422,11 @@ namespace RunGame.Steam
 
         public void Dispose()
         {
-            if (_initialized)
+            // Keyed on _apiInitialized, not _initialized: SteamAPI_InitFlat can succeed and a later
+            // check still fail, leaving _initialized false. Guarding on _initialized made Dispose a
+            // no-op for those instances, so the native API stayed up and the caller's retry ran
+            // SteamAPI_InitFlat a second time against an already-initialized API.
+            if (_apiInitialized)
             {
                 try
                 {
@@ -423,6 +439,7 @@ namespace RunGame.Steam
                 }
                 finally
                 {
+                    _apiInitialized = false;
                     _initialized = false;
                 }
             }

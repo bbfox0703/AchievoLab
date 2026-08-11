@@ -122,6 +122,7 @@ namespace CommonUtilities
             _window.PositionChanged += OnPositionChanged;
             _window.Opened += OnOpened;
             _window.Closing += OnClosing;
+            _window.Closed += OnClosed;
         }
 
         private void ApplySavedPlacement()
@@ -306,7 +307,27 @@ namespace CommonUtilities
 
         // ── Persistence ──────────────────────────────────────────────────────────
 
+        /// <summary>
+        /// Saves on every close attempt but keeps tracking, because a later handler may still
+        /// cancel the close.
+        /// </summary>
+        /// <remarks>
+        /// Attach runs from the window constructor, so this handler is registered before the
+        /// window's own Closing handler and therefore runs first. Detaching here meant that when
+        /// RunGame cancelled the close to ask about pending scheduled unlocks, the window stayed
+        /// open with its placement tracking already torn down — every move and resize for the rest
+        /// of the session was silently forgotten. Detaching now happens in <see cref="OnClosed"/>,
+        /// which only fires once the window really has closed.
+        /// </remarks>
         private void OnClosing(object? sender, WindowClosingEventArgs e)
+        {
+            if (_closed)
+                return;
+
+            SaveCurrentPlacement();
+        }
+
+        private void OnClosed(object? sender, EventArgs e)
         {
             SavePlacement();
         }
@@ -314,7 +335,7 @@ namespace CommonUtilities
         /// <summary>
         /// Persists the current placement immediately and detaches. Idempotent and safe
         /// to call from a <c>ProcessExit</c> / shutdown backstop in addition to the
-        /// window's <c>Closing</c> event — once placement has been saved this no-ops, so
+        /// window's <c>Closed</c> event — once placement has been saved this no-ops, so
         /// there is no double-write.
         /// </summary>
         public void SavePlacement()
@@ -328,6 +349,7 @@ namespace CommonUtilities
             _window.PropertyChanged -= OnWindowPropertyChanged;
             _window.PositionChanged -= OnPositionChanged;
             _window.Closing -= OnClosing;
+            _window.Closed -= OnClosed;
         }
 
         private void SaveCurrentPlacement()

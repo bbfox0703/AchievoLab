@@ -53,22 +53,62 @@ namespace CommonUtilities
                     Directory.CreateDirectory(folder);
                     _settingsFilePath = Path.Combine(folder, "settings.json");
 
-                    if (File.Exists(_settingsFilePath))
-                    {
-                        var json = File.ReadAllText(_settingsFilePath);
-                        _settings = JsonSerializer.Deserialize(json, SettingsJsonContext.Default.DictionaryStringString)
-                                    ?? new Dictionary<string, string>();
-                    }
-                    else
-                    {
-                        _settings = new Dictionary<string, string>();
-                    }
+                    _settings = LoadSettingsFile(_settingsFilePath);
                 }
                 catch (Exception ex)
                 {
                     AppLogger.LogDebug($"ApplicationSettingsService: Exception loading settings: {ex.Message}");
                     _initializationFailed = true;
                     _settings = null;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Reads and parses settings.json, tolerating both a concurrent writer and a corrupt file.
+        /// </summary>
+        /// <remarks>
+        /// A sharing violation while a sibling process is mid-write used to propagate out of
+        /// Initialize and latch _initializationFailed for the lifetime of this instance, silently
+        /// disabling theme, language and window-placement persistence. Retry briefly instead.
+        ///
+        /// Unparseable content is not a reason to give up either: the corrupt file is moved aside
+        /// so the user can still save new settings, rather than hitting the same failure on every
+        /// start with no way to recover from inside the app.
+        /// </remarks>
+        private static Dictionary<string, string> LoadSettingsFile(string path)
+        {
+            if (!File.Exists(path))
+            {
+                return new Dictionary<string, string>();
+            }
+
+            const int attempts = 3;
+            for (int attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    var json = File.ReadAllText(path);
+                    return JsonSerializer.Deserialize(json, SettingsJsonContext.Default.DictionaryStringString)
+                           ?? new Dictionary<string, string>();
+                }
+                catch (JsonException ex)
+                {
+                    AppLogger.LogDebug($"ApplicationSettingsService: settings.json is corrupt ({ex.Message}); starting fresh.");
+                    try { File.Move(path, path + ".corrupt", overwrite: true); }
+                    catch (Exception moveEx)
+                    {
+                        AppLogger.LogDebug($"ApplicationSettingsService: could not set the corrupt file aside: {moveEx.Message}");
+                    }
+                    return new Dictionary<string, string>();
+                }
+                catch (IOException) when (attempt < attempts - 1)
+                {
+                    Thread.Sleep(50);
+                }
+                catch (UnauthorizedAccessException) when (attempt < attempts - 1)
+                {
+                    Thread.Sleep(50);
                 }
             }
         }
@@ -354,7 +394,22 @@ namespace CommonUtilities
                     }
 
                     var json = JsonSerializer.Serialize(merged, SettingsJsonContext.Default.DictionaryStringString);
-                    File.WriteAllText(_settingsFilePath, json);
+
+                    // Write to a temp file and swap it in, rather than truncating settings.json in
+                    // place. File.WriteAllText leaves a window where the real file is empty or
+                    // half-written; losing power or closing the app inside it left behind truncated
+                    // JSON that failed to parse on every subsequent start.
+                    var tempPath = $"{_settingsFilePath}.{Environment.ProcessId}.tmp";
+                    try
+                    {
+                        File.WriteAllText(tempPath, json);
+                        File.Move(tempPath, _settingsFilePath, overwrite: true);
+                    }
+                    catch
+                    {
+                        try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { }
+                        throw;
+                    }
 
                     // Adopt the merged view so this instance also sees sibling-process keys.
                     _settings = merged;

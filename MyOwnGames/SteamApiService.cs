@@ -76,12 +76,31 @@ namespace MyOwnGames
         /// Timestamp until which Steam API calls are blocked due to HTTP 429 rate limiting.
         /// Null if not currently blocked.
         /// </summary>
-        private DateTime? _steamApiBlockedUntil = null;
+        /// <remarks>
+        /// Static because the block has to outlive the instance. MainWindow builds a new
+        /// SteamApiService on every "Get Game list" click and disposes it in the finally, so an
+        /// instance field reset the 30-minute block the moment the user clicked again — exactly
+        /// when it is most needed.
+        /// </remarks>
+        private static DateTime? _steamApiBlockedUntil = null;
 
         /// <summary>
         /// Lock object for thread-safe access to _steamApiBlockedUntil.
         /// </summary>
-        private readonly object _blockLock = new();
+        private static readonly object _blockLock = new();
+
+        /// <summary>
+        /// Clears the process-wide 429 block. Exists because <see cref="_steamApiBlockedUntil"/> is
+        /// static, so without this a test that exercises the 429 path would block every test that
+        /// runs after it in the same process.
+        /// </summary>
+        internal static void ResetRateLimitBlock()
+        {
+            lock (_blockLock)
+            {
+                _steamApiBlockedUntil = null;
+            }
+        }
 
         /// <summary>
         /// JSON serializer options configured for Steam API response deserialization.
@@ -278,8 +297,11 @@ namespace MyOwnGames
 
                 return total;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
+                // Cancellation is not an error and must keep its type: wrapping it meant the
+                // caller's catch (OperationCanceledException) never matched, so pressing Stop
+                // reported a failure instead of "cancelled".
                 throw new Exception($"Error fetching Steam games: {ex.Message}", ex);
             }
         }

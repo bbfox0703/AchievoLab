@@ -91,12 +91,14 @@ namespace AnSAM.Services
                     CommonUtilities.AppLogger.LogDebug($"Loaded {ids.Count} app IDs from usergames.xml");
 #endif
                 }
+#if DEBUG
                 catch (Exception ex)
                 {
-#if DEBUG
                     CommonUtilities.AppLogger.LogDebug($"Failed to read usergames.xml: {ex.Message}");
-#endif
                 }
+#else
+                catch { }
+#endif
             }
 
             // Add from steam_games.xml (MyOwnGames complete list)
@@ -124,12 +126,14 @@ namespace AnSAM.Services
 #endif
                     }
                 }
+#if DEBUG
                 catch (Exception ex)
                 {
-#if DEBUG
                     CommonUtilities.AppLogger.LogDebug($"Failed to read steam_games.xml: {ex.Message}");
-#endif
                 }
+#else
+                catch { }
+#endif
             }
 
             // Step 6: If all sources failed, throw exception
@@ -277,10 +281,13 @@ namespace AnSAM.Services
 #endif
                 return true;
             }
+#if DEBUG
             catch (Exception ex)
             {
-#if DEBUG
                 CommonUtilities.AppLogger.LogDebug($"Failed to add App ID {appId} to usergames.xml: {ex.Message}");
+#else
+            catch
+            {
 #endif
                 return false;
             }

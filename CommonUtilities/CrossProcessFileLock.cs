@@ -169,13 +169,10 @@ namespace CommonUtilities
         }
 
         /// <summary>
-        /// Releases the cross-process lock.
+        /// Releases the cross-process lock. Idempotent.
         /// </summary>
         public void Release()
         {
-            if (_disposed)
-                return;
-
             try
             {
                 // Closing the stream drops the exclusive handle; DeleteOnClose removes the file.
@@ -201,8 +198,11 @@ namespace CommonUtilities
             if (_disposed)
                 return;
 
-            _disposed = true;
+            // Release first, THEN mark disposed. The other order made Dispose a no-op — Release
+            // used to start with `if (_disposed) return;`, so `using var fileLock = ...` never
+            // actually let go of the lock file and its handle stayed open until the process ended.
             Release();
+            _disposed = true;
         }
     }
 

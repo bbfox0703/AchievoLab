@@ -28,8 +28,17 @@ namespace RunGame.Services
     {
         private readonly ISteamUserStats _steamClient;
         private readonly long _gameId;
-        private readonly List<AchievementDefinition> _achievementDefinitions = new();
-        private readonly List<StatDefinition> _statDefinitions = new();
+        // Parse scratch space. Only LoadUserGameStatsSchema and its parse helpers touch these,
+        // and only on the UI thread.
+        private readonly List<AchievementDefinition> _achievementStaging = new();
+        private readonly List<StatDefinition> _statStaging = new();
+
+        // What every reader sees. Replaced wholesale by PublishDefinitions rather than mutated in
+        // place: SetAchievement runs on the unlock timer's callback and on Store's thread pool
+        // thread, and used to enumerate the very list the UI thread was clearing and refilling
+        // during a language switch or Refresh.
+        private volatile IReadOnlyList<AchievementDefinition> _achievementDefinitions = Array.Empty<AchievementDefinition>();
+        private volatile IReadOnlyList<StatDefinition> _statDefinitions = Array.Empty<StatDefinition>();
 
         /// <summary>
         /// Gets or sets a value indicating whether automatic cascading of stat-based achievements is enabled.
@@ -119,45 +128,30 @@ namespace RunGame.Services
 
                 AppLogger.LogDebug($"Found schema file, attempting to load: {path}");
                 
+                // The retry exists because Steam rewrites this file while it runs, so a read can
+                // land mid-write. It has to key off a null result: LoadAsBinary catches
+                // IOException and UnauthorizedAccessException internally and returns null, so
+                // catching those types out here never fired and the backoff never ran — all three
+                // attempts hammered the file back to back with no delay between them.
                 KeyValue? kv = null;
-                try
+                for (int attempt = 0; attempt < 3; attempt++)
                 {
-                    // Try multiple times with different approaches
-                    for (int attempt = 0; attempt < 3; attempt++)
+                    kv = KeyValue.LoadAsBinary(path);
+                    if (kv != null)
                     {
-                        try
-                        {
-                            kv = KeyValue.LoadAsBinary(path);
-                            if (kv != null)
-                            {
-                                AppLogger.LogDebug($"Successfully loaded KeyValue on attempt {attempt + 1}");
-                                break;
-                            }
-                            AppLogger.LogDebug($"KeyValue.LoadAsBinary returned null on attempt {attempt + 1}");
-                        }
-                        catch (IOException ioEx)
-                        {
-                            AppLogger.LogDebug($"IOException on attempt {attempt + 1}: {ioEx.Message}");
-                            if (attempt < 2) // Wait and retry
-                            {
-                                System.Threading.Thread.Sleep(100 * (attempt + 1)); // 100ms, 200ms
-                                continue;
-                            }
-                            throw;
-                        }
-                        catch (UnauthorizedAccessException authEx)
-                        {
-                            AppLogger.LogDebug($"UnauthorizedAccessException: {authEx.Message}");
-                            throw;
-                        }
+                        AppLogger.LogDebug($"Successfully loaded KeyValue on attempt {attempt + 1}");
+                        break;
+                    }
+
+                    AppLogger.LogDebug($"KeyValue.LoadAsBinary returned null on attempt {attempt + 1}");
+
+                    if (attempt < 2)
+                    {
+                        System.Threading.Thread.Sleep(100 * (attempt + 1)); // 100ms, 200ms
                     }
                 }
-                catch (Exception ex)
-                {
-                    AppLogger.LogDebug($"Exception loading KeyValue: {ex.GetType().Name} - {ex.Message}");
-                    return false;
-                }
-                
+
+
                 if (kv == null)
                 {
                     AppLogger.LogDebug("Failed to parse KeyValue from schema file after all attempts");
@@ -196,8 +190,9 @@ namespace RunGame.Services
                     }
                 }
                 
-                _achievementDefinitions.Clear();
-                _statDefinitions.Clear();
+                _achievementStaging.Clear();
+                _statStaging.Clear();
+                PublishDefinitions(); // readers see "nothing loaded" until the parse finishes
 
                 var gameIdStr = _gameId.ToString(CultureInfo.InvariantCulture);
                 AppLogger.LogDebug($"Looking for game ID section: {gameIdStr}");
@@ -300,7 +295,9 @@ namespace RunGame.Services
                     }
                 }
 
-                AppLogger.LogDebug($"Schema loading completed. Found {_achievementDefinitions.Count} achievements and {_statDefinitions.Count} stats");
+                PublishDefinitions();
+
+                AppLogger.LogDebug($"Schema loading completed. Found {_achievementStaging.Count} achievements and {_statStaging.Count} stats");
                 return true;
             }
             catch (Exception ex)
@@ -308,6 +305,15 @@ namespace RunGame.Services
                 AppLogger.LogDebug($"Exception in LoadUserGameStatsSchema: {ex.Message}");
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Makes the freshly parsed definitions visible to other threads as one atomic swap.
+        /// </summary>
+        private void PublishDefinitions()
+        {
+            _achievementDefinitions = _achievementStaging.ToArray();
+            _statDefinitions = _statStaging.ToArray();
         }
 
         /// <summary>
@@ -323,7 +329,7 @@ namespace RunGame.Services
 
             AppLogger.LogDebug($"Integer Stat parsed - ID: {id}, Name: '{name}', IncrementOnly: {incrementOnly}, Language: {currentLanguage}");
 
-            _statDefinitions.Add(new IntegerStatDefinition
+            _statStaging.Add(new IntegerStatDefinition
             {
                 Id = id,
                 DisplayName = name,
@@ -347,7 +353,7 @@ namespace RunGame.Services
             var id = stat["name"].AsString("");
             string name = GetLocalizedString(stat["display"]["name"], currentLanguage, id);
 
-            _statDefinitions.Add(new FloatStatDefinition
+            _statStaging.Add(new FloatStatDefinition
             {
                 Id = id,
                 DisplayName = name,
@@ -392,7 +398,7 @@ namespace RunGame.Services
 
                     AppLogger.LogDebug($"Achievement {id} icons - Normal: '{iconNormal}', Locked: '{iconLocked}'");
 
-                    _achievementDefinitions.Add(new AchievementDefinition
+                    _achievementStaging.Add(new AchievementDefinition
                     {
                         Id = id,
                         Name = name,
@@ -462,10 +468,11 @@ namespace RunGame.Services
         /// <returns>A list of achievement information objects.</returns>
         public List<AchievementInfo> GetAchievements()
         {
-            AppLogger.LogDebug($"GetAchievements called - {_achievementDefinitions.Count} definitions available");
+            var definitions = _achievementDefinitions;
+            AppLogger.LogDebug($"GetAchievements called - {definitions.Count} definitions available");
             var achievements = new List<AchievementInfo>();
 
-            foreach (var def in _achievementDefinitions)
+            foreach (var def in definitions)
             {
                 if (string.IsNullOrEmpty(def.Id)) continue;
 
@@ -508,10 +515,11 @@ namespace RunGame.Services
         /// <returns>A list of statistic information objects (IntStatInfo or FloatStatInfo).</returns>
         public List<StatInfo> GetStatistics()
         {
-            AppLogger.LogDebug($"GetStatistics called - {_statDefinitions.Count} definitions available");
+            var definitions = _statDefinitions;
+            AppLogger.LogDebug($"GetStatistics called - {definitions.Count} definitions available");
             var statistics = new List<StatInfo>();
 
-            foreach (var stat in _statDefinitions)
+            foreach (var stat in definitions)
             {
                 if (string.IsNullOrEmpty(stat.Id)) continue;
 
@@ -577,7 +585,9 @@ namespace RunGame.Services
         /// </remarks>
         public bool SetAchievement(string id, bool achieved)
         {
-            // Check if achievement is protected
+            // Reads the published snapshot in one go: this runs on the unlock timer's callback and
+            // on Store's thread pool thread, so it must not enumerate a list the UI thread could be
+            // rebuilding.
             var achievementDef = _achievementDefinitions.FirstOrDefault(a => a.Id == id);
             if (achievementDef != null)
             {

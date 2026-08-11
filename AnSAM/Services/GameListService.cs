@@ -183,13 +183,17 @@ namespace AnSAM.Services
                     return embedded;
                 }
             }
+#if DEBUG
             catch (Exception embeddedEx)
             {
-#if DEBUG
                 AppLogger.LogDebug($"Failed to load embedded game list: {embeddedEx.Message}");
-#endif
+            }
+#else
+            catch
+            {
                 // Fall through to throw below
             }
+#endif
 
             throw new GameListDownloadException("Failed to download game list.", ex);
         }

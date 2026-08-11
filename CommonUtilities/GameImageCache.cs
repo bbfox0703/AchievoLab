@@ -626,10 +626,19 @@ namespace CommonUtilities
                         await response.Content.CopyToAsync(fs, cancellationToken).ConfigureAwait(false);
                     }
 
-                    if (!IsCacheValid(path))
+                    // Re-open and check what was just written. Only discard it when the bytes were
+                    // read and are not an image — an Unreadable result here means the file is
+                    // momentarily locked (an antivirus scan, say), not that the download is bad.
+                    var outcome = ImageValidation.Validate(path);
+                    if (outcome == ImageValidationOutcome.Invalid)
                     {
                         try { File.Delete(path); } catch { }
                         throw new InvalidDataException("Invalid image file");
+                    }
+
+                    if (outcome == ImageValidationOutcome.Unreadable)
+                    {
+                        AppLogger.LogDebug($"Downloaded image '{path}' could not be re-read for validation; keeping it.");
                     }
 
                     if (failureId.HasValue)

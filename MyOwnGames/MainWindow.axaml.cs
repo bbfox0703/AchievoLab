@@ -229,7 +229,10 @@ namespace MyOwnGames
                         AppLogger.LogDebug($"Updated UI for downloaded image {appId}: {fileUri}");
                     }
                 }
-                catch (Exception ex) when (_isShuttingDown) { }
+                catch when (_isShuttingDown)
+                {
+                    // Expected during teardown: the UI objects this touches are already gone.
+                }
                 catch (Exception ex)
                 {
                     AppLogger.LogDebug($"Error updating UI for downloaded image {appId}: {ex.Message}");
@@ -916,12 +919,14 @@ namespace MyOwnGames
                         await Task.Delay(50, ct);
                     }
                     catch (OperationCanceledException) { break; }
+#if DEBUG
                     catch (Exception ex)
                     {
-#if DEBUG
                         AppLogger.LogDebug($"Phase 2 error at {i}: {ex.Message}");
-#endif
                     }
+#else
+                    catch { }
+#endif
                 }
 
 #if DEBUG
@@ -973,12 +978,14 @@ namespace MyOwnGames
                             await Task.Delay(100, ct);
                         }
                         catch (OperationCanceledException) { break; }
+#if DEBUG
                         catch (Exception ex)
                         {
-#if DEBUG
                             AppLogger.LogDebug($"Phase 3 error at {i}: {ex.Message}");
-#endif
                         }
+#else
+                        catch { }
+#endif
                     }
                 }
 
@@ -1057,9 +1064,30 @@ namespace MyOwnGames
             }
         }
 
+        private bool _shutdownComplete;
+
         private async void OnWindowClosing(object? sender, WindowClosingEventArgs e)
         {
-            await SaveAndDisposeAsync("window closing");
+            if (_shutdownComplete)
+            {
+                return; // the Close() below re-entered this handler; let it through
+            }
+
+            // SaveAndDisposeAsync awaits a Task.Run, so without cancelling the close this handler
+            // returns at the first await, Avalonia closes the last window, the dispatcher shuts
+            // down and the continuation never runs. _isShuttingDown is set on the way in, which
+            // also disarms the Closed and ProcessExit backstops — so nothing finished the save.
+            e.Cancel = true;
+
+            try
+            {
+                await SaveAndDisposeAsync("window closing");
+            }
+            finally
+            {
+                _shutdownComplete = true;
+                Close();
+            }
         }
 
         public async Task SaveAndDisposeAsync(string reason)

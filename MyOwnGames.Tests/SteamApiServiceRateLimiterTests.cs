@@ -14,6 +14,12 @@ public class SteamApiServiceRateLimiterTests
     private const string ApiKey = "0123456789abcdef0123456789abcdef";
     private const string SteamId = "76561198000000000";
 
+    public SteamApiServiceRateLimiterTests()
+    {
+        // The 429 block is process-wide, so another test tripping it would block these.
+        SteamApiService.ResetRateLimitBlock();
+    }
+
     [Fact]
     public async Task GetOwnedGamesAsync_RespectsSteamThrottle()
     {

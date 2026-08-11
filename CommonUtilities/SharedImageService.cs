@@ -363,14 +363,26 @@ namespace CommonUtilities
             // Check in-memory cache first
             if (_imageCache.TryGetValue(cacheKey, out var cached))
             {
-                if (IsFreshImage(cached))
+                var outcome = ImageValidation.Validate(cached);
+                if (outcome == ImageValidationOutcome.Valid)
                 {
                     return cached;
                 }
 
-                try { File.Delete(cached); } catch { }
-                _imageCache.TryRemove(cacheKey, out _);
-                // Don't record as failed download - file was corrupted, not missing
+                // Only delete when the file was actually read and is not an image. Unreadable
+                // means locked or access-denied — the bytes are very likely fine, and deleting on
+                // that basis threw away good cached artwork and forced a re-download.
+                if (outcome == ImageValidationOutcome.Invalid)
+                {
+                    try { File.Delete(cached); } catch { }
+                    _imageCache.TryRemove(cacheKey, out _);
+                    // Don't record as failed download - file was corrupted, not missing
+                }
+                else
+                {
+                    AppLogger.LogDebug($"Cached image '{cached}' could not be read this time; keeping it and retrying later.");
+                    return cached;
+                }
             }
 
             // Step 1: Check language-specific disk cache (even if expired, we'll use it as fallback)

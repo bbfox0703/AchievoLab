@@ -212,12 +212,24 @@ namespace RunGame.Utils
                     switch (type)
                     {
                         case KeyValueType.None:
-                            current.ReadAsBinary(input, depth + 1);
+                            // Propagate the failure. Ignoring it left the stream at whatever
+                            // position the failed child stopped at, and parsing continued from
+                            // there — so a corrupt file could hit a stray 0x08, break out of the
+                            // loop and report a truncated tree as successfully parsed.
+                            if (!current.ReadAsBinary(input, depth + 1))
+                            {
+                                return false;
+                            }
                             break;
 
                         case KeyValueType.String:
                             current.Valid = true;
                             current.Value = input.ReadStringUnicode();
+                            break;
+
+                        case KeyValueType.WideString:
+                            current.Valid = true;
+                            current.Value = input.ReadStringWide();
                             break;
 
                         case KeyValueType.Int32:
@@ -432,6 +444,38 @@ namespace RunGame.Utils
             }
 
             return Encoding.UTF8.GetString(bytes.ToArray());
+        }
+
+        /// <summary>
+        /// Reads a null-terminated UTF-16LE string from the stream.
+        /// </summary>
+        /// <param name="stream">The stream to read from.</param>
+        /// <returns>The decoded string.</returns>
+        /// <exception cref="EndOfStreamException">The stream ended before the terminator was found.</exception>
+        public static string ReadStringWide(this Stream stream)
+        {
+            var bytes = new List<byte>();
+
+            while (true)
+            {
+                int low = stream.ReadByte();
+                int high = stream.ReadByte();
+
+                if (low < 0 || high < 0)
+                {
+                    throw new EndOfStreamException("Unterminated wide string in binary VDF data.");
+                }
+
+                if (low == 0 && high == 0)
+                {
+                    break;
+                }
+
+                bytes.Add((byte)low);
+                bytes.Add((byte)high);
+            }
+
+            return Encoding.Unicode.GetString(bytes.ToArray());
         }
 
         /// <summary>

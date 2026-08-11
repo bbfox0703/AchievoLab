@@ -474,11 +474,8 @@ namespace RunGame.Tests
         {
             var client = new SteamGameClient(400);
 
-            var callbackInvoked = false;
-            void TestCallback(SteamGameClient.UserStatsReceived stats)
-            {
-                callbackInvoked = true;
-            }
+            // Registration only; the callback never fires without a real Steam connection.
+            static void TestCallback(SteamGameClient.UserStatsReceived stats) { }
 
             // Should not throw when registering callback
             var exception = Record.Exception(() =>

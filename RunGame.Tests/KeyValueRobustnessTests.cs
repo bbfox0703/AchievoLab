@@ -130,8 +130,9 @@ namespace RunGame.Tests
             var kv = new KeyValue();
 
             Assert.True(kv.ReadAsBinary(ms));
-            Assert.Single(kv.Children);
-            Assert.Equal("name", kv.Children[0].Name);
+            Assert.NotNull(kv.Children);
+            Assert.Single(kv.Children!);
+            Assert.Equal("name", kv.Children![0].Name);
             Assert.Equal("Portal", kv.Children[0].Value);
         }
 

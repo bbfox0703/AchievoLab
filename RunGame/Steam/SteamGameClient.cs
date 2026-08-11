@@ -688,15 +688,12 @@ namespace RunGame.Steam
             // now reads false, so work already running on another thread stops calling native Steam.
             _disposed = true;
 
-            // Stop callback timer first to prevent race conditions
+            // Stop the callback pump before releasing the handles it uses.
             if (_callbackTimer != null)
             {
-                // Dispose the timer and wait for any running callbacks to complete
-                _callbackTimer.Dispose();
-
-                // Small delay to ensure callback completes
-                // Timer.Dispose() waits for callbacks to complete, but add extra safety
-                System.Threading.Thread.Sleep(50);
+                // Sleeping for 50ms here was a guess, not synchronisation: a pool thread still
+                // inside RunCallbacks would call native Steam with a pipe already released below.
+                _callbackTimer.DisposeAndWait(TimeSpan.FromSeconds(2), nameof(SteamGameClient));
             }
 
             // Clear callback list to release managed delegates
