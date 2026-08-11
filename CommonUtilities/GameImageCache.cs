@@ -252,29 +252,45 @@ namespace CommonUtilities
                 ext = ".jpg";
             }
 
-            // Use a wrapper task that ensures the key is added to _inFlight BEFORE DownloadAsync starts
-            // This fixes a race condition where synchronous HTTP handlers (like in tests) would cause
-            // DownloadAsync to complete before GetOrAdd returns, making TryRemove fail
-            var task = _inFlight.GetOrAdd(basePath, _ =>
+            // Register the placeholder in _inFlight BEFORE starting any work, so the removal in the
+            // finally below always has an entry to remove no matter how fast the download completes.
+            //
+            // The download must NOT be started via Task.Run(delegate, cancellationToken): when the
+            // token is already cancelled that overload never invokes the delegate, so the finally
+            // never runs and the key stays in _inFlight forever, poisoning this image for the rest
+            // of the process. Cancellation is handled inside DownloadAsync instead.
+            var tcs = new TaskCompletionSource<ImageResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var inFlight = _inFlight.GetOrAdd(basePath, tcs.Task);
+            if (!ReferenceEquals(inFlight, tcs.Task))
             {
-                Interlocked.Increment(ref _totalRequests);
-                ReportProgress();
-                // Wrap in Task.Run to ensure the task is added to _inFlight before execution starts
-                return Task.Run(async () =>
+                // Another caller registered first; share its result.
+                return inFlight;
+            }
+
+            Interlocked.Increment(ref _totalRequests);
+            ReportProgress();
+
+            _ = Task.Run(async () =>
+            {
+                try
                 {
-                    try
-                    {
-                        return await DownloadAsync(cacheKey, language, uri, basePath, ext, failureId, cancellationToken).ConfigureAwait(false);
-                    }
-                    finally
-                    {
-                        _inFlight.TryRemove(basePath, out Task<ImageResult>? _);
-                        Interlocked.Increment(ref _completed);
-                        ReportProgress();
-                    }
-                }, cancellationToken);
+                    var result = await DownloadAsync(cacheKey, language, uri, basePath, ext, failureId, cancellationToken).ConfigureAwait(false);
+                    tcs.TrySetResult(result);
+                }
+                catch (Exception ex)
+                {
+                    tcs.TrySetException(ex);
+                }
+                finally
+                {
+                    // Remove only our own entry — a later request may already have registered a new one.
+                    _inFlight.TryRemove(new KeyValuePair<string, Task<ImageResult>>(basePath, tcs.Task));
+                    Interlocked.Increment(ref _completed);
+                    ReportProgress();
+                }
             });
-            return task;
+
+            return tcs.Task;
         }
 
         /// <summary>

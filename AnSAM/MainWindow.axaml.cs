@@ -567,7 +567,10 @@ namespace AnSAM
 
                 var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AchievoLab");
                 var http = HttpClientProvider.Shared;
-                var apps = await GameCacheService.RefreshAsync(baseDir, _steamClient, http);
+                // Task.Run, not a bare await: on a games.xml cache hit nothing inside RefreshAsync
+                // actually yields, so the per-app ownership scan (one Steam call per owned game,
+                // thousands of them) would run inline and freeze the UI thread.
+                var apps = await Task.Run(() => GameCacheService.RefreshAsync(baseDir, _steamClient, http));
                 var (allGames, filteredGames) = await BuildGameListAsync(apps, null);
 
                 await Dispatcher.UIThread.InvokeAsync(() =>

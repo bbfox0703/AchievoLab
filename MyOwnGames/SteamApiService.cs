@@ -204,7 +204,9 @@ namespace MyOwnGames
                 progress?.Report(10);
                 cancellationToken.ThrowIfCancellationRequested();
 
-                await _steamRateLimiter.WaitSteamAsync();
+                // Pass the token: the Steam jitter delay is several seconds, so without it Stop
+                // does not take effect until the current wait has run to completion.
+                await _steamRateLimiter.WaitSteamAsync(cancellationToken);
                 cancellationToken.ThrowIfCancellationRequested();
 
                 var ownedGamesUrl = $"https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?steamid={steamId64}&format=json&include_appinfo=true";
@@ -236,6 +238,7 @@ namespace MyOwnGames
 
                     // Get localized name if not English, using existing data when available
                     string localizedName = game.name; // Default to English name from owned games API
+                    bool localizedNameResolved = true;
                     if (targetLanguage != "english")
                     {
                         if (existingLocalizedNames != null && existingLocalizedNames.TryGetValue(game.appid, out var cachedName))
@@ -244,7 +247,9 @@ namespace MyOwnGames
                         }
                         else
                         {
-                            localizedName = await GetLocalizedGameNameAsync(game.appid, game.name, targetLanguage, cancellationToken);
+                            var fetched = await GetLocalizedGameNameAsync(game.appid, game.name, targetLanguage, cancellationToken);
+                            localizedNameResolved = fetched != null;
+                            localizedName = fetched ?? game.name;
                         }
                     }
 
@@ -253,6 +258,7 @@ namespace MyOwnGames
                         AppId = game.appid,
                         NameEn = game.name,
                         NameLocalized = localizedName,
+                        LocalizedNameResolved = localizedNameResolved,
                         IconUrl = GetGameImageUrl(game.appid, targetLanguage),
                         PlaytimeForever = game.playtime_forever
                     };
@@ -281,34 +287,41 @@ namespace MyOwnGames
 
         /// <summary>
         /// Retrieves the localized name for a specific game from the Steam Store API.
-        /// Falls back to English name if localization is unavailable or on error.
         /// </summary>
         /// <param name="appId">Steam App ID of the game.</param>
-        /// <param name="englishName">English name of the game (used as fallback).</param>
+        /// <param name="englishName">English name of the game (used for logging).</param>
         /// <param name="targetLanguage">Target language code (e.g., "tchinese", "japanese", "korean").</param>
         /// <param name="cancellationToken">Token to cancel the operation.</param>
-        /// <returns>Localized game name if available, otherwise English name.</returns>
+        /// <returns>The localized game name, or null if it could not be retrieved.</returns>
         /// <remarks>
         /// This method:
-        /// - Returns English name immediately if targetLanguage is "english"
+        /// - Returns the English name immediately if targetLanguage is "english"
         /// - Uses Steam Store API endpoint (store.steampowered.com/api/appdetails)
         /// - Applies aggressive rate limiting via WaitSteamAsync
-        /// - Falls back to English name on any error (HTTP 429, network error, missing data)
         ///
-        /// HTTP 429 responses trigger automatic 30-minute block.
-        /// All errors are logged but not thrown (silent fallback to English).
+        /// Returning null rather than the English name matters: the caller persists whatever it
+        /// gets as Name_{language}, and a persisted English name makes the game look already
+        /// localized on the next run, so it is skipped and never retried.
         /// </remarks>
-        private async Task<string> GetLocalizedGameNameAsync(int appId, string englishName, string targetLanguage, CancellationToken cancellationToken = default)
+        private async Task<string?> GetLocalizedGameNameAsync(int appId, string englishName, string targetLanguage, CancellationToken cancellationToken = default)
         {
             if (targetLanguage == "english")
                 return englishName;
+
+            // Already rate limited — every further call would fail the same way, so stop the run
+            // instead of quietly marking every remaining game as unlocalizable.
+            if (IsSteamApiBlocked())
+            {
+                throw new InvalidOperationException(
+                    "Steam Store API is rate limited (HTTP 429). Localized names are unavailable; please try again later.");
+            }
 
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 
                 // More aggressive rate limiting for Steam Store API
-                await _steamRateLimiter.WaitSteamAsync();
+                await _steamRateLimiter.WaitSteamAsync(cancellationToken);
                 cancellationToken.ThrowIfCancellationRequested();
                 
                 var url = $"https://store.steampowered.com/api/appdetails?appids={appId}&l={targetLanguage}";
@@ -332,15 +345,14 @@ namespace MyOwnGames
             catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
             {
                 // 429 already recorded by GetStringWithRateLimitCheckAsync, Steam API blocked for 30 minutes
-                AppLogger.LogDebug($"Rate limited when getting localized name for {appId}, using English fallback. Steam API blocked for 30 minutes.");
+                AppLogger.LogDebug($"Rate limited when getting localized name for {appId}. Steam API blocked for 30 minutes.");
             }
             catch (Exception ex)
             {
-                // Log error and fall back to English name
                 AppLogger.LogDebug($"Error getting localized name for {appId}: {ex.Message}");
             }
 
-            return englishName; // Return English name as fallback
+            return null; // Unresolved — the caller displays the English name but must not persist it.
         }
 
         /// <summary>
@@ -535,6 +547,13 @@ namespace MyOwnGames
         /// Falls back to English if localization is unavailable.
         /// </summary>
         public string NameLocalized { get; set; } = "";
+
+        /// <summary>
+        /// Gets or sets whether <see cref="NameLocalized"/> is a real localized name rather than
+        /// the English fallback. False means the Store lookup failed, so the name must be shown
+        /// but not persisted — persisting it would mark the game as done and stop future retries.
+        /// </summary>
+        public bool LocalizedNameResolved { get; set; } = true;
 
         /// <summary>
         /// Gets or sets the URL to the game's header/cover image.

@@ -56,6 +56,12 @@ namespace RunGame
         private bool _closePromptOpen;
         private bool _pendingTimersCloseConfirmed;
 
+        // Background work that calls into native Steam (currently Store). OnWindowClosing waits for
+        // it before disposing the Steam client, so the pipe and user handles are never released
+        // while a thread pool thread is still using them.
+        private Task? _pendingSteamWork;
+        private bool _awaitingSteamWorkToClose;
+
         // New services
         private AchievementTimerService? _achievementTimerService;
         private MouseMoverService? _mouseMoverService;
@@ -199,6 +205,21 @@ namespace RunGame
                 }
             }
 
+            // A Store in flight is still calling into native Steam on a thread pool thread.
+            // Disposing the client now would release the pipe out from under it, so hold the
+            // window open and close again once that work has finished.
+            var steamWork = _pendingSteamWork;
+            if (steamWork is { IsCompleted: false })
+            {
+                e.Cancel = true;
+                if (!_awaitingSteamWorkToClose)
+                {
+                    _awaitingSteamWorkToClose = true;
+                    _ = CloseAfterSteamWorkAsync(steamWork);
+                }
+                return;
+            }
+
             try
             {
                 // Unsubscribe event handlers to prevent leaks
@@ -235,6 +256,29 @@ namespace RunGame
             catch (Exception ex)
             {
                 AppLogger.LogDebug($"Error during cleanup: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Waits for in-flight native Steam work to finish, then re-closes the window. Called by
+        /// <see cref="OnWindowClosing"/> after it cancels the close.
+        /// </summary>
+        private async Task CloseAfterSteamWorkAsync(Task steamWork)
+        {
+            try
+            {
+                StatusLabel.Text = "Finishing store operation before closing...";
+                await steamWork.ConfigureAwait(true);
+            }
+            catch (Exception ex)
+            {
+                AppLogger.LogDebug($"Pending Steam work faulted while closing: {ex.GetType().Name}: {ex.Message}");
+            }
+            finally
+            {
+                _pendingSteamWork = null;
+                _awaitingSteamWorkToClose = false;
+                Close();
             }
         }
 
@@ -536,12 +580,19 @@ namespace RunGame
                 return;
             }
 
-            // Check for timer conflicts
+            // A scheduled achievement stays staged until its timer fires, so it is always in
+            // selectedAchievements. Skip those rows rather than aborting the whole batch —
+            // otherwise a single pending timer blocks every unrelated change the user made.
             var timerConflicts = selectedAchievements
                 .Where(a => _achievementTimerService?.GetScheduledTime(a.Id) != null)
                 .ToList();
 
-            if (timerConflicts.Count > 0)
+            foreach (var scheduled in timerConflicts)
+            {
+                selectedAchievements.Remove(scheduled);
+            }
+
+            if (selectedAchievements.Count == 0)
             {
                 ShowErrorDialog($"Cannot store changes for achievements with active timers: {string.Join(", ", timerConflicts.Select(a => a.Id))}");
                 return;
@@ -606,6 +657,14 @@ namespace RunGame
                     $"\n\nNote: {hiddenCount} of these are not visible under the current filter or search.";
             }
 
+            if (timerConflicts.Count > 0)
+            {
+                confirmMessage +=
+                    $"\n\nNote: {timerConflicts.Count} achievement(s) with an active timer " +
+                    $"({string.Join(", ", timerConflicts.Select(a => a.Id))}) will be SKIPPED — " +
+                    $"they are written when their timer fires. Cancel the timer to store them now.";
+            }
+
             if (skippedCompletionist.Count > 0)
             {
                 confirmMessage +=
@@ -629,7 +688,10 @@ namespace RunGame
 
             try
             {
-                await Task.Run(() => PerformStoreStaged(selectedAchievements));
+                // Kept on a field so OnWindowClosing can defer teardown until these native Steam
+                // calls have finished, rather than releasing the pipe out from under them.
+                _pendingSteamWork = Task.Run(() => PerformStoreStaged(selectedAchievements));
+                await _pendingSteamWork;
             }
             catch (Exception ex)
             {
@@ -639,6 +701,7 @@ namespace RunGame
             }
             finally
             {
+                _pendingSteamWork = null;
                 LoadingBar.IsVisible = false;
                 StoreButton.IsEnabled = true;
             }

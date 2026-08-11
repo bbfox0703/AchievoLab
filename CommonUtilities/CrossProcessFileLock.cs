@@ -6,17 +6,27 @@ using System.Threading.Tasks;
 namespace CommonUtilities
 {
     /// <summary>
-    /// Provides cross-process file locking using a combination of Mutex and FileStream.
+    /// Provides cross-process file locking using an exclusively opened lock file.
     /// This ensures safe concurrent access to shared files between multiple processes.
     /// </summary>
+    /// <remarks>
+    /// Deliberately does NOT use a named <see cref="Mutex"/>. A mutex is owned by the thread that
+    /// waited on it and may only be released by that same thread, which cannot be guaranteed here:
+    /// <see cref="TryAcquireAsync"/> resumes on an arbitrary thread pool thread after each await,
+    /// so the acquiring and releasing threads routinely differ. ReleaseMutex then throws
+    /// ApplicationException and the mutex stays held until its owning thread exits.
+    ///
+    /// A FileStream opened with <see cref="FileShare.None"/> gives the same cross-process exclusion
+    /// with no thread affinity, and <see cref="FileOptions.DeleteOnClose"/> lets the OS clean up if
+    /// the holding process dies.
+    /// </remarks>
     public class CrossProcessFileLock : IDisposable
     {
+        private const int RetryDelayMs = 50;
+
         private readonly string _lockFilePath;
-        private readonly Mutex _mutex;
-        private readonly string _mutexName;
         private FileStream? _lockFileStream;
         private bool _disposed;
-        private bool _mutexOwned = false;
 
         /// <summary>
         /// Initializes a new instance of the CrossProcessFileLock class for the specified file path.
@@ -29,13 +39,42 @@ namespace CommonUtilities
                 throw new ArgumentException("File path cannot be null or empty", nameof(filePath));
 
             _lockFilePath = filePath + ".lock";
+        }
 
-            // Create a global mutex name based on the file path
-            // Replace invalid characters for mutex names
-            var safeName = filePath.Replace('\\', '_').Replace('/', '_').Replace(':', '_');
-            _mutexName = $"Global\\AchievoLab_FileLock_{safeName}";
+        /// <summary>
+        /// Attempts a single exclusive open of the lock file.
+        /// </summary>
+        /// <returns>True if the lock file is now held by this instance.</returns>
+        private bool TryOpenLockFile()
+        {
+            try
+            {
+                var directory = Path.GetDirectoryName(_lockFilePath);
+                if (!string.IsNullOrEmpty(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                }
 
-            _mutex = new Mutex(false, _mutexName);
+                _lockFileStream = new FileStream(
+                    _lockFilePath,
+                    FileMode.OpenOrCreate,
+                    FileAccess.ReadWrite,
+                    FileShare.None, // Exclusive access - no sharing
+                    1,
+                    FileOptions.DeleteOnClose); // Auto-delete when closed
+
+                return true;
+            }
+            catch (IOException)
+            {
+                // Held by another process.
+                return false;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Transient: the previous holder closed the handle and the delete is still pending.
+                return false;
+            }
         }
 
         /// <summary>
@@ -48,147 +87,80 @@ namespace CommonUtilities
             if (_disposed)
                 throw new ObjectDisposedException(nameof(CrossProcessFileLock));
 
+            if (_lockFileStream != null)
+                return true; // Already held by this instance.
+
             if (timeout == default)
                 timeout = TimeSpan.FromSeconds(30); // Default 30 second timeout
 
-            try
+            var deadline = Environment.TickCount64 + (long)timeout.TotalMilliseconds;
+
+            while (true)
             {
-                // First, acquire the mutex with longer timeout for initial attempt
-                var mutexTimeout = timeout.TotalMilliseconds > 500 ? timeout : TimeSpan.FromMilliseconds(Math.Max(500, timeout.TotalMilliseconds));
-                bool mutexAcquired = _mutex.WaitOne(mutexTimeout);
-                if (!mutexAcquired)
+                if (TryOpenLockFile())
                 {
-                    // Only log if this was a significant wait
-                    if (timeout.TotalMilliseconds > 500)
-                    {
-                        AppLogger.LogDebug($"Failed to acquire mutex for {_lockFilePath} within {timeout.TotalSeconds}s timeout");
-                    }
-                    return false;
-                }
-
-                _mutexOwned = true; // Mark that we own the mutex
-
-                try
-                {
-                    // Then create/open the lock file with exclusive access
-                    var directory = Path.GetDirectoryName(_lockFilePath);
-                    if (!string.IsNullOrEmpty(directory))
-                    {
-                        Directory.CreateDirectory(directory);
-                    }
-
-                    _lockFileStream = new FileStream(
-                        _lockFilePath,
-                        FileMode.OpenOrCreate,
-                        FileAccess.ReadWrite,
-                        FileShare.None, // Exclusive access - no sharing
-                        1,
-                        FileOptions.DeleteOnClose); // Auto-delete when closed
-
                     AppLogger.LogDebug($"Acquired cross-process lock for {_lockFilePath}");
                     return true;
                 }
-                catch (IOException ex)
+
+                if (Environment.TickCount64 >= deadline)
                 {
-                    // Failed to acquire file lock, release mutex
-                    try
+                    if (timeout.TotalMilliseconds > 500)
                     {
-                        _mutex.ReleaseMutex();
-                        _mutexOwned = false;
+                        AppLogger.LogDebug($"Failed to acquire lock on {_lockFilePath} within {timeout.TotalSeconds}s timeout");
                     }
-                    catch (ApplicationException)
-                    {
-                        // Mutex was not owned by current thread, ignore
-                    }
-                    AppLogger.LogDebug($"Failed to acquire file lock for {_lockFilePath}: {ex.Message}");
                     return false;
                 }
-            }
-            catch (AbandonedMutexException)
-            {
-                // Previous process holding the mutex terminated without releasing it
-                // We now own the mutex, try to acquire the file lock
-                AppLogger.LogDebug($"Acquired abandoned mutex for {_lockFilePath}");
-                _mutexOwned = true; // Mark that we own the mutex
 
-                try
-                {
-                    var directory = Path.GetDirectoryName(_lockFilePath);
-                    if (!string.IsNullOrEmpty(directory))
-                    {
-                        Directory.CreateDirectory(directory);
-                    }
-
-                    _lockFileStream = new FileStream(
-                        _lockFilePath,
-                        FileMode.OpenOrCreate,
-                        FileAccess.ReadWrite,
-                        FileShare.None,
-                        1,
-                        FileOptions.DeleteOnClose);
-
-                    return true;
-                }
-                catch (IOException ex)
-                {
-                    try
-                    {
-                        _mutex.ReleaseMutex();
-                        _mutexOwned = false;
-                    }
-                    catch (ApplicationException)
-                    {
-                        // Mutex was not owned by current thread, ignore
-                    }
-                    AppLogger.LogDebug($"Failed to acquire file lock after abandoned mutex for {_lockFilePath}: {ex.Message}");
-                    return false;
-                }
+                Thread.Sleep(RetryDelayMs);
             }
         }
 
         /// <summary>
         /// Asynchronously acquires the cross-process lock with optional timeout.
-        /// Uses synchronous acquisition to ensure mutex is owned by the calling thread.
         /// </summary>
         public async Task<bool> TryAcquireAsync(TimeSpan timeout = default, CancellationToken cancellationToken = default)
         {
             if (_disposed)
                 throw new ObjectDisposedException(nameof(CrossProcessFileLock));
 
+            if (_lockFileStream != null)
+                return true; // Already held by this instance.
+
             if (timeout == default)
                 timeout = TimeSpan.FromSeconds(30);
 
             try
             {
-                var startTime = DateTime.Now;
+                var deadline = Environment.TickCount64 + (long)timeout.TotalMilliseconds;
                 var loggedWarning = false;
 
-                while ((DateTime.Now - startTime) < timeout)
+                while (true)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    // Try to acquire with short timeout to avoid blocking UI thread too long
-                    if (TryAcquire(TimeSpan.FromMilliseconds(100)))
+                    if (TryOpenLockFile())
+                    {
+                        AppLogger.LogDebug($"Acquired cross-process lock for {_lockFilePath}");
                         return true;
+                    }
+
+                    var remaining = deadline - Environment.TickCount64;
+                    if (remaining <= 0)
+                    {
+                        AppLogger.LogDebug($"Failed to acquire lock on {_lockFilePath} after {timeout.TotalSeconds}s timeout");
+                        return false;
+                    }
 
                     // Log warning only once after 5 seconds of waiting
-                    if (!loggedWarning && (DateTime.Now - startTime).TotalSeconds > 5)
+                    if (!loggedWarning && (timeout.TotalMilliseconds - remaining) > 5000)
                     {
-                        AppLogger.LogDebug($"Still waiting for lock on {_lockFilePath} (elapsed: {(DateTime.Now - startTime).TotalSeconds:F1}s)");
+                        AppLogger.LogDebug($"Still waiting for lock on {_lockFilePath}");
                         loggedWarning = true;
                     }
 
-                    // Small async delay before retry
-                    await Task.Delay(50, cancellationToken).ConfigureAwait(false);
+                    await Task.Delay((int)Math.Min(RetryDelayMs, remaining), cancellationToken).ConfigureAwait(false);
                 }
-
-                // Only log final timeout message
-                if (loggedWarning)
-                {
-                    AppLogger.LogDebug($"Failed to acquire lock on {_lockFilePath} after {timeout.TotalSeconds}s timeout");
-                }
-
-                return false;
             }
             catch (OperationCanceledException)
             {
@@ -206,29 +178,13 @@ namespace CommonUtilities
 
             try
             {
-                // Close and dispose the file stream first
+                // Closing the stream drops the exclusive handle; DeleteOnClose removes the file.
+                // Safe from any thread — unlike a Mutex, a FileStream has no thread affinity.
                 if (_lockFileStream != null)
                 {
                     _lockFileStream.Dispose();
                     _lockFileStream = null;
                     AppLogger.LogDebug($"Released file lock for {_lockFilePath}");
-                }
-
-                // Then release the mutex only if we own it
-                if (_mutexOwned)
-                {
-                    try
-                    {
-                        _mutex.ReleaseMutex();
-                        _mutexOwned = false;
-                        AppLogger.LogDebug($"Released mutex for {_lockFilePath}");
-                    }
-                    catch (ApplicationException ex)
-                    {
-                        // Mutex was not owned by current thread
-                        AppLogger.LogDebug($"Could not release mutex for {_lockFilePath}: {ex.Message}");
-                        _mutexOwned = false;
-                    }
                 }
             }
             catch (Exception ex)
@@ -247,7 +203,6 @@ namespace CommonUtilities
 
             _disposed = true;
             Release();
-            _mutex.Dispose();
         }
     }
 
