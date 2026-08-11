@@ -10,7 +10,12 @@ namespace CommonUtilities
     [Obsolete("DebugLogger is deprecated. Use AppLogger with Serilog instead.", false)]
     public static class DebugLogger
     {
+        // LogDebug's body is compiled out in Release, so nothing raises this there. The event is
+        // still declared because AnSAM.Tests subscribes to it and the type is kept for
+        // compatibility with callers that have not moved to AppLogger yet.
+#pragma warning disable CS0067
         public static event Action<string>? OnLog;
+#pragma warning restore CS0067
         private static readonly string LogFilePath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "AchievoLab", "debug.log");

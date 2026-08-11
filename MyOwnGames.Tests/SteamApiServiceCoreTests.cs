@@ -23,6 +23,10 @@ namespace MyOwnGames.Tests
 
         public SteamApiServiceCoreTests()
         {
+            // The 429 block is process-wide, so a case that trips it would otherwise block every
+            // case that runs after it.
+            SteamApiService.ResetRateLimitBlock();
+
             // Create test rate limiter with no delays for fast tests
             _testRateLimiter = new RateLimiterService(new RateLimiterOptions
             {
@@ -367,8 +371,10 @@ namespace MyOwnGames.Tests
             await Task.Delay(50);
             cts.Cancel();
 
-            // TaskCanceledException is wrapped in Exception due to catch block in GetOwnedGamesAsync
-            await Assert.ThrowsAsync<Exception>(() => task);
+            // Cancellation propagates with its own type. It used to be wrapped in a plain
+            // Exception by the catch-all, which meant the caller's catch (OperationCanceledException)
+            // never matched and pressing Stop was reported to the user as a failure.
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => task);
         }
 
         #endregion

@@ -169,7 +169,9 @@ namespace AnSAM.Services
                 }
 
                 AppLogger.LogDebug($"TryStart: FileName={fileName}, Arguments={arguments ?? "(none)"}");
-                Process.Start(startInfo);
+                // Dispose immediately: AnSAM never monitors the child, and Process only closes the
+                // OS handle on an explicit Dispose — its finalizer does not.
+                using (Process.Start(startInfo)) { }
                 AppLogger.LogDebug($"TryStart: Process started successfully");
                 return true;
             }

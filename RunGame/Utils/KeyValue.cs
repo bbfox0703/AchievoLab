@@ -172,9 +172,26 @@ namespace RunGame.Utils
         /// </summary>
         /// <param name="input">The binary stream to read from.</param>
         /// <returns>True if parsing succeeded; false otherwise.</returns>
-        public bool ReadAsBinary(Stream input)
+        public bool ReadAsBinary(Stream input) => ReadAsBinary(input, 0);
+
+        /// <summary>
+        /// Maximum container nesting accepted when parsing binary VDF. Real Steam schemas are
+        /// only a handful of levels deep; a run of 0x00 bytes in a corrupt file parses as an
+        /// unbounded chain of unnamed container nodes, which would recurse until the stack
+        /// overflows — and StackOverflowException cannot be caught, so the process would die.
+        /// </summary>
+        private const int MaxNestingDepth = 32;
+
+        private bool ReadAsBinary(Stream input, int depth)
         {
             Children = new List<KeyValue>();
+
+            if (depth > MaxNestingDepth)
+            {
+                AppLogger.LogDebug($"Binary VDF nesting exceeded {MaxNestingDepth} levels; treating the data as corrupt.");
+                return false;
+            }
+
             try
             {
                 while (true)
@@ -195,12 +212,24 @@ namespace RunGame.Utils
                     switch (type)
                     {
                         case KeyValueType.None:
-                            current.ReadAsBinary(input);
+                            // Propagate the failure. Ignoring it left the stream at whatever
+                            // position the failed child stopped at, and parsing continued from
+                            // there — so a corrupt file could hit a stray 0x08, break out of the
+                            // loop and report a truncated tree as successfully parsed.
+                            if (!current.ReadAsBinary(input, depth + 1))
+                            {
+                                return false;
+                            }
                             break;
 
                         case KeyValueType.String:
                             current.Valid = true;
                             current.Value = input.ReadStringUnicode();
+                            break;
+
+                        case KeyValueType.WideString:
+                            current.Valid = true;
+                            current.Value = input.ReadStringWide();
                             break;
 
                         case KeyValueType.Int32:
@@ -396,15 +425,57 @@ namespace RunGame.Utils
         /// </summary>
         /// <param name="stream">The stream to read from.</param>
         /// <returns>The decoded string.</returns>
+        /// <exception cref="EndOfStreamException">The stream ended before the terminator was found.</exception>
         public static string ReadStringUnicode(this Stream stream)
         {
             var bytes = new List<byte>();
-            byte b;
-            while ((b = (byte)stream.ReadByte()) != 0)
+            int b;
+            // ReadByte returns -1 at end of stream. Keep it as int: casting to byte first
+            // turns EOF into 0xFF, which never equals the terminator, so a truncated file
+            // would spin here forever appending 0xFF and freeze the UI thread.
+            while ((b = stream.ReadByte()) > 0)
             {
-                bytes.Add(b);
+                bytes.Add((byte)b);
             }
+
+            if (b < 0)
+            {
+                throw new EndOfStreamException("Unterminated string in binary VDF data.");
+            }
+
             return Encoding.UTF8.GetString(bytes.ToArray());
+        }
+
+        /// <summary>
+        /// Reads a null-terminated UTF-16LE string from the stream.
+        /// </summary>
+        /// <param name="stream">The stream to read from.</param>
+        /// <returns>The decoded string.</returns>
+        /// <exception cref="EndOfStreamException">The stream ended before the terminator was found.</exception>
+        public static string ReadStringWide(this Stream stream)
+        {
+            var bytes = new List<byte>();
+
+            while (true)
+            {
+                int low = stream.ReadByte();
+                int high = stream.ReadByte();
+
+                if (low < 0 || high < 0)
+                {
+                    throw new EndOfStreamException("Unterminated wide string in binary VDF data.");
+                }
+
+                if (low == 0 && high == 0)
+                {
+                    break;
+                }
+
+                bytes.Add((byte)low);
+                bytes.Add((byte)high);
+            }
+
+            return Encoding.Unicode.GetString(bytes.ToArray());
         }
 
         /// <summary>

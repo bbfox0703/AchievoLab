@@ -229,7 +229,10 @@ namespace MyOwnGames
                         AppLogger.LogDebug($"Updated UI for downloaded image {appId}: {fileUri}");
                     }
                 }
-                catch (Exception ex) when (_isShuttingDown) { }
+                catch when (_isShuttingDown)
+                {
+                    // Expected during teardown: the UI objects this touches are already gone.
+                }
                 catch (Exception ex)
                 {
                     AppLogger.LogDebug($"Error updating UI for downloaded image {appId}: {ex.Message}");
@@ -362,11 +365,16 @@ namespace MyOwnGames
             await EnsureSteamIdHashConsistencyAsync(steamId64!);
 
             string? xmlPath = null;
+            SteamApiService? steamService = null;
 
-            _cancellationTokenSource?.Cancel();
-            _cancellationTokenSource?.Dispose();
-            _cancellationTokenSource = new CancellationTokenSource();
-            var cancellationToken = _cancellationTokenSource.Token;
+            // Round-scoped state. Everything below belongs to THIS run: an older run that is still
+            // unwinding (its cancellation only takes effect when the current rate-limiter wait
+            // ends) must not tear down the run that replaced it.
+            var cts = new CancellationTokenSource();
+            var previousCts = Interlocked.Exchange(ref _cancellationTokenSource, cts);
+            previousCts?.Cancel();
+            previousCts?.Dispose();
+            var cancellationToken = cts.Token;
 
             try
             {
@@ -416,7 +424,8 @@ namespace MyOwnGames
                 bool needsEnglishUpdate = selectedLanguage != "english" &&
                                         (existingGamesData.Count == 0 || gamesMissingEnglishNames.Count > 0);
 
-                _steamService = new SteamApiService(apiKey!);
+                steamService = new SteamApiService(apiKey!);
+                _steamService = steamService; // so shutdown can dispose whatever run is current
 
                 if (needsEnglishUpdate)
                 {
@@ -425,7 +434,7 @@ namespace MyOwnGames
                     var englishBatchBuffer = new List<SteamGame>();
                     const int batchSize = 100;
 
-                    var englishTotal = await _steamService.GetOwnedGamesAsync(steamId64!, "english", async englishGame =>
+                    var englishTotal = await steamService.GetOwnedGamesAsync(steamId64!, "english", async englishGame =>
                     {
                         if (gamesMissingEnglishNames.Contains(englishGame.AppId) || existingGamesData.Count == 0)
                         {
@@ -473,7 +482,7 @@ namespace MyOwnGames
                 var languageBatchBuffer = new List<SteamGame>();
                 const int languageBatchSize = 100;
 
-                var total = await _steamService.GetOwnedGamesAsync(steamId64!, selectedLanguage, async game =>
+                var total = await steamService.GetOwnedGamesAsync(steamId64!, selectedLanguage, async game =>
                 {
                     var shouldSkip = skipAppIds.Contains(game.AppId);
                     var existingGameData = existingGamesData.FirstOrDefault(g => g.AppId == game.AppId);
@@ -515,7 +524,10 @@ namespace MyOwnGames
                         }
                     });
 
-                    if (!shouldSkip)
+                    // An unresolved localized name is only good enough to display. Persisting the
+                    // English fallback as Name_{language} would make this game look done on the
+                    // next run, so it would be skipped and never retried.
+                    if (!shouldSkip && game.LocalizedNameResolved)
                     {
                         languageBatchBuffer.Add(game);
 
@@ -613,22 +625,28 @@ namespace MyOwnGames
             {
                 try
                 {
-                    _steamService?.Dispose();
-                    _steamService = null;
+                    steamService?.Dispose();
+                    // Clear the shared field only if it still points at this run's service.
+                    Interlocked.CompareExchange(ref _steamService, null, steamService);
                 }
                 catch (Exception ex) when (_isShuttingDown)
                 {
                     AppLogger.LogDebug($"Ignored exception during shutdown: {ex.Message}");
                 }
 
-                IsLoading = false;
-                ProgressValue = 100;
-
-                SetControlsEnabledState(true);
-
-                if (!_isShuttingDown)
+                // A superseded run must leave the UI alone — the run that replaced it owns the
+                // progress bar and the enabled state of the buttons.
+                if (ReferenceEquals(Volatile.Read(ref _cancellationTokenSource), cts))
                 {
-                    AppendLog("Finished retrieving games.");
+                    IsLoading = false;
+                    ProgressValue = 100;
+
+                    SetControlsEnabledState(true);
+
+                    if (!_isShuttingDown)
+                    {
+                        AppendLog("Finished retrieving games.");
+                    }
                 }
             }
         }
@@ -657,11 +675,14 @@ namespace MyOwnGames
         private void StopButton_Click(object? sender, RoutedEventArgs e)
         {
             _cancellationTokenSource?.Cancel();
-            StatusText = "Operation cancelled by user.";
+            StatusText = "Cancelling...";
             AppendLog("Get Game List operation cancelled by user.");
 
-            SetControlsEnabledState(true);
-            IsLoading = false;
+            // Deliberately not re-enabling the controls here. The run is still unwinding; letting
+            // the user start a second run now would leave two runs writing the same XML, and the
+            // first one's finally would tear down the second. GetGamesButton_Click's finally
+            // re-enables them once this run has actually stopped.
+            StopButton.IsEnabled = false;
         }
 
         private void KeywordBox_TextChanged(object? sender, TextChangedEventArgs e)
@@ -898,12 +919,14 @@ namespace MyOwnGames
                         await Task.Delay(50, ct);
                     }
                     catch (OperationCanceledException) { break; }
+#if DEBUG
                     catch (Exception ex)
                     {
-#if DEBUG
                         AppLogger.LogDebug($"Phase 2 error at {i}: {ex.Message}");
-#endif
                     }
+#else
+                    catch { }
+#endif
                 }
 
 #if DEBUG
@@ -955,12 +978,14 @@ namespace MyOwnGames
                             await Task.Delay(100, ct);
                         }
                         catch (OperationCanceledException) { break; }
+#if DEBUG
                         catch (Exception ex)
                         {
-#if DEBUG
                             AppLogger.LogDebug($"Phase 3 error at {i}: {ex.Message}");
-#endif
                         }
+#else
+                        catch { }
+#endif
                     }
                 }
 
@@ -1039,9 +1064,30 @@ namespace MyOwnGames
             }
         }
 
+        private bool _shutdownComplete;
+
         private async void OnWindowClosing(object? sender, WindowClosingEventArgs e)
         {
-            await SaveAndDisposeAsync("window closing");
+            if (_shutdownComplete)
+            {
+                return; // the Close() below re-entered this handler; let it through
+            }
+
+            // SaveAndDisposeAsync awaits a Task.Run, so without cancelling the close this handler
+            // returns at the first await, Avalonia closes the last window, the dispatcher shuts
+            // down and the continuation never runs. _isShuttingDown is set on the way in, which
+            // also disarms the Closed and ProcessExit backstops — so nothing finished the save.
+            e.Cancel = true;
+
+            try
+            {
+                await SaveAndDisposeAsync("window closing");
+            }
+            finally
+            {
+                _shutdownComplete = true;
+                Close();
+            }
         }
 
         public async Task SaveAndDisposeAsync(string reason)

@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Threading;
 using System.Threading.RateLimiting;
 using System.Threading.Tasks;
@@ -214,32 +215,36 @@ namespace MyOwnGames.Services
                     .AddEnvironmentVariables()
                     .Build();
                 var section = config.GetSection("RateLimiter");
-                if (int.TryParse(section[nameof(RateLimiterOptions.MaxCallsPerMinute)], out int maxCalls))
+
+                // appsettings.json is always invariant-formatted, so parse it that way. Under the
+                // current culture "5.5" reads as 55 wherever '.' is the group separator (de-DE,
+                // es-ES, it-IT, pt-BR, ...), which silently multiplies every Steam delay by ten.
+                if (TryParseInt(section[nameof(RateLimiterOptions.MaxCallsPerMinute)], out int maxCalls))
                 {
                     options.MaxCallsPerMinute = maxCalls;
                 }
 
-                if (double.TryParse(section[nameof(RateLimiterOptions.JitterMinSeconds)], out double jitterMin))
+                if (TryParseDouble(section[nameof(RateLimiterOptions.JitterMinSeconds)], out double jitterMin))
                 {
                     options.JitterMinSeconds = jitterMin;
                 }
 
-                if (double.TryParse(section[nameof(RateLimiterOptions.JitterMaxSeconds)], out double jitterMax))
+                if (TryParseDouble(section[nameof(RateLimiterOptions.JitterMaxSeconds)], out double jitterMax))
                 {
                     options.JitterMaxSeconds = jitterMax;
                 }
 
-                if (int.TryParse(section[nameof(RateLimiterOptions.SteamMaxCallsPerMinute)], out int steamMaxCalls))
+                if (TryParseInt(section[nameof(RateLimiterOptions.SteamMaxCallsPerMinute)], out int steamMaxCalls))
                 {
                     options.SteamMaxCallsPerMinute = steamMaxCalls;
                 }
 
-                if (double.TryParse(section[nameof(RateLimiterOptions.SteamJitterMinSeconds)], out double steamJitterMin))
+                if (TryParseDouble(section[nameof(RateLimiterOptions.SteamJitterMinSeconds)], out double steamJitterMin))
                 {
                     options.SteamJitterMinSeconds = steamJitterMin;
                 }
 
-                if (double.TryParse(section[nameof(RateLimiterOptions.SteamJitterMaxSeconds)], out double steamJitterMax))
+                if (TryParseDouble(section[nameof(RateLimiterOptions.SteamJitterMaxSeconds)], out double steamJitterMax))
                 {
                     options.SteamJitterMaxSeconds = steamJitterMax;
                 }
@@ -250,6 +255,12 @@ namespace MyOwnGames.Services
             }
             return new RateLimiterService(options);
         }
+
+        private static bool TryParseInt(string? value, out int result) =>
+            int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out result);
+
+        private static bool TryParseDouble(string? value, out double result) =>
+            double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out result);
 
         /// <summary>
         /// Waits asynchronously before allowing a general API call to proceed.

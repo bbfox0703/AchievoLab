@@ -410,9 +410,7 @@ namespace RunGame.Services
                 {
                     // Wait for any in-flight callback to finish before returning, so the caller can
                     // safely dispose the Steam client without a callback touching it mid-teardown.
-                    using var callbacksDone = new System.Threading.ManualResetEvent(false);
-                    if (_timer.Dispose(callbacksDone))
-                        callbacksDone.WaitOne(TimeSpan.FromSeconds(2));
+                    _timer.DisposeAndWait(TimeSpan.FromSeconds(2), nameof(AchievementTimerService));
                 }
                 AppLogger.LogDebug("AchievementTimerService disposed");
             }

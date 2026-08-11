@@ -50,6 +50,19 @@
     <ProjectReference Include="..\CommonUtilities\CommonUtilities.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- SteamApiService.ResetRateLimitBlock: the 429 block is process-wide static state that
+         tests must clear between cases. -->
+    <InternalsVisibleTo Include="MyOwnGames.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Windows-only: shares CommonUtilities' registry-backed Steam lookups. See CommonUtilities.csproj. -->
+    <AssemblyAttribute Include="System.Runtime.Versioning.SupportedOSPlatform">
+      <_Parameter1>windows</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
   <!-- Publish Properties -->
   <PropertyGroup>
     <PublishReadyToRun Condition="'$(Configuration)' == 'Debug'">False</PublishReadyToRun>
@@ -69,6 +82,5 @@
     <OutputPath>..\output\Release\$(Platform)\$(TargetFramework)\MyOwnGames\</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
-    <SelfContained>false</SelfContained>
   </PropertyGroup>
 </Project>

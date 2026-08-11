@@ -106,7 +106,9 @@ namespace AnSAM.Services
 
             ValidateAndParse(data);
 
-            var tempPath = cachePath + ".tmp";
+            // Per-process temp name: a fixed ".tmp" collides when more than one AchievoLab
+            // executable refreshes the cache at the same time.
+            var tempPath = $"{cachePath}.{Environment.ProcessId}.tmp";
             try
             {
                 await File.WriteAllBytesAsync(tempPath, data).ConfigureAwait(false);
@@ -122,7 +124,7 @@ namespace AnSAM.Services
                 AppLogger.LogDebug($"Game list saved to {cachePath}");
 #endif
             }
-            catch
+            catch (Exception ex)
             {
                 try
                 {
@@ -133,7 +135,10 @@ namespace AnSAM.Services
                 }
                 catch { }
 
-                throw;
+                // data already parsed cleanly above, so failing to persist the cache must not
+                // discard it — that would leave AnSAM with an empty game list and no way to
+                // recover short of restarting.
+                AppLogger.LogDebug($"Failed to cache game list to '{cachePath}': {ex.GetType().Name} - {ex.Message}");
             }
             ReportStatus("Game list downloaded.");
             ReportProgress(100);
@@ -178,13 +183,17 @@ namespace AnSAM.Services
                     return embedded;
                 }
             }
+#if DEBUG
             catch (Exception embeddedEx)
             {
-#if DEBUG
                 AppLogger.LogDebug($"Failed to load embedded game list: {embeddedEx.Message}");
-#endif
+            }
+#else
+            catch
+            {
                 // Fall through to throw below
             }
+#endif
 
             throw new GameListDownloadException("Failed to download game list.", ex);
         }

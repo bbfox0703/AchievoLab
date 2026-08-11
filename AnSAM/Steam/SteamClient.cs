@@ -292,15 +292,12 @@ namespace AnSAM.Steam
         /// </summary>
         public void Dispose()
         {
-            // Stop callback timer first to prevent race conditions
+            // Stop the callback pump before releasing the handles it uses.
             if (_callbackTimer != null)
             {
-                // Dispose the timer and wait for any running callbacks to complete
-                _callbackTimer.Dispose();
-
-                // Small delay to ensure callback completes
-                // Timer.Dispose() waits for callbacks to complete, but add extra safety
-                System.Threading.Thread.Sleep(50);
+                // Sleeping for 50ms here was a guess, not synchronisation: a pool thread still
+                // inside PumpCallbacks would call native Steam with a pipe already released below.
+                _callbackTimer.DisposeAndWait(TimeSpan.FromSeconds(2), nameof(SteamClient));
             }
 
             // Release handles if they were acquired, regardless of Initialized state

@@ -17,6 +17,13 @@ namespace CommonUtilities
         private readonly string _xmlFilePath;
         private readonly object _lockObject = new object();
 
+        /// <summary>
+        /// How long a write waits for the cross-process lock before giving up. The failure log is
+        /// advisory — losing one update costs at most a redundant CDN fetch — so a write is dropped
+        /// rather than allowed to stall image loading.
+        /// </summary>
+        private static readonly TimeSpan WriteLockTimeout = TimeSpan.FromSeconds(5);
+
         // Exponential backoff configuration
         private const int BaseBackoffMinutes = 5;
         private const int MaxBackoffMinutes = 20480; // 失敗 12 次+: 20480 分鐘 (上限)
@@ -91,6 +98,40 @@ namespace CommonUtilities
         /// <param name="appId">The Steam App ID</param>
         /// <param name="language">Language code (use "english" for default/general)</param>
         /// <returns>True if we should skip download (recent failure within threshold days)</returns>
+        /// <summary>
+        /// Runs a read-modify-write against the shared failure log while holding both the
+        /// in-process lock and the cross-process file lock.
+        /// </summary>
+        /// <remarks>
+        /// AnSAM and MyOwnGames each construct their own tracker over the same file in the shared
+        /// cache directory, so the in-process lock alone left load/modify/save interleaved between
+        /// processes and one process's update could overwrite the other's.
+        ///
+        /// Only writes take the cross-process lock. Reads run once per image and would pay a lock
+        /// file create/delete each time; a stale read costs nothing worse than one redundant fetch.
+        /// </remarks>
+        private void WithWriteLock(string context, Action action)
+        {
+            lock (_lockObject)
+            {
+                using var fileLock = new CrossProcessFileLock(_xmlFilePath);
+                if (!fileLock.TryAcquire(WriteLockTimeout))
+                {
+                    AppLogger.LogDebug($"ImageFailureTrackingService: could not lock the failure log for {context}; skipping this update.");
+                    return;
+                }
+
+                action();
+            }
+        }
+
+        /// <summary>
+        /// Builds a temp path unique to this process and call, so two executables saving the log at
+        /// the same time cannot clobber each other's partially written file.
+        /// </summary>
+        private string CreateTempPath() =>
+            $"{_xmlFilePath}.{Environment.ProcessId}.{Guid.NewGuid():N}.tmp";
+
         public bool ShouldSkipDownload(int appId, string language = "english")
         {
             lock (_lockObject)
@@ -153,7 +194,7 @@ namespace CommonUtilities
         /// <param name="failedAt">Optional timestamp of when the failure occurred</param>
         public void RecordFailedDownload(int appId, string language = "english", string? gameName = null, DateTime? failedAt = null)
         {
-            lock (_lockObject)
+            WithWriteLock(nameof(RecordFailedDownload), () =>
             {
                 try
                 {
@@ -217,9 +258,17 @@ namespace CommonUtilities
                     }
 
                     // Save with backup mechanism
-                    var tempPath = _xmlFilePath + ".tmp";
-                    doc.Save(tempPath);
-                    File.Move(tempPath, _xmlFilePath, true);
+                    var tempPath = CreateTempPath();
+                    try
+                    {
+                        doc.Save(tempPath);
+                        File.Move(tempPath, _xmlFilePath, true);
+                    }
+                    catch
+                    {
+                        try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { }
+                        throw;
+                    }
 
                     var finalCount = (int?)languageElement.Attribute("FailureCount") ?? 1;
                     var backoffMinutes = CalculateBackoffMinutes(finalCount);
@@ -229,7 +278,7 @@ namespace CommonUtilities
                 {
                     AppLogger.LogDebug($"Error recording failed download for {appId} ({language}): {ex.Message}");
                 }
-            }
+            });
         }
 
         /// <summary>
@@ -239,7 +288,7 @@ namespace CommonUtilities
         /// <param name="language">Language code</param>
         public void RemoveFailedRecord(int appId, string language = "english")
         {
-            lock (_lockObject)
+            WithWriteLock(nameof(RemoveFailedRecord), () =>
             {
                 try
                 {
@@ -264,9 +313,17 @@ namespace CommonUtilities
                         }
 
                         // Save the updated document
-                        var tempPath = _xmlFilePath + ".tmp";
-                        doc.Save(tempPath);
-                        File.Move(tempPath, _xmlFilePath, true);
+                        var tempPath = CreateTempPath();
+                        try
+                        {
+                            doc.Save(tempPath);
+                            File.Move(tempPath, _xmlFilePath, true);
+                        }
+                        catch
+                        {
+                            try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { }
+                            throw;
+                        }
 
                         AppLogger.LogDebug($"Removed failed download record for {appId} ({language}) - download now successful");
                     }
@@ -275,7 +332,7 @@ namespace CommonUtilities
                 {
                     AppLogger.LogDebug($"Error removing failed download record for {appId} ({language}): {ex.Message}");
                 }
-            }
+            });
         }
 
         /// <summary>
@@ -328,7 +385,7 @@ namespace CommonUtilities
         /// </summary>
         public void CleanupOldRecords()
         {
-            lock (_lockObject)
+            WithWriteLock(nameof(CleanupOldRecords), () =>
             {
                 try
                 {
@@ -372,9 +429,17 @@ namespace CommonUtilities
 
                     if (removedCount > 0)
                     {
-                        var tempPath = _xmlFilePath + ".tmp";
-                        doc.Save(tempPath);
-                        File.Move(tempPath, _xmlFilePath, true);
+                        var tempPath = CreateTempPath();
+                        try
+                        {
+                            doc.Save(tempPath);
+                            File.Move(tempPath, _xmlFilePath, true);
+                        }
+                        catch
+                        {
+                            try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { }
+                            throw;
+                        }
 
                         AppLogger.LogDebug($"Cleaned up {removedCount} old image failure records (older than 30 days)");
                     }
@@ -383,7 +448,7 @@ namespace CommonUtilities
                 {
                     AppLogger.LogDebug($"Error cleaning up old image failure records: {ex.Message}");
                 }
-            }
+            });
         }
 
         /// <summary>

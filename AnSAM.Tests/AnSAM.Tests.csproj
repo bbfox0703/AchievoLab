@@ -36,6 +36,13 @@
     <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.10" />
   </ItemGroup>
   <ItemGroup>
+    <!-- Matches the Windows-only annotation on the projects under test; without it every call
+         into those assemblies is flagged by CA1416. See CommonUtilities.csproj. -->
+    <AssemblyAttribute Include="System.Runtime.Versioning.SupportedOSPlatform">
+      <_Parameter1>windows</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="../CommonUtilities/CommonUtilities.csproj" />
   </ItemGroup>
 </Project>

@@ -75,6 +75,12 @@ namespace RunGame.Steam
         private readonly List<Action<UserStatsReceived>> _userStatsCallbacks = new();
         private readonly object _callbacksLock = new();
 
+        /// <summary>
+        /// Serializes callback pumping. Two pumps drive the same Steam pipe: this client's own
+        /// <see cref="_callbackTimer"/> and MainWindow's DispatcherTimer.
+        /// </summary>
+        private readonly object _pumpLock = new();
+
         static SteamGameClient()
         {
             SteamDllResolver.EnsureRegistered();
@@ -83,7 +89,20 @@ namespace RunGame.Steam
         /// <summary>
         /// Gets a value indicating whether the Steam client was successfully initialized.
         /// </summary>
-        public bool Initialized { get; }
+        public bool Initialized
+        {
+            get => _initializedFlag && !_disposed;
+            private set => _initializedFlag = value;
+        }
+
+        private bool _initializedFlag;
+
+        /// <summary>
+        /// Set before <see cref="Dispose"/> releases the pipe and user handles, so background work
+        /// still in flight (a Store running on the thread pool while the window closes) fails the
+        /// <see cref="Initialized"/> guard instead of calling native Steam with released handles.
+        /// </summary>
+        private volatile bool _disposed;
 
         /// <summary>
         /// Gets the current Steam UI language code.
@@ -555,6 +574,15 @@ namespace RunGame.Steam
 
         public void RunCallbacks()
         {
+            // Steam_BGetCallback -> PtrToStructure -> Steam_FreeLastCallback must be atomic per
+            // pipe: interleaving two pumps lets one free the message the other is still reading,
+            // which drops or corrupts UserStatsReceived. If a pump is already running there is
+            // nothing for this tick to do, so skip it rather than queueing another thread behind it.
+            if (!Initialized || !Monitor.TryEnter(_pumpLock))
+            {
+                return;
+            }
+
             try
             {
                 while (Steam_BGetCallback(_pipe, out var msg, out _))
@@ -604,6 +632,10 @@ namespace RunGame.Steam
             {
                 AppLogger.LogDebug($"Error in RunCallbacks: {ex.Message}");
             }
+            finally
+            {
+                Monitor.Exit(_pumpLock);
+            }
         }
 
         public void RegisterUserStatsCallback(Action<UserStatsReceived> callback)
@@ -647,15 +679,21 @@ namespace RunGame.Steam
 
         public void Dispose()
         {
-            // Stop callback timer first to prevent race conditions
+            if (_disposed)
+            {
+                return;
+            }
+
+            // Flip this before releasing anything: every public API guards on Initialized, which
+            // now reads false, so work already running on another thread stops calling native Steam.
+            _disposed = true;
+
+            // Stop the callback pump before releasing the handles it uses.
             if (_callbackTimer != null)
             {
-                // Dispose the timer and wait for any running callbacks to complete
-                _callbackTimer.Dispose();
-
-                // Small delay to ensure callback completes
-                // Timer.Dispose() waits for callbacks to complete, but add extra safety
-                System.Threading.Thread.Sleep(50);
+                // Sleeping for 50ms here was a guess, not synchronisation: a pool thread still
+                // inside RunCallbacks would call native Steam with a pipe already released below.
+                _callbackTimer.DisposeAndWait(TimeSpan.FromSeconds(2), nameof(SteamGameClient));
             }
 
             // Clear callback list to release managed delegates

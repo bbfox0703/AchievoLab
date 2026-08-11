@@ -28,7 +28,6 @@ namespace RunGame
         private readonly DispatcherTimer _callbackTimer;
         private readonly DispatcherTimer _timeTimer;
         private readonly DispatcherTimer _achievementTimer;
-        private readonly DispatcherTimer _mouseTimer;
 
         private readonly ObservableCollection<AchievementInfo> _achievements = new();
         private readonly ObservableCollection<StatInfo> _statistics = new();
@@ -37,7 +36,6 @@ namespace RunGame
         private readonly DispatcherTimer _searchDebounceTimer;
 
         private bool _isLoadingStats = false;
-        private bool _lastMouseMoveRight = true;
 
         // Completionist protection ("防呆") opt-in; default ON. Persisted in the shared settings.json.
         private readonly ApplicationSettingsService _settingsService = new();
@@ -55,6 +53,17 @@ namespace RunGame
         // Close() that follows a "yes" fall straight through to teardown.
         private bool _closePromptOpen;
         private bool _pendingTimersCloseConfirmed;
+
+        // Suppresses the SelectionChanged handlers while the constructor seeds the combo boxes.
+        // Assigning SelectedItem raises SelectionChanged synchronously, so OnLanguageChanged used
+        // to run a full schema load before LoadStatsAsync had even been started.
+        private bool _initializing = true;
+
+        // Background work that calls into native Steam (currently Store). OnWindowClosing waits for
+        // it before disposing the Steam client, so the pipe and user handles are never released
+        // while a thread pool thread is still using them.
+        private Task? _pendingSteamWork;
+        private bool _awaitingSteamWorkToClose;
 
         // New services
         private AchievementTimerService? _achievementTimerService;
@@ -97,9 +106,6 @@ namespace RunGame
 
             _achievementTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
             _achievementTimer.Tick += OnAchievementTimerTick;
-
-            _mouseTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
-            _mouseTimer.Tick += OnMouseTimerTick;
 
             _searchDebounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
             _searchDebounceTimer.Tick += OnSearchDebounceTimerTick;
@@ -164,6 +170,9 @@ namespace RunGame
             // Subscribe to window events
             this.Closing += OnWindowClosing;
             this.Opened += OnWindowOpened;
+
+            // Everything the language handler needs now exists, so let it run from here on.
+            _initializing = false;
         }
 
         private void OnWindowOpened(object? sender, EventArgs e)
@@ -199,6 +208,21 @@ namespace RunGame
                 }
             }
 
+            // A Store in flight is still calling into native Steam on a thread pool thread.
+            // Disposing the client now would release the pipe out from under it, so hold the
+            // window open and close again once that work has finished.
+            var steamWork = _pendingSteamWork;
+            if (steamWork is { IsCompleted: false })
+            {
+                e.Cancel = true;
+                if (!_awaitingSteamWorkToClose)
+                {
+                    _awaitingSteamWorkToClose = true;
+                    _ = CloseAfterSteamWorkAsync(steamWork);
+                }
+                return;
+            }
+
             try
             {
                 // Unsubscribe event handlers to prevent leaks
@@ -219,7 +243,6 @@ namespace RunGame
                 _callbackTimer.Stop(); _callbackTimer.Tick -= OnCallbackTimerTick;
                 _timeTimer.Stop(); _timeTimer.Tick -= OnTimeTimerTick;
                 _achievementTimer.Stop(); _achievementTimer.Tick -= OnAchievementTimerTick;
-                _mouseTimer.Stop(); _mouseTimer.Tick -= OnMouseTimerTick;
                 _searchDebounceTimer.Stop(); _searchDebounceTimer.Tick -= OnSearchDebounceTimerTick;
                 SearchTextBox.TextChanged -= OnSearchTextChanged;
 
@@ -235,6 +258,29 @@ namespace RunGame
             catch (Exception ex)
             {
                 AppLogger.LogDebug($"Error during cleanup: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Waits for in-flight native Steam work to finish, then re-closes the window. Called by
+        /// <see cref="OnWindowClosing"/> after it cancels the close.
+        /// </summary>
+        private async Task CloseAfterSteamWorkAsync(Task steamWork)
+        {
+            try
+            {
+                StatusLabel.Text = "Finishing store operation before closing...";
+                await steamWork.ConfigureAwait(true);
+            }
+            catch (Exception ex)
+            {
+                AppLogger.LogDebug($"Pending Steam work faulted while closing: {ex.GetType().Name}: {ex.Message}");
+            }
+            finally
+            {
+                _pendingSteamWork = null;
+                _awaitingSteamWorkToClose = false;
+                Close();
             }
         }
 
@@ -386,6 +432,7 @@ namespace RunGame
                         achievement.PropertyChanged -= OnAchievementPropertyChanged;
                     }
 
+                    var superseded = _allAchievements;
                     _allAchievements = _gameStatsService.GetAchievements().ToList();
 
                     foreach (var achievement in _allAchievements)
@@ -414,6 +461,8 @@ namespace RunGame
                     PushAchievementSnapshotToTimer();
                     _achievementTimerService?.NotifyStatsReloaded();
 
+                    ReleaseSupersededIcons(superseded);
+
                     LoadingBar.IsVisible = false;
                 }
                 catch (Exception ex)
@@ -424,6 +473,34 @@ namespace RunGame
                     LoadingBar.IsVisible = false;
                 }
             });
+        }
+
+        /// <summary>
+        /// Releases the icon bitmaps of an achievement list that has been replaced.
+        /// </summary>
+        /// <remarks>
+        /// AchievementInfo disposes the previous bitmap in its IconImage setter, but a reload
+        /// discards the whole list at once, so that setter never runs for those instances and every
+        /// decoded icon was left for the finalizer. Setting IconImage to null drives the existing
+        /// setter, which disposes correctly.
+        ///
+        /// Queued at Background priority so it lands after the UI has rebound and rendered the new
+        /// list — disposing a bitmap that is still being drawn is not safe.
+        /// </remarks>
+        private static void ReleaseSupersededIcons(List<AchievementInfo> superseded)
+        {
+            if (superseded.Count == 0)
+            {
+                return;
+            }
+
+            Dispatcher.UIThread.Post(() =>
+            {
+                foreach (var achievement in superseded)
+                {
+                    achievement.IconImage = null;
+                }
+            }, DispatcherPriority.Background);
         }
 
         private async Task LoadAchievements()
@@ -536,12 +613,19 @@ namespace RunGame
                 return;
             }
 
-            // Check for timer conflicts
+            // A scheduled achievement stays staged until its timer fires, so it is always in
+            // selectedAchievements. Skip those rows rather than aborting the whole batch —
+            // otherwise a single pending timer blocks every unrelated change the user made.
             var timerConflicts = selectedAchievements
                 .Where(a => _achievementTimerService?.GetScheduledTime(a.Id) != null)
                 .ToList();
 
-            if (timerConflicts.Count > 0)
+            foreach (var scheduled in timerConflicts)
+            {
+                selectedAchievements.Remove(scheduled);
+            }
+
+            if (selectedAchievements.Count == 0)
             {
                 ShowErrorDialog($"Cannot store changes for achievements with active timers: {string.Join(", ", timerConflicts.Select(a => a.Id))}");
                 return;
@@ -606,6 +690,14 @@ namespace RunGame
                     $"\n\nNote: {hiddenCount} of these are not visible under the current filter or search.";
             }
 
+            if (timerConflicts.Count > 0)
+            {
+                confirmMessage +=
+                    $"\n\nNote: {timerConflicts.Count} achievement(s) with an active timer " +
+                    $"({string.Join(", ", timerConflicts.Select(a => a.Id))}) will be SKIPPED — " +
+                    $"they are written when their timer fires. Cancel the timer to store them now.";
+            }
+
             if (skippedCompletionist.Count > 0)
             {
                 confirmMessage +=
@@ -627,9 +719,16 @@ namespace RunGame
             StoreButton.IsEnabled = false;
             StatusLabel.Text = "Storing changes...";
 
+            // Snapshot the modified statistics here, on the UI thread, so the background store
+            // never enumerates the ObservableCollection bound to the list view.
+            var modifiedStats = _statistics.Where(s => s.IsModified).ToList();
+
             try
             {
-                await Task.Run(() => PerformStoreStaged(selectedAchievements));
+                // Kept on a field so OnWindowClosing can defer teardown until these native Steam
+                // calls have finished, rather than releasing the pipe out from under them.
+                _pendingSteamWork = Task.Run(() => PerformStoreStaged(selectedAchievements, modifiedStats));
+                await _pendingSteamWork;
             }
             catch (Exception ex)
             {
@@ -639,12 +738,13 @@ namespace RunGame
             }
             finally
             {
+                _pendingSteamWork = null;
                 LoadingBar.IsVisible = false;
                 StoreButton.IsEnabled = true;
             }
         }
 
-        private void PerformStoreStaged(List<AchievementInfo> selectedAchievements)
+        private void PerformStoreStaged(List<AchievementInfo> selectedAchievements, IReadOnlyList<StatInfo> modifiedStats)
         {
             try
             {
@@ -661,14 +761,23 @@ namespace RunGame
 
                 int achievementCount = 0;
 
-                // Phase 1: every non-completionist change, plus statistics, committed together.
-                if (!TryApplyStagedAchievements(others, ref achievementCount))
-                    return;
+                // Tracks what this phase has written into Steam's pending buffer so an abort can
+                // put it back — the buffer outlives this method and the next StoreStats from any
+                // source would otherwise commit it.
+                var staged = new List<(AchievementInfo Achievement, bool OriginalState)>();
 
-                int statCount = StoreStatistics(true);
+                // Phase 1: every non-completionist change, plus statistics, committed together.
+                if (!TryApplyStagedAchievements(others, ref achievementCount, staged))
+                {
+                    RevertStagedAchievements(staged);
+                    return;
+                }
+
+                int statCount = StoreStatistics(modifiedStats, true);
                 if (statCount < 0)
                 {
                     AppLogger.LogDebug("Statistics store failed in PerformStoreStaged - refreshing");
+                    RevertStagedAchievements(staged);
                     RefreshAfterFailure(false);
                     return;
                 }
@@ -676,15 +785,27 @@ namespace RunGame
                 // Only commit phase 1 if it staged something — avoids an empty StoreStats when the
                 // selection was a completionist only (its unlock is committed in phase 2).
                 if ((achievementCount > 0 || statCount > 0) && !CommitStore("PerformStoreStaged phase 1"))
+                {
+                    RevertStagedAchievements(staged);
                     return;
+                }
+
+                // Phase 1 is committed from here on; only phase 2 work is still undoable.
+                staged.Clear();
 
                 // Phase 2: completionist changes committed last, in their own StoreStats.
                 if (completionists.Count > 0)
                 {
-                    if (!TryApplyStagedAchievements(completionists, ref achievementCount))
+                    if (!TryApplyStagedAchievements(completionists, ref achievementCount, staged))
+                    {
+                        RevertStagedAchievements(staged);
                         return;
+                    }
                     if (!CommitStore("PerformStoreStaged phase 2 (completionist)"))
+                    {
+                        RevertStagedAchievements(staged);
                         return;
+                    }
                 }
 
                 int finalAchievementCount = achievementCount;
@@ -733,7 +854,17 @@ namespace RunGame
         /// without committing. On the first Steam API failure it surfaces an error and returns false so
         /// the caller aborts.
         /// </summary>
-        private bool TryApplyStagedAchievements(List<AchievementInfo> list, ref int achievementCount)
+        /// <summary>
+        /// Stages each achievement's target state into Steam's pending buffer.
+        /// </summary>
+        /// <param name="applied">
+        /// Receives every achievement this call staged, with the state it had beforehand, so the
+        /// caller can undo them if a later step in the same batch fails.
+        /// </param>
+        private bool TryApplyStagedAchievements(
+            List<AchievementInfo> list,
+            ref int achievementCount,
+            List<(AchievementInfo Achievement, bool OriginalState)> applied)
         {
             foreach (var achievement in list)
             {
@@ -743,6 +874,7 @@ namespace RunGame
                     continue;
                 }
 
+                bool originalState = achievement.IsAchieved;
                 bool newState = achievement.DesiredAchieved;
                 AppLogger.LogDebug($"Achievement {achievement.Id} change: {achievement.IsAchieved} -> {newState}");
 
@@ -765,6 +897,8 @@ namespace RunGame
                     return false;
                 }
 
+                applied.Add((achievement, originalState));
+
                 Dispatcher.UIThread.Post(() =>
                 {
                     achievement.IsAchieved = newState;
@@ -774,6 +908,41 @@ namespace RunGame
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Undoes achievements staged earlier in a batch that has since failed.
+        /// </summary>
+        /// <remarks>
+        /// SetAchievement only writes Steam's pending buffer; nothing reaches Steam until
+        /// StoreStats. Leaving a failed batch in that buffer meant the next StoreStats from any
+        /// source — the unlock timer firing, a later Store — silently committed a half-applied
+        /// batch the user was told had failed.
+        /// </remarks>
+        private void RevertStagedAchievements(List<(AchievementInfo Achievement, bool OriginalState)> applied)
+        {
+            if (applied.Count == 0)
+            {
+                return;
+            }
+
+            AppLogger.LogDebug($"Store failed; reverting {applied.Count} achievement(s) staged before the failure");
+
+            foreach (var (achievement, originalState) in applied)
+            {
+                if (!_gameStatsService.SetAchievement(achievement.Id, originalState))
+                {
+                    AppLogger.LogDebug($"Could not revert staged achievement {achievement.Id}");
+                }
+
+                var restored = originalState;
+                Dispatcher.UIThread.Post(() =>
+                {
+                    achievement.IsAchieved = restored;
+                });
+            }
+
+            applied.Clear();
         }
 
         /// <summary>
@@ -812,7 +981,7 @@ namespace RunGame
                     return;
                 }
 
-                int statCount = StoreStatistics(silent);
+                int statCount = StoreStatistics(_statistics.Where(s => s.IsModified).ToList(), silent);
                 if (statCount < 0)
                 {
                     RefreshAfterFailure(silent);
@@ -1005,11 +1174,22 @@ namespace RunGame
             });
         }
 
-        private int StoreStatistics(bool silent)
+        /// <summary>
+        /// Writes the given statistics to Steam.
+        /// </summary>
+        /// <param name="modifiedStats">
+        /// Snapshot of the modified rows, taken on the UI thread by the caller. Passing a snapshot
+        /// rather than reading <c>_statistics</c> here matters: this runs on the thread pool during
+        /// a Store, and <c>_statistics</c> is the ObservableCollection bound to the list view, which
+        /// the UI thread clears and refills on every reload.
+        /// </param>
+        /// <param name="silent">True to suppress the error dialog on a validation failure.</param>
+        /// <returns>The number of statistics written, or -1 on failure.</returns>
+        private int StoreStatistics(IReadOnlyList<StatInfo> modifiedStats, bool silent)
         {
             int count = 0;
 
-            foreach (var stat in _statistics.Where(s => s.IsModified))
+            foreach (var stat in modifiedStats)
             {
                 if (!_gameStatsService.SetStatistic(stat))
                 {
@@ -1185,45 +1365,63 @@ namespace RunGame
 
         private async void OnLanguageChanged(object? sender, SelectionChangedEventArgs e)
         {
-            if (_gameStatsService == null)
+            // The constructor's SelectedItem assignment fires this synchronously, before
+            // LoadStatsAsync has requested anything from Steam. Running then meant a redundant
+            // schema load (with its synchronous disk I/O and retry backoff) and a flash of the
+            // wrong status text while the window was still being built.
+            if (_initializing || _gameStatsService == null)
                 return;
 
-            string currentLanguage = LanguageComboBox.SelectedItem as string ?? "english";
-
-            LoadingBar.IsVisible = true;
-
-            foreach (var achievement in _allAchievements)
+            // async void: an escaping exception would take the process down, so nothing may leave
+            // this method. Matches OnRefresh and OnSearchDebounceTimerTick.
+            try
             {
-                achievement.PropertyChanged -= OnAchievementPropertyChanged;
-            }
+                string currentLanguage = LanguageComboBox.SelectedItem as string ?? "english";
 
-            if (!_gameStatsService.LoadUserGameStatsSchema(currentLanguage))
-            {
-                StatusLabel.Text = "Failed to load game schema";
-                LoadingBar.IsVisible = false;
-                return;
-            }
+                LoadingBar.IsVisible = true;
 
-            _allAchievements = _gameStatsService.GetAchievements().ToList();
-
-            foreach (var achievement in _allAchievements)
-            {
-                if (_achievementCounters.TryGetValue(achievement.Id, out int counter))
+                foreach (var achievement in _allAchievements)
                 {
-                    achievement.Counter = counter;
+                    achievement.PropertyChanged -= OnAchievementPropertyChanged;
                 }
-                achievement.ResetStaging();
-                achievement.PropertyChanged += OnAchievementPropertyChanged;
+
+                if (!_gameStatsService.LoadUserGameStatsSchema(currentLanguage))
+                {
+                    StatusLabel.Text = "Failed to load game schema";
+                    LoadingBar.IsVisible = false;
+                    return;
+                }
+
+                var superseded = _allAchievements;
+                _allAchievements = _gameStatsService.GetAchievements().ToList();
+
+                foreach (var achievement in _allAchievements)
+                {
+                    if (_achievementCounters.TryGetValue(achievement.Id, out int counter))
+                    {
+                        achievement.Counter = counter;
+                    }
+                    achievement.ResetStaging();
+                    achievement.PropertyChanged += OnAchievementPropertyChanged;
+                }
+
+                await LoadAchievements();
+                LoadStatistics();
+                UpdateScheduledTimesDisplay();
+                await LoadAchievementIconsAsync();
+                PushAchievementSnapshotToTimer();
+                _achievementTimerService?.NotifyStatsReloaded();
+
+                ReleaseSupersededIcons(superseded);
+
+                LoadingBar.IsVisible = false;
             }
-
-            await LoadAchievements();
-            LoadStatistics();
-            UpdateScheduledTimesDisplay();
-            await LoadAchievementIconsAsync();
-            PushAchievementSnapshotToTimer();
-            _achievementTimerService?.NotifyStatsReloaded();
-
-            LoadingBar.IsVisible = false;
+            catch (Exception ex)
+            {
+                AppLogger.LogDebug($"Error in OnLanguageChanged: {ex.GetType().Name}: {ex.Message}");
+                StatusLabel.Text = $"Error switching language: {ex.Message}";
+                LoadingBar.IsVisible = false;
+            }
         }
 
         private void OnColumnLayoutChanged(object? sender, SelectionChangedEventArgs e)
@@ -1704,11 +1902,6 @@ namespace RunGame
             }
         }
 
-        private void OnMouseTimerTick(object? sender, EventArgs e)
-        {
-            // Mouse jiggle handled by MouseMoverService
-        }
-
         private async Task<bool> ShowConfirmationDialog(string title, string message)
         {
             // Height follows the message: callers pass anything from one line to a multi-line list
@@ -2020,45 +2213,60 @@ namespace RunGame
 
         private ISteamUserStats CreateSteamClient(long gameId)
         {
+            // The constructor acquires the Steam pipe and global user handle before it decides
+            // whether Initialized is true, and Dispose is the only thing that gives them back
+            // (there is no finalizer). Falling through to the modern client without disposing
+            // leaked both for the life of the process.
+            SteamGameClient? legacyClient = null;
             try
             {
                 AppLogger.LogDebug("Using Legacy SteamGameClient for Steam execution simulation...");
-                var legacyClient = new SteamGameClient(gameId);
+                legacyClient = new SteamGameClient(gameId);
 
                 if (legacyClient.Initialized)
                 {
                     AppLogger.LogDebug("Legacy SteamGameClient initialized successfully - can simulate game execution");
-                    return legacyClient;
+                    var initialized = legacyClient;
+                    legacyClient = null; // ownership transfers to the caller
+                    return initialized;
                 }
-                else
-                {
-                    AppLogger.LogDebug("Legacy SteamGameClient failed to initialize");
-                }
+
+                AppLogger.LogDebug("Legacy SteamGameClient failed to initialize");
             }
             catch (Exception ex)
             {
                 AppLogger.LogDebug($"Legacy SteamGameClient creation failed: {ex.Message}");
             }
+            finally
+            {
+                legacyClient?.Dispose();
+            }
 
+            ModernSteamClient? modernClient = null;
             try
             {
                 AppLogger.LogDebug("Falling back to ModernSteamClient (limited functionality)...");
-                var modernClient = new ModernSteamClient(gameId);
+                modernClient = new ModernSteamClient(gameId);
 
                 if (modernClient.Initialized)
                 {
                     AppLogger.LogDebug("ModernSteamClient initialized successfully (but cannot simulate game execution)");
-                    return modernClient;
+                    var initialized = modernClient;
+                    modernClient = null; // ownership transfers to the caller
+                    return initialized;
                 }
-                else
-                {
-                    AppLogger.LogDebug("ModernSteamClient failed to initialize, disposing...");
-                    modernClient.Dispose();
-                }
+
+                AppLogger.LogDebug("ModernSteamClient failed to initialize, disposing...");
             }
             catch (Exception ex)
             {
                 AppLogger.LogDebug($"ModernSteamClient creation failed: {ex.Message}");
+            }
+            finally
+            {
+                // Shuts the native API down even when only SteamAPI_InitFlat got as far as
+                // succeeding, so the retry below does not re-init an already-initialized API.
+                modernClient?.Dispose();
             }
 
             AppLogger.LogDebug("Both Steam clients failed, creating non-functional ModernSteamClient for compatibility");

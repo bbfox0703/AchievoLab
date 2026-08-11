@@ -24,6 +24,13 @@
     </PackageReference>
   </ItemGroup>
   <ItemGroup>
+    <!-- Matches the Windows-only annotation on the project under test; without it every call
+         into that assembly is flagged by CA1416. See CommonUtilities.csproj. -->
+    <AssemblyAttribute Include="System.Runtime.Versioning.SupportedOSPlatform">
+      <_Parameter1>windows</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="../CommonUtilities/CommonUtilities.csproj" />
   </ItemGroup>
 </Project>
