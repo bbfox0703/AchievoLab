@@ -38,15 +38,14 @@ dotnet build MyOwnGames/MyOwnGames.csproj -c Debug
 ```
 
 ### Running Tests
+The test projects use xunit.v3 on Microsoft.Testing.Platform (MTP). On the .NET 10 SDK `dotnet test` fails ("Testing with VSTest target is no longer supported"), so run each test project as an app:
 ```powershell
-# Run all tests
-dotnet test AnSAM.sln
-
-# Run specific test project
-dotnet test AnSAM.Tests/AnSAM.Tests.csproj
-dotnet test CommonUtilities.Tests/CommonUtilities.Tests.csproj
-dotnet test MyOwnGames.Tests/MyOwnGames.Tests.csproj
+dotnet run --project AnSAM.Tests/AnSAM.Tests.csproj
+dotnet run --project CommonUtilities.Tests/CommonUtilities.Tests.csproj
+dotnet run --project MyOwnGames.Tests/MyOwnGames.Tests.csproj
+dotnet run --project RunGame.Tests/RunGame.Tests.csproj
 ```
+Test projects reference only `CommonUtilities`; they link individual AnSAM / MyOwnGames / RunGame source files with `<Compile Include="../RunGame/..." Link="..." />`. When a test needs an app source file that isn't linked yet, add a matching `<Compile Include>` line to the test .csproj.
 
 ### Running the Applications
 ```powershell
@@ -67,6 +66,6 @@ dotnet publish AnSAM/AnSAM.csproj -c Release -r win-x64 --self-contained true -p
 ## Platform Requirements
 
 - **Target Framework**: net10.0
-- **UI / Runtime**: Avalonia 12.0.3, .NET 10, Native AOT (`PublishAot=true`)
+- **UI / Runtime**: Avalonia 12, .NET 10, Native AOT (`PublishAot=true`)
 - **Minimum OS**: Windows 10 version 2004 (10.0.19041.0)
 - **Architecture**: x64 only (Steam client is 64-bit)

@@ -18,7 +18,7 @@ Both AnSAM and RunGame directly load `steamclient64.dll` via P/Invoke:
    - Create pipe: `CreateSteamPipe()`
    - Connect user: `ConnectToGlobalUser(pipe)`
    - Get interfaces: `GetISteamApps()`, `GetISteamUserStats()`, etc.
-   - **Critical**: Use vtable-based function pointers with `UnmanagedFunctionPointer` and ThisCall convention
+   - Call interface methods through vtable function pointers (`UnmanagedFunctionPointer`, ThisCall), because steamclient64 exposes C++ vtables rather than COM or a flat C API
 
 3. **Callback Pump**: 100ms timer calls `Steam_BGetCallback()` to process Steam callbacks (e.g., `UserStatsReceived_t`)
 
@@ -42,8 +42,8 @@ Three-layer caching system optimized for responsiveness:
 
 **Layer 3: Image Cache** (`SharedImageService` + `GameImageCache`)
 - Base path: `%LOCALAPPDATA%/AchievoLab/ImageCache/{language}/`
-- Per-image TTL: 30 days
-- Failure tracking: 7 days per language (prevents retry storms)
+- Cached images do not expire
+- Failure tracking: per app and language, exponential backoff from 5 min to a ~14-day cap (prevents retry storms)
 - Download strategy:
   1. In-memory cache check
   2. Disk cache check (with MIME validation)
@@ -113,9 +113,8 @@ Multi-language support spans the entire data pipeline:
 
 **Language Tracking** (GameItem class):
 - Each game tracks which language its cover is from via `_loadedLanguage` field
-- `IsCoverFromLanguage()` checks if current cover matches requested language
 - `ResetCover()` clears cover path, loading flag, and language tag atomically
-- On scroll (ContainerContentChanging), games with wrong-language covers are auto-reset and reloaded
+- After a switch, games whose cover is not yet in the target language are reloaded in background batches (`LoadCoverAsync(..., forceReload: true)`)
 
 **Smart Fallback Strategy** (LoadCoverAsync):
 1. If requesting non-English language and English is cached:
@@ -125,7 +124,4 @@ Multi-language support spans the entire data pipeline:
 3. If target language succeeds, update cover and set `_loadedLanguage = target`
 4. Result: User sees English instantly, then seamless upgrade to target language
 
-**Performance Impact**:
-- Language switch completes in ~100ms (vs. 5-10 seconds before)
-- No UI freezing even when 50+ images need downloading
-- Images appear progressively as downloads complete
+**Goal**: a language switch never blocks the UI thread, even with 50+ images to download; images appear progressively as downloads complete.
