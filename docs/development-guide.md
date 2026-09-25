@@ -34,11 +34,9 @@ Build output goes to `output/{Configuration}/{Platform}/{TargetFramework}/{Proje
 
 ## Language Resource Filtering
 
-Projects use `SatelliteResourceLanguages` to reduce binary size by including only supported languages. If adding a new language, update this property in all three .csproj files.
+`SatelliteResourceLanguages` limits which culture folders (`ja/`, `zh-Hans/`, ...) NuGet packages copy into build and publish output. Only `RunGame.csproj` sets it (`en-US;en-GB;zh-TW;ja-JP;ko-KR`). AnSAM's and MyOwnGames' current dependencies ship no satellite resource assemblies, so their output has no culture folders either.
 
-## Clean XAML Locales
-
-Use `.\clean-languages.bat` or `.\clean-xaml-locales.ps1` to remove unwanted WinUI 3 language resource files from build output.
+If a new package starts adding culture folders to a project's output, set `SatelliteResourceLanguages` in that project's .csproj. Don't clean the output with a script afterwards.
 
 ## Common Development Scenarios
 
