@@ -10,7 +10,7 @@
     <PublishReadyToRun>false</PublishReadyToRun>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="10.0.10" />
+    <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="10.0.14" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
     <PackageReference Include="Microsoft.Testing.Extensions.Telemetry" Version="2.3.2" />
     <PackageReference Include="Microsoft.Testing.Extensions.TrxReport.Abstractions" Version="2.3.2" />
