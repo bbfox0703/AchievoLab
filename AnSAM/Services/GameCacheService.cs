@@ -67,6 +67,11 @@ namespace AnSAM.Services
             // Step 2 & 3 & 4: Build union of app IDs from all sources
             var ids = new HashSet<int>();
 
+            // The user's own games (games.xml is the global catalog), kept as the fallback list
+            // for when Steam cannot confirm ownership.
+            var cachedIds = new HashSet<int>();
+            var cachedTitles = new Dictionary<int, string>();
+
             // Add from games.xml (if loaded)
             if (hasGamesXml)
             {
@@ -85,7 +90,10 @@ namespace AnSAM.Services
                     foreach (var node in userDoc.Root?.Elements("game") ?? Enumerable.Empty<XElement>())
                     {
                         if (int.TryParse(node.Attribute("id")?.Value, out var id))
+                        {
                             ids.Add(id);
+                            cachedIds.Add(id);
+                        }
                     }
 #if DEBUG
                     CommonUtilities.AppLogger.LogDebug($"Loaded {ids.Count} app IDs from usergames.xml");
@@ -114,12 +122,21 @@ namespace AnSAM.Services
                         foreach (var node in steamDoc.Descendants("AppID"))
                         {
                             if (int.TryParse(node.Value, out var id))
-                                ids.Add(id);
+                                AddCachedGame(id, node.Parent);
                         }
                         foreach (var node in steamDoc.Descendants("Game"))
                         {
                             if (int.TryParse(node.Attribute("AppID")?.Value, out var id))
-                                ids.Add(id);
+                                AddCachedGame(id, node);
+                        }
+
+                        void AddCachedGame(int id, XElement? game)
+                        {
+                            ids.Add(id);
+                            cachedIds.Add(id);
+                            var name = game?.Element("NameEN")?.Value;
+                            if (!string.IsNullOrEmpty(name))
+                                cachedTitles[id] = name;
                         }
 #if DEBUG
                         CommonUtilities.AppLogger.LogDebug($"Loaded {ids.Count} total app IDs after adding steam_games.xml");
@@ -163,54 +180,68 @@ namespace AnSAM.Services
                     var title = steam.GetAppData(appId, "name") ?? appId.ToString(CultureInfo.InvariantCulture);
                     result.Add(new SteamAppData(id, title));
                 }
+            }
 
-                try
+            // No owned games at all means Steam cannot answer, not that the library is empty: at its
+            // sign-in prompt the pipe and user still connect but every ownership query returns false.
+            // Show the cached list and leave usergames.xml alone so the answer does not overwrite it.
+            if (result.Count == 0)
+            {
+                AppLogger.LogDebug($"Steam confirmed no owned games out of {ids.Count} app IDs (initialized={steam.Initialized}); using {cachedIds.Count} cached games");
+                foreach (var id in cachedIds)
                 {
-                    var tempPath = userGamesPath + ".tmp";
-                    using (var writer = XmlWriter.Create(tempPath, new XmlWriterSettings { Indent = true, Encoding = Encoding.UTF8 }))
+                    var title = cachedTitles.TryGetValue(id, out var name) ? name : id.ToString(CultureInfo.InvariantCulture);
+                    result.Add(new SteamAppData(id, title, OwnershipVerified: false));
+                }
+                return result;
+            }
+
+            try
+            {
+                var tempPath = userGamesPath + ".tmp";
+                using (var writer = XmlWriter.Create(tempPath, new XmlWriterSettings { Indent = true, Encoding = Encoding.UTF8 }))
+                {
+                    writer.WriteStartElement("games");
+                    foreach (var id in result.Select(g => g.AppId).Distinct().OrderBy(i => i))
                     {
-                        writer.WriteStartElement("games");
-                        foreach (var id in result.Select(g => g.AppId).Distinct().OrderBy(i => i))
-                        {
-                            writer.WriteStartElement("game");
-                            writer.WriteAttributeString("id", id.ToString(CultureInfo.InvariantCulture));
-                            writer.WriteEndElement();
-                        }
+                        writer.WriteStartElement("game");
+                        writer.WriteAttributeString("id", id.ToString(CultureInfo.InvariantCulture));
                         writer.WriteEndElement();
                     }
+                    writer.WriteEndElement();
+                }
 
-                    if (File.Exists(userGamesPath))
-                        File.Replace(tempPath, userGamesPath, null);
-                    else
-                        File.Move(tempPath, userGamesPath);
-                }
-                catch
-                {
-                    // Ignore cache failures
-                }
+                if (File.Exists(userGamesPath))
+                    File.Replace(tempPath, userGamesPath, null);
+                else
+                    File.Move(tempPath, userGamesPath);
             }
-            else if (File.Exists(userGamesPath))
+            catch
             {
-                try
-                {
-                    var doc = XDocument.Load(userGamesPath);
-                    var gamesById = GameListService.Games.ToDictionary(g => g.Id);
-                    foreach (var node in doc.Root?.Elements("game") ?? Enumerable.Empty<XElement>())
-                    {
-                        if (!int.TryParse(node.Attribute("id")?.Value, out var id))
-                            continue;
-                        gamesById.TryGetValue(id, out var game);
-                        var title = string.IsNullOrEmpty(game.Name) ? id.ToString(CultureInfo.InvariantCulture) : game.Name;
-                        result.Add(new SteamAppData(id, title));
-                    }
-                }
-                catch
-                {
-                    // Ignore corrupt cache
-                }
+                // Ignore cache failures
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// Explains why Steam could not confirm the game list, for display to the user.
+        /// </summary>
+        /// <param name="steamInitialized">Whether the Steam client connected.</param>
+        /// <param name="apps">The list returned by <see cref="RefreshAsync"/>.</param>
+        /// <returns>The message to show, or null when Steam confirmed the list.</returns>
+        public static string? DescribeSteamProblem(bool steamInitialized, IReadOnlyList<SteamAppData> apps)
+        {
+            if (steamInitialized && apps.Any(a => a.OwnershipVerified))
+                return null;
+
+            var problem = steamInitialized
+                ? "Steam is running but not signed in, or sign-in failed. Sign in to Steam, then reopen AnSAM."
+                : "Steam is not running. Start Steam and sign in, then reopen AnSAM.";
+
+            return apps.Count > 0
+                ? $"{problem} Showing {apps.Count} cached games; ownership not verified."
+                : $"{problem} No cached games to show.";
         }
 
         /// <summary>

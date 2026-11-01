@@ -551,19 +551,17 @@ namespace AnSAM
             StatusText.Text = "Ready";
         }
 
+        // A banner, not StatusText: image loading overwrites the status line within seconds.
+        private void ShowSteamProblem(string? problem)
+        {
+            SteamStatusText.Text = problem;
+            SteamStatusBanner.IsVisible = problem != null;
+        }
+
         private async Task RefreshAsync()
         {
             try
             {
-                if (!_steamClient.Initialized)
-                {
-                    StatusProgress.IsIndeterminate = false;
-                    ClearProgress(ProgressContext.InitialLoad);
-                    StatusText.Text = "Steam unavailable";
-                    await ShowMessageDialog("Steam unavailable", "Unable to refresh because Steam is not available.");
-                    return;
-                }
-
                 StatusText.Text = "Refresh";
                 StatusProgress.IsIndeterminate = false;
                 UpdateProgress(ProgressContext.InitialLoad, 0, "0%");
@@ -607,6 +605,8 @@ namespace AnSAM
                         AppLogger.LogDebug($"Error in RefreshAsync UI update: {ex}");
                     }
                 });
+
+                ShowSteamProblem(GameCacheService.DescribeSteamProblem(_steamClient.Initialized, apps));
             }
             catch (Exception ex)
             {
@@ -617,6 +617,10 @@ namespace AnSAM
                 {
                     try
                     {
+                        if (!_steamClient.Initialized)
+                        {
+                            ShowSteamProblem(GameCacheService.DescribeSteamProblem(false, Array.Empty<SteamAppData>()));
+                        }
                         StatusText.Text = $"Refresh failed: {ex.Message}";
                         ClearProgress(ProgressContext.InitialLoad);
                         StatusProgress.IsIndeterminate = false;

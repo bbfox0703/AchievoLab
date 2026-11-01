@@ -7,7 +7,7 @@
         Title="AchievoLab:Main"
         Width="1200" Height="800">
 
-    <Grid RowDefinitions="Auto,*,Auto">
+    <Grid RowDefinitions="Auto,Auto,*,Auto">
 
         <!-- Toolbar -->
         <StackPanel Orientation="Horizontal" Spacing="4" Margin="4">
@@ -32,8 +32,16 @@
             </Button>
         </StackPanel>
 
+        <!-- Steam problem banner: fixed colours so it reads the same in every theme -->
+        <Border x:Name="SteamStatusBanner" Grid.Row="1"
+                IsVisible="False"
+                Background="#FFF4CE" Padding="12,8" Margin="4,0,4,4" CornerRadius="4">
+            <TextBlock x:Name="SteamStatusText"
+                       Foreground="#3D2E00" FontWeight="SemiBold" TextWrapping="Wrap"/>
+        </Border>
+
         <!-- Game grid -->
-        <ScrollViewer x:Name="GamesScrollViewer" Grid.Row="1"
+        <ScrollViewer x:Name="GamesScrollViewer" Grid.Row="2"
                       HorizontalScrollBarVisibility="Disabled"
                       VerticalScrollBarVisibility="Auto">
             <ItemsControl x:Name="GamesView" ItemsSource="{Binding Games}">
@@ -76,7 +84,7 @@
         </ScrollViewer>
 
         <!-- Status bar -->
-        <Border Grid.Row="2" Padding="8,0">
+        <Border Grid.Row="3" Padding="8,0">
             <Grid Height="28">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
