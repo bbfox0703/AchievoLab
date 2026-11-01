@@ -28,6 +28,14 @@ public class GameCacheServiceTests
         public string? GetAppData(uint appId, string key) => appId == 570 && key == "name" ? "Dota 2" : null;
     }
 
+    // Steam at its sign-in prompt: the client connects but every ownership query returns false.
+    private sealed class SignedOutSteamClient : ISteamClient
+    {
+        public bool Initialized => true;
+        public bool IsSubscribedApp(uint appId) => false;
+        public string? GetAppData(uint appId, string key) => null;
+    }
+
     private sealed class StubHandler : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -138,6 +146,141 @@ public class GameCacheServiceTests
             var doc = XDocument.Load(userGamesPath);
             var ids = doc.Root?.Elements("game").Select(g => (int?)g.Attribute("id")).Where(i => i.HasValue).Select(i => i!.Value).ToArray();
             Assert.Equal(new[] { 2 }, ids);
+        }
+        finally
+        {
+            try { Directory.Delete(baseDir, true); }
+            catch
+            {
+                // Ignore cleanup failures in test teardown
+            }
+        }
+    }
+
+    [Fact]
+    public async Task SteamSignedOutFallsBackToCachedGamesAndKeepsUserGames()
+    {
+        var baseDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        try
+        {
+            var cacheDir = Path.Combine(baseDir, "cache");
+            Directory.CreateDirectory(cacheDir);
+
+            var userGamesPath = Path.Combine(cacheDir, "usergames.xml");
+            const string userGamesXml = "<games><game id=\"3\" /><game id=\"400\" /></games>";
+            File.WriteAllText(userGamesPath, userGamesXml);
+
+            File.WriteAllText(Path.Combine(cacheDir, "steam_games.xml"),
+                "<SteamGames><Game AppID=\"400\"><NameEN>Portal</NameEN></Game></SteamGames>");
+
+            var steam = new SignedOutSteamClient();
+            using var http = new HttpClient(new StubHandler()); // Returns App IDs 1, 2
+
+            var apps = await GameCacheService.RefreshAsync(baseDir, steam, http);
+
+            // Only the user's own games, not the global catalog from games.xml
+            Assert.Equal(new[] { 3, 400 }, apps.Select(a => a.AppId).OrderBy(i => i));
+            Assert.All(apps, a => Assert.False(a.OwnershipVerified));
+            Assert.Equal("Portal", apps.Single(a => a.AppId == 400).Title);
+            Assert.Equal("3", apps.Single(a => a.AppId == 3).Title);
+
+            // The empty answer must not overwrite the last known owned list
+            Assert.Equal(userGamesXml, File.ReadAllText(userGamesPath));
+        }
+        finally
+        {
+            try { Directory.Delete(baseDir, true); }
+            catch
+            {
+                // Ignore cleanup failures in test teardown
+            }
+        }
+    }
+
+    [Fact]
+    public async Task SteamSignedOutWithoutCacheReturnsEmpty()
+    {
+        var baseDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        try
+        {
+            var steam = new SignedOutSteamClient();
+            using var http = new HttpClient(new StubHandler()); // Returns App IDs 1, 2
+
+            var apps = await GameCacheService.RefreshAsync(baseDir, steam, http);
+
+            Assert.Empty(apps);
+            Assert.False(File.Exists(Path.Combine(baseDir, "cache", "usergames.xml")));
+        }
+        finally
+        {
+            try { Directory.Delete(baseDir, true); }
+            catch
+            {
+                // Ignore cleanup failures in test teardown
+            }
+        }
+    }
+
+    [Fact]
+    public async Task SteamNotRunningFallsBackToCachedGames()
+    {
+        var baseDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        try
+        {
+            var cacheDir = Path.Combine(baseDir, "cache");
+            Directory.CreateDirectory(cacheDir);
+            File.WriteAllText(Path.Combine(cacheDir, "steam_games.xml"),
+                "<SteamGames><Game AppID=\"400\"><NameEN>Portal</NameEN></Game></SteamGames>");
+
+            var steam = new UninitializedSteamClient();
+            using var http = new HttpClient(new StubHandler());
+
+            var apps = await GameCacheService.RefreshAsync(baseDir, steam, http);
+
+            var app = Assert.Single(apps);
+            Assert.Equal("Portal", app.Title);
+            Assert.False(app.OwnershipVerified);
+        }
+        finally
+        {
+            try { Directory.Delete(baseDir, true); }
+            catch
+            {
+                // Ignore cleanup failures in test teardown
+            }
+        }
+    }
+
+    [Fact]
+    public void DescribeSteamProblemSeparatesNotRunningFromNotSignedIn()
+    {
+        var verified = new[] { new AnSAM.SteamAppData(1, "One") };
+        var cached = new[] { new AnSAM.SteamAppData(1, "One", OwnershipVerified: false) };
+        var none = Array.Empty<AnSAM.SteamAppData>();
+
+        Assert.Null(GameCacheService.DescribeSteamProblem(true, verified));
+
+        Assert.Contains("not signed in", GameCacheService.DescribeSteamProblem(true, cached));
+        Assert.Contains("1 cached games", GameCacheService.DescribeSteamProblem(true, cached));
+        Assert.Contains("not signed in", GameCacheService.DescribeSteamProblem(true, none));
+        Assert.Contains("No cached games", GameCacheService.DescribeSteamProblem(true, none));
+
+        Assert.Contains("not running", GameCacheService.DescribeSteamProblem(false, cached));
+        Assert.Contains("not running", GameCacheService.DescribeSteamProblem(false, none));
+    }
+
+    [Fact]
+    public async Task OwnedGamesAreMarkedVerified()
+    {
+        var baseDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        try
+        {
+            var steam = new StubSteamClient(); // Owns App ID 2
+            using var http = new HttpClient(new StubHandler());
+
+            var apps = await GameCacheService.RefreshAsync(baseDir, steam, http);
+
+            Assert.All(apps, a => Assert.True(a.OwnershipVerified));
         }
         finally
         {

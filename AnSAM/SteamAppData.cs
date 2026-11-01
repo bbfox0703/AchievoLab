@@ -11,10 +11,12 @@ namespace AnSAM
     /// <param name="ExePath">Optional path to the executable for direct launch.</param>
     /// <param name="Arguments">Optional command-line arguments to pass when launching.</param>
     /// <param name="UriScheme">Optional custom URI scheme for launching (e.g., steam://rungameid/).</param>
+    /// <param name="OwnershipVerified">False when the entry comes from a local cache because Steam could not confirm ownership.</param>
     public record SteamAppData(int AppId,
                                string Title,
                                string? CoverUrl = null,
                                string? ExePath = null,
                                string? Arguments = null,
-                               string? UriScheme = null);
+                               string? UriScheme = null,
+                               bool OwnershipVerified = true);
 }
